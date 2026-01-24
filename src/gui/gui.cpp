@@ -2,8 +2,8 @@
 // Contains core GUI rendering functions: Style, Menu, Layout, Common widgets
 
 #include "gui.h"
-#include "app_state.h"
-#include "logic.h"
+#include "../core/app_state.h"
+#include "../logic/logic.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"

@@ -1,7 +1,7 @@
 #include "gui.h"
-#include "app_state.h"
+#include "../core/app_state.h"
 #include "imgui.h"
-#include "logic.h"
+#include "../logic/logic.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <string>

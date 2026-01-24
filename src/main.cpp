@@ -13,9 +13,9 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
-#include "app_state.h"
-#include "gui.h"
-#include "dx11.h"
+#include "core/app_state.h"
+#include "gui/gui.h"
+#include "platform/dx11.h"
 
 #include <shellscalingapi.h>
 #pragma comment(lib, "shcore.lib")

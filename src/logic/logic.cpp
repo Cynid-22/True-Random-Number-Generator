@@ -1,5 +1,5 @@
 #include "logic.h"
-#include "app_state.h"
+#include "../core/app_state.h"
 #include <cmath>
 #include <fstream>
 #include <string>

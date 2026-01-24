@@ -2,14 +2,18 @@
 # TRNG Build Script for MSYS2/MinGW-w64
 #
 # Source Files:
-#   src/main.cpp      - Application entry point and main loop
-#   src/gui.cpp       - GUI rendering functions
-#   src/dx11.cpp      - DirectX 11 helpers
+#   src/main.cpp              - Application entry point and main loop
+#   src/gui/gui.cpp           - GUI rendering functions
+#   src/gui/gui_sources.cpp   - Entropy source tabs
+#   src/gui/gui_output.cpp    - Output configuration
+#   src/logic/logic.cpp       - Entropy calculation
+#   src/platform/dx11.cpp     - DirectX 11 helpers
 #
 # Header Files:
-#   src/app_state.h   - Application state definition
-#   src/gui.h         - GUI function declarations
-#   src/dx11.h        - DirectX helper declarations
+#   src/core/app_state.h      - Application state definition
+#   src/gui/gui.h             - GUI function declarations
+#   src/logic/logic.h         - Logic declarations
+#   src/platform/dx11.h       - DirectX helper declarations
 
 echo "========================================"
 echo "TRNG Build Script (MinGW)"
@@ -47,14 +51,15 @@ echo "Compiling..."
 
 # Compile all source files
 g++ -std=c++17 -O2 -mwindows \
-    -I"src" -I"external/imgui" -I"external/imgui/backends" \
+    -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" \
+    -I"external/imgui" -I"external/imgui/backends" \
     -o build/TRNG.exe \
     src/main.cpp \
-    src/gui.cpp \
-    src/gui_sources.cpp \
-    src/gui_output.cpp \
-    src/logic.cpp \
-    src/dx11.cpp \
+    src/gui/gui.cpp \
+    src/gui/gui_sources.cpp \
+    src/gui/gui_output.cpp \
+    src/logic/logic.cpp \
+    src/platform/dx11.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \
