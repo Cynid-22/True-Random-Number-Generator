@@ -46,6 +46,10 @@ struct AppState {
     std::string timestamp = "";
     float entropyConsumed = 0.0f;
     
+    // Caching for logic
+    int cachedWordListEntropy = 0;
+    char cachedWordListPath[512] = "";
+    
     // UI state
     int currentTab = 0;
 };

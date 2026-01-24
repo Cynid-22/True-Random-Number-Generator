@@ -1,0 +1,32 @@
+# User specific
+*.ini
+*.exe
+
+# C++ Build Artifacts
+build/
+*.o
+*.obj
+*.idb
+*.pdb
+*.tlog
+*.log
+*.pbt
+*.tlh
+*.tli
+*.sdf
+*.sqlite
+*.opensdf
+*.ipch
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.sln
+*.suo
+*.user
+*.vcxproj.user
+
+# OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini

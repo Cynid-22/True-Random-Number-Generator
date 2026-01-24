@@ -51,6 +51,9 @@ g++ -std=c++17 -O2 -mwindows \
     -o build/TRNG.exe \
     src/main.cpp \
     src/gui.cpp \
+    src/gui_sources.cpp \
+    src/gui_output.cpp \
+    src/logic.cpp \
     src/dx11.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
