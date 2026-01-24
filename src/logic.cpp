@@ -5,42 +5,46 @@
 #include <string>
 #include <cstring>
 #include <algorithm>
+#include <vector>
 
-// Default wordlist constants
-static const int DEFAULT_WORDLIST_ENTROPY = 15; // Conservative estimate for 123565 words
+// Default wordlist entropy: log2(123565) ≈ 16.9 bits per word
+// We use 16.5 bits for calculation (conservative)
+static const float DEFAULT_WORDLIST_ENTROPY = 16.5f;
 
-// Helper to estimate entropy for passphrase
-// For default wordlist: uses hardcoded conservative value (15 bits/word)
-// For custom files: counts newlines, calculates log2, then applies 75% for conservative estimate
-int EstimateWordListEntropy(const char* path) {
-    if (!path || strlen(path) == 0) return DEFAULT_WORDLIST_ENTROPY;
-
-    // Check if using default wordlist (compare end of path)
-    std::string pathStr(path);
-    if (pathStr.find("default_wordlist.txt") != std::string::npos) {
-        return DEFAULT_WORDLIST_ENTROPY;
+// Load the default wordlist into memory for generation
+bool LoadWordListForGeneration() {
+    try {
+        // If already loaded, don't reload
+        if (!g_state.cachedWordList.empty()) {
+            return true;
+        }
+        
+        std::ifstream file("assets/default_wordlist.txt");
+        if (!file.is_open()) return false;
+        
+        // Load all words
+        g_state.cachedWordList.clear();
+        g_state.cachedWordList.reserve(125000); // ~123565 words expected
+        
+        std::string line;
+        while (std::getline(file, line)) {
+            // Trim whitespace
+            size_t start = line.find_first_not_of(" \t\r\n");
+            size_t end = line.find_last_not_of(" \t\r\n");
+            if (start != std::string::npos && end != std::string::npos) {
+                g_state.cachedWordList.push_back(line.substr(start, end - start + 1));
+            }
+        }
+        
+        file.close();
+        g_state.wordListCacheValid = true;
+        
+        return !g_state.cachedWordList.empty();
+    } catch (...) {
+        g_state.cachedWordList.clear();
+        g_state.wordListCacheValid = false;
+        return false;
     }
-    
-    // For custom files, count newline characters for line count
-    std::ifstream file(path);
-    if (!file.is_open()) return DEFAULT_WORDLIST_ENTROPY; // Fall back to default
-    
-    // Don't skip whitespace so we can count newlines
-    file.unsetf(std::ios_base::skipws);
-    
-    // Count all newline characters efficiently
-    size_t lineCount = std::count(
-        std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>(),
-        '\n'
-    );
-    file.close();
-    
-    if (lineCount < 2) return 1;
-    
-    // Apply 75% multiplier for conservative estimate
-    double rawEntropy = std::log2((double)lineCount);
-    return (int)std::ceil(rawEntropy * 0.75);
 }
 
 float CalculateRequiredEntropy() {
@@ -86,28 +90,14 @@ float CalculateRequiredEntropy() {
             
         case 5: // Passphrase
         {
-            float bitsPerWord = 14.0f; // Default conservative estimate
-            
-            // Only re-count if path changes or first run
-            if (strcmp(g_state.cachedWordListPath, g_state.wordListPath) != 0 || g_state.cachedWordListEntropy == 0) {
-                 int lines = EstimateWordListEntropy(g_state.wordListPath);
-                 g_state.cachedWordListEntropy = lines;
-                 strncpy(g_state.cachedWordListPath, g_state.wordListPath, sizeof(g_state.cachedWordListPath) - 1);
-                 g_state.cachedWordListPath[sizeof(g_state.cachedWordListPath) - 1] = '\0';
-            }
-            
-            if (g_state.cachedWordListEntropy > 0) {
-                bitsPerWord = (float)g_state.cachedWordListEntropy;
-            }
-            
-            bits = g_state.passphraseWordCount * bitsPerWord;
+            // Default wordlist: 123,565 words = ~16.5 bits per word
+            bits = g_state.passphraseWordCount * DEFAULT_WORDLIST_ENTROPY;
             break;
         }
         
         case 6: // One-Time Pad
         {
             if (g_state.otpInputMode == 0) { // Text Input
-                // strlen returns bytes, which is what we want (1 byte message = 1 byte key needed)
                 bits = strlen(g_state.otpMessage) * 8.0f;
             } else { // File Input
                 bits = (float)g_state.otpFileSize * 8.0f;
@@ -116,7 +106,7 @@ float CalculateRequiredEntropy() {
         }
     }
     
-    // Enforce user requested minimum
+    // Enforce minimum of 512 bits
     return (bits < 512.0f) ? 512.0f : bits;
 }
 

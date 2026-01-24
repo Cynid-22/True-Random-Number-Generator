@@ -1,7 +1,7 @@
 #pragma once
 
-// Calculates the estimated entropy of the wordlist file
-int EstimateWordListEntropy(const char* path);
+// Loads the default wordlist into memory for generation
+bool LoadWordListForGeneration();
 
 // Calculates the required entropy bits based on current output configuration
 float CalculateRequiredEntropy();

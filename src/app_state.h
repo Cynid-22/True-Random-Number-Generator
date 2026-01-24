@@ -4,6 +4,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // Application state - global configuration and runtime data
 struct AppState {
@@ -20,7 +21,7 @@ struct AppState {
     float targetBits = 512.0f;
     
     // Output configuration
-    int outputFormat = 0;  // 0=Decimal, 1=Integer, 2=Binary, 3=Custom, 4=BitByte
+    int outputFormat = 0;  // 0=Decimal, 1=Integer, 2=Binary, 3=Custom, 4=BitByte, 5=Passphrase, 6=OTP
     
     // Format params
     int decimalDigits = 16;
@@ -39,7 +40,6 @@ struct AppState {
     // Passphrase params
     int passphraseWordCount = 6;
     char passphraseSeparator[16] = "-";
-    char wordListPath[512] = "assets/default_wordlist.txt";
     
     // One-Time Pad params
     char otpMessage[1024 * 1024] = ""; // 1MB buffer for manual input
@@ -52,9 +52,9 @@ struct AppState {
     std::string timestamp = "";
     float entropyConsumed = 0.0f;
     
-    // Caching for logic
-    int cachedWordListEntropy = 0;
-    char cachedWordListPath[512] = "";
+    // Wordlist cache (loaded once from default wordlist)
+    std::vector<std::string> cachedWordList;
+    bool wordListCacheValid = false;
     
     // UI state
     int currentTab = 0;

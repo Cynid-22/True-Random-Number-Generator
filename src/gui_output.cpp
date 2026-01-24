@@ -160,45 +160,8 @@ void RenderOutputConfigSection() {
                 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::AlignTextToFramePadding();
-                ImGui::Text("Word list file:");
                 ImGui::TableSetColumnIndex(1);
-                ImGui::TextWrapped("%s", g_state.wordListPath);
-                
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                // Empty label column
-                ImGui::TableSetColumnIndex(1);
-                if (ImGui::Button("Browse...")) {
-                    OPENFILENAMEA ofn;
-                    char szFile[260] = { 0 };
-                    ZeroMemory(&ofn, sizeof(ofn));
-                    ofn.lStructSize = sizeof(ofn);
-                    ofn.hwndOwner = NULL;
-                    ofn.lpstrFile = szFile;
-                    ofn.nMaxFile = sizeof(szFile);
-                    ofn.lpstrFilter = "Text Files\0*.txt\0All Files\0*.*\0";
-                    ofn.nFilterIndex = 1;
-                    ofn.lpstrFileTitle = NULL;
-                    ofn.nMaxFileTitle = 0;
-                    ofn.lpstrInitialDir = NULL;
-                    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-                    
-                    if (GetOpenFileNameA(&ofn) == TRUE) {
-                        strncpy(g_state.wordListPath, ofn.lpstrFile, sizeof(g_state.wordListPath) - 1);
-                        parametersChanged = true;
-                    }
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Default")) {
-                    strncpy(g_state.wordListPath, "assets/default_wordlist.txt", sizeof(g_state.wordListPath) - 1);
-                    parametersChanged = true;
-                }
-                
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(One word per line in text file)");
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(Using built-in wordlist: 123,565 words, ~16.5 bits/word)");
                 break;
             }
 
