@@ -279,30 +279,37 @@ void RenderOutputSection() {
     ImGui::PopStyleColor();
     
     // Buttons
-    // Require at least 512 bits AND target bits
-    bool sufficientEntropy = g_state.collectedBits >= 512.0f && g_state.collectedBits >= g_state.targetBits;
+    // Check entropy conditions
+    bool hasMinimumEntropy = g_state.collectedBits >= 512.0f;
+    bool hasFullEntropy = g_state.collectedBits >= g_state.targetBits;
     
-    // Warning message
-    if (!sufficientEntropy) {
+    // Warning messages based on entropy level
+    if (!hasMinimumEntropy) {
+        // Block: Not enough entropy at all
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-        // Use a bold font if available, or just standard text for now
-        // For standard ImGui without custom fonts, SetWindowFontScale can simulate size, but let's stick to color
-        ImGui::Text("CAUTION: Insufficient Entropy! Collect at least 512 bits and reach target.");
+        ImGui::Text("BLOCKED: Collect at least 512 bits before generating.");
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    } else if (!hasFullEntropy) {
+        // Warning: Can generate but using PSEUDO-RANDOM (expansion mode)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.0f, 1.0f));
+        ImGui::Text("WARNING: Using PSEUDO-RANDOM mode (CSPRNG expansion). Collect more for TRUE RANDOMNESS.");
         ImGui::PopStyleColor();
         ImGui::Spacing();
     }
     
-    if (!sufficientEntropy) ImGui::BeginDisabled();
+    // Only disable if below 512 bits (minimum base security)
+    if (!hasMinimumEntropy) ImGui::BeginDisabled();
     if (ImGui::Button("Generate", ImVec2(100, 0))) {
         const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase", "OneTimePad" };
         g_state.generatedOutput = "[Placeholder] Format: " + std::string(formatNames[g_state.outputFormat]);
         time_t now = time(nullptr);
         char timeStr[64];
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", localtime(&now));
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)", localtime(&now));
         g_state.timestamp = timeStr;
         g_state.entropyConsumed = 64.0f;
     }
-    if (!sufficientEntropy) ImGui::EndDisabled();
+    if (!hasMinimumEntropy) ImGui::EndDisabled();
     
     ImGui::SameLine();
     
@@ -327,7 +334,7 @@ void RenderOutputSection() {
     if (!g_state.timestamp.empty()) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Generated at: %s", g_state.timestamp.c_str());
-        ImGui::SameLine(ImGui::GetWindowWidth() - 200);
+        ImGui::SameLine(ImGui::GetWindowWidth() - 280);
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Entropy Consumed: %.1f bits", g_state.entropyConsumed);
     }
 }
