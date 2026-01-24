@@ -41,6 +41,12 @@ struct AppState {
     char passphraseSeparator[16] = "-";
     char wordListPath[512] = "assets/default_wordlist.txt";
     
+    // One-Time Pad params
+    char otpMessage[1024 * 1024] = ""; // 1MB buffer for manual input
+    char otpFilePath[512] = "";        // Path for file input
+    long long otpFileSize = 0;         // Size of selected file
+    int otpInputMode = 0;              // 0=Text, 1=File
+    
     // Result
     std::string generatedOutput = "";
     std::string timestamp = "";

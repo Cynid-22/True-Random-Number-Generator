@@ -103,6 +103,17 @@ float CalculateRequiredEntropy() {
             bits = g_state.passphraseWordCount * bitsPerWord;
             break;
         }
+        
+        case 6: // One-Time Pad
+        {
+            if (g_state.otpInputMode == 0) { // Text Input
+                // strlen returns bytes, which is what we want (1 byte message = 1 byte key needed)
+                bits = strlen(g_state.otpMessage) * 8.0f;
+            } else { // File Input
+                bits = (float)g_state.otpFileSize * 8.0f;
+            }
+            break;
+        }
     }
     
     // Enforce user requested minimum

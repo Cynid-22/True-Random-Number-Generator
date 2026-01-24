@@ -23,7 +23,8 @@ void RenderOutputConfigSection() {
         "Binary String", 
         "Custom String", 
         "Bit/Byte Output",
-        "Passphrase"
+        "Passphrase",
+        "One-Time Pad"
     };
     
     ImGui::SetNextItemWidth(300);
@@ -200,6 +201,84 @@ void RenderOutputConfigSection() {
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "(One word per line in text file)");
                 break;
             }
+
+            case 6: // One-Time Pad
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("Input Data:");
+                
+                ImGui::TableSetColumnIndex(1);
+                
+                // Tab bar for input method
+                if (ImGui::BeginTabBar("OTPInputTabs")) {
+                    if (ImGui::BeginTabItem("Text Input")) {
+                        g_state.otpInputMode = 0;
+                        ImGui::Spacing();
+                        ImGui::Text("Enter your message:");
+                        if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage, sizeof(g_state.otpMessage), 
+                                                      ImVec2(-1, 150))) {
+                             UpdateTargetEntropy();
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    
+                    if (ImGui::BeginTabItem("File Input")) {
+                        g_state.otpInputMode = 1;
+                        ImGui::Spacing();
+                        
+                        ImGui::Text("File to process:");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::InputText("##OTPFilePath", g_state.otpFilePath, sizeof(g_state.otpFilePath), ImGuiInputTextFlags_ReadOnly);
+                        
+                        if (ImGui::Button("Browse File...")) {
+                             OPENFILENAMEA ofn;
+                             char szFile[512] = { 0 };
+                             ZeroMemory(&ofn, sizeof(ofn));
+                             ofn.lStructSize = sizeof(ofn);
+                             ofn.hwndOwner = NULL;
+                             ofn.lpstrFile = szFile;
+                             ofn.nMaxFile = sizeof(szFile);
+                             ofn.lpstrFilter = "All Files\0*.*\0";
+                             ofn.nFilterIndex = 1;
+                             ofn.lpstrFileTitle = NULL;
+                             ofn.nMaxFileTitle = 0;
+                             ofn.lpstrInitialDir = NULL;
+                             ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+                             
+                             if (GetOpenFileNameA(&ofn) == TRUE) {
+                                 strncpy(g_state.otpFilePath, ofn.lpstrFile, sizeof(g_state.otpFilePath) - 1);
+                                 
+                                 // Get file size
+                                 HANDLE hFile = CreateFileA(g_state.otpFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                                 if (hFile != INVALID_HANDLE_VALUE) {
+                                     LARGE_INTEGER size;
+                                     if (GetFileSizeEx(hFile, &size)) {
+                                         g_state.otpFileSize = size.QuadPart;
+                                     }
+                                     CloseHandle(hFile);
+                                 }
+                                 UpdateTargetEntropy();
+                             }
+                        }
+                        
+                        ImGui::Spacing();
+                        if (g_state.otpFileSize > 0) {
+                            ImGui::Text("File Size: %lld bytes", g_state.otpFileSize);
+                        }
+                        
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+                
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 0.4f, 1.0f));
+                ImGui::TextWrapped("Note: This program runs locally. Your message is safe.");
+                ImGui::PopStyleColor();
+                break;
+            }
         }
         
         ImGui::EndTable();
@@ -252,7 +331,7 @@ void RenderOutputSection() {
     
     if (!sufficientEntropy) ImGui::BeginDisabled();
     if (ImGui::Button("Generate", ImVec2(100, 0))) {
-        const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase" };
+        const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase", "OneTimePad" };
         g_state.generatedOutput = "[Placeholder] Format: " + std::string(formatNames[g_state.outputFormat]);
         time_t now = time(nullptr);
         char timeStr[64];
