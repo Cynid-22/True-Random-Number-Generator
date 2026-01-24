@@ -177,24 +177,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         
         // Render tab bar for entropy sources + output
         if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-            if (ImGui::BeginTabItem("Microphone")) {
-                RenderMicrophoneTab();
+            if (ImGui::BeginTabItem("User Input")) {
+                RenderUserInputTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Keystroke")) {
-                RenderKeystrokeTab();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Clock Drift")) {
-                RenderClockDriftTab();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("CPU Jitter")) {
-                RenderCPUJitterTab();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Mouse")) {
-                RenderMouseMovementTab();
+            if (ImGui::BeginTabItem("System Input")) {
+                RenderSystemInputTab();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Output")) {
@@ -205,6 +193,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
             ImGui::EndTabBar();
         }
+        
+        // Render Collection Window popup when collecting
+        RenderCollectionWindow();
         
         ImGui::End();
         

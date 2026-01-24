@@ -17,7 +17,15 @@ struct AppState {
     
     // Collection state
     bool isCollecting = false;
-    float collectedBits = 0.0f;
+    float collectedBits = 0.0f; // Computed total of included sources
+    
+    // Per-source collected entropy (raw)
+    float entropyMic = 0.0f;
+    float entropyKeystroke = 0.0f;
+    float entropyClock = 0.0f;
+    float entropyJitter = 0.0f;
+    float entropyMouse = 0.0f;
+
     float targetBits = 512.0f;
     
     // Output configuration
@@ -52,12 +60,17 @@ struct AppState {
     std::string timestamp = "";
     float entropyConsumed = 0.0f;
     
-    // Wordlist cache (loaded once from default wordlist)
-    std::vector<std::string> cachedWordList;
-    bool wordListCacheValid = false;
+    // Wordlist file content cache (loaded once, reused for generation)
+    std::vector<std::string> cachedWordList;  // Parsed words for generation
+    bool wordListCacheValid = false;          // Whether cache is valid
     
     // UI state
     int currentTab = 0;
+    
+    // Helper to check if we have enough entropy for consolidation (True Randomness)
+    bool isEntropyValid() const {
+        return collectedBits >= targetBits;
+    }
 };
 
 // Global application state

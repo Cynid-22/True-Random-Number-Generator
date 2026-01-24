@@ -15,19 +15,13 @@ void SetupNativeStyle();
 //=============================================================================
 void RenderMenuBar();
 
-//=============================================================================
-// COMMON WIDGETS
-//=============================================================================
-void RenderStartStopButton();
 
 //=============================================================================
 // ENTROPY SOURCE TABS
 //=============================================================================
-void RenderMicrophoneTab();
-void RenderKeystrokeTab();
-void RenderClockDriftTab();
-void RenderCPUJitterTab();
-void RenderMouseMovementTab();
+void RenderUserInputTab();
+void RenderSystemInputTab();
+void RenderCollectionWindow();
 
 //=============================================================================
 // ENTROPY POOL BAR (Always visible)

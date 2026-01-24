@@ -151,32 +151,24 @@ void RenderMenuBar() {
 }
 
 //=============================================================================
-// HELPER: Render Start/Stop Button (used in each tab)
+// ENTROPY POOL BAR (with Start/Stop Button)
 //=============================================================================
-
-void RenderStartStopButton() {
-    if (g_state.isCollecting) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.60f, 0.20f, 0.20f, 1.00f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.25f, 0.25f, 1.00f));
-        if (ImGui::Button("Stop Collection", ImVec2(150, 0))) {
-            g_state.isCollecting = false;
-        }
-        ImGui::PopStyleColor(2);
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.50f, 0.20f, 1.00f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.60f, 0.25f, 1.00f));
-        if (ImGui::Button("Start Collection", ImVec2(150, 0))) {
-            g_state.isCollecting = true;
-        }
-        ImGui::PopStyleColor(2);
-    }
-}
 
 //=============================================================================
 // ENTROPY POOL BAR
 //=============================================================================
 
 void RenderEntropyPoolBar() {
+    // Recalculate total bits based on currently included sources
+    // This allows the bar to update immediately when checkboxes are toggled
+    float total = 0.0f;
+    if (g_state.microphoneEnabled) total += g_state.entropyMic;
+    if (g_state.keystrokeEnabled) total += g_state.entropyKeystroke;
+    if (g_state.clockDriftEnabled) total += g_state.entropyClock;
+    if (g_state.cpuJitterEnabled) total += g_state.entropyJitter;
+    if (g_state.mouseMovementEnabled) total += g_state.entropyMouse;
+    g_state.collectedBits = total;
+
     // Entropy progress bar - always visible at top
     float progress = g_state.collectedBits / g_state.targetBits;
     if (progress > 1.0f) progress = 1.0f;
@@ -185,25 +177,43 @@ void RenderEntropyPoolBar() {
     snprintf(overlay, sizeof(overlay), "Entropy: %.0f / %.0f bits", g_state.collectedBits, g_state.targetBits);
     ImGui::ProgressBar(progress, ImVec2(-1, 30), overlay);  // Taller bar for larger font
     
-    // Quality indicator
-    ImGui::Text("Quality:");
+    // Quality indicator / Generation Mode
+    ImGui::Text("Security Mode:");
     ImGui::SameLine();
-    if (progress < 0.25f) {
-        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Insufficient");
-    } else if (progress < 0.5f) {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Low");
-    } else if (progress < 1.0f) {
-        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Good");
+    
+    // Check if we have enough bits for 1:1 consolidation (True Randomness)
+    if (g_state.isEntropyValid()) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "TRUE RANDOMNESS (Consolidation)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Input Entropy >= Target Output. \nWe will condense raw data into perfect random bits. \nInformation Theoretic Security possible (for OTP).");
+        }
     } else {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "Excellent");
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "PSEUDO-RANDOM (Expansion)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Input Entropy < Target Output. \nWe must use a CSPRNG to expand the key. \nComputationally Secure, but not 'True' Random for OTP.");
+        }
     }
     
-    // Show collection status indicator
-    ImGui::SameLine(ImGui::GetWindowWidth() - 120);
+    // Show collection status indicator and Start/Stop button
+    ImGui::SameLine(ImGui::GetWindowWidth() - 350);
     if (g_state.isCollecting) {
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Collecting...]");
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.60f, 0.20f, 0.20f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.25f, 0.25f, 1.00f));
+        if (ImGui::Button("Stop Collection", ImVec2(160, 0))) {
+            g_state.isCollecting = false;
+        }
+        ImGui::PopStyleColor(2);
     } else {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Stopped]");
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.50f, 0.20f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.60f, 0.25f, 1.00f));
+        if (ImGui::Button("Start Collection", ImVec2(160, 0))) {
+            g_state.isCollecting = true;
+        }
+        ImGui::PopStyleColor(2);
     }
 }
 
@@ -214,25 +224,26 @@ void RenderEntropyPoolBar() {
 void SimulateEntropyCollection() {
     if (!g_state.isCollecting) return;
     
-    // Add small random amount based on enabled sources
-    float entropyToAdd = 0.0f;
+    // Simulate collection from ALL sources (conceptually they are always available/buffering)
+    // In real implementation, these would be separate threads writing to files.
     
-    if (g_state.microphoneEnabled) entropyToAdd += 0.5f;
-    if (g_state.keystrokeEnabled) entropyToAdd += 0.2f; // Simulate typing occasionally
-    if (g_state.clockDriftEnabled) entropyToAdd += 0.1f;
-    if (g_state.cpuJitterEnabled) entropyToAdd += 0.3f;
-    if (g_state.mouseMovementEnabled) entropyToAdd += 0.4f; // Simulate movement
+    // Add small random amounts to specific pools
+    g_state.entropyMic += 0.5f;
+    g_state.entropyKeystroke += 0.2f; // Simulate typing occasionally
+    g_state.entropyClock += 0.1f;
+    g_state.entropyJitter += 0.3f;
+    g_state.entropyMouse += 0.4f; // Simulate movement
     
-    // Add to pool
-    g_state.collectedBits += entropyToAdd;
+    // Calculate total based ONLY on included (checked) sources
+    float total = 0.0f;
+    if (g_state.microphoneEnabled) total += g_state.entropyMic;
+    if (g_state.keystrokeEnabled) total += g_state.entropyKeystroke;
+    if (g_state.clockDriftEnabled) total += g_state.entropyClock;
+    if (g_state.cpuJitterEnabled) total += g_state.entropyJitter;
+    if (g_state.mouseMovementEnabled) total += g_state.entropyMouse;
     
-    // Cap at reasonable max for this demo
-    if (g_state.collectedBits > 2048.0f) g_state.collectedBits = 2048.0f;
+    g_state.collectedBits = total;
     
-    // Consume entropy if we generated something (fake consumption for visual feedback)
-    if (g_state.entropyConsumed > 0) {
-        g_state.collectedBits -= g_state.entropyConsumed;
-        g_state.entropyConsumed = 0;
-        if (g_state.collectedBits < 0) g_state.collectedBits = 0;
-    }
+    // Cap visual for demo (per source cap? or just total?)
+    // Let's just let it grow for now, or cap total for bar
 }
