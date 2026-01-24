@@ -51,7 +51,8 @@ echo "Compiling..."
 
 # Compile all source files
 g++ -std=c++17 -O2 -mwindows \
-    -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" \
+    -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
+    -I"src/entropy/clock_drift" \
     -I"external/imgui" -I"external/imgui/backends" \
     -o build/TRNG.exe \
     src/main.cpp \
@@ -60,12 +61,15 @@ g++ -std=c++17 -O2 -mwindows \
     src/gui/gui_output.cpp \
     src/logic/logic.cpp \
     src/platform/dx11.cpp \
+    src/logging/logger.cpp \
+    src/entropy/clock_drift/clock_drift.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \
     external/imgui/imgui_widgets.cpp \
     external/imgui/backends/imgui_impl_win32.cpp \
     external/imgui/backends/imgui_impl_dx11.cpp \
+    -static \
     -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lshcore -luser32 -lgdi32 -limm32
 
 if [ $? -eq 0 ]; then

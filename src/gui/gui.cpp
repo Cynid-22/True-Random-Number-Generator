@@ -4,6 +4,7 @@
 #include "gui.h"
 #include "../core/app_state.h"
 #include "../logic/logic.h"
+#include "../logging/logger.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
@@ -138,7 +139,24 @@ void RenderMenuBar() {
             ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
             ImGui::Separator();
             if (ImGui::MenuItem("Reset Settings")) {
-                g_state = AppState();
+                // Reset configuration (can't assign AppState due to mutex/atomics)
+                g_state.microphoneEnabled = true;
+                g_state.keystrokeEnabled = true;
+                g_state.clockDriftEnabled = true;
+                g_state.cpuJitterEnabled = true;
+                g_state.mouseMovementEnabled = true;
+                g_state.outputFormat = 0;
+                g_state.decimalDigits = 16;
+                // ... reset other fields as needed
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Debug")) {
+            // Checkbox for logging
+            bool keepLogs = g_state.keepLogs;
+            if (ImGui::MenuItem("Keep Logs", nullptr, &keepLogs)) {
+                g_state.keepLogs = keepLogs;
+                Logger::SetEnabled(g_state.keepLogs);
             }
             ImGui::EndMenu();
         }
@@ -230,7 +248,7 @@ void SimulateEntropyCollection() {
     // Add small random amounts to specific pools
     g_state.entropyMic += 0.5f;
     g_state.entropyKeystroke += 0.2f; // Simulate typing occasionally
-    g_state.entropyClock += 0.1f;
+    // g_state.entropyClock += 0.1f; // Now using real collection in main.cpp
     g_state.entropyJitter += 0.3f;
     g_state.entropyMouse += 0.4f; // Simulate movement
     

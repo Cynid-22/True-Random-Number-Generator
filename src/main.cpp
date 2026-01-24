@@ -15,7 +15,9 @@
 
 #include "core/app_state.h"
 #include "gui/gui.h"
+#include "logic/logic.h"
 #include "platform/dx11.h"
+#include "logging/logger.h"
 
 #include <shellscalingapi.h>
 #pragma comment(lib, "shcore.lib")
@@ -66,6 +68,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 //=============================================================================
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // Initialize Logger FIRST
+    Logger::Init("logs");
+    Logger::Log(Logger::Level::INFO, "Main", "Application starting...");
+    
     // Enable DPI awareness for sharp rendering
     SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
     
@@ -156,7 +162,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Simulate entropy collection (placeholder)
         SimulateEntropyCollection();
         
-        // Start ImGui frame
+        // Update Entropy Collection State
+        if (g_state.isCollecting) {
+            // Start collectors if enabled and not running
+            if (g_state.clockDriftEnabled && !g_state.clockDriftCollector.IsRunning()) {
+                g_state.clockDriftCollector.Start();
+            }
+            // Stop collectors if disabled but running (user unchecked box while collecting)
+            else if (!g_state.clockDriftEnabled && g_state.clockDriftCollector.IsRunning()) {
+                g_state.clockDriftCollector.Stop();
+            }
+            
+            // Harvest Data
+            if (g_state.clockDriftEnabled) {
+                auto data = g_state.clockDriftCollector.Harvest();
+                
+                if (!data.empty()) {
+                    // Update main entropy counter using the dedicated logic function
+                    float newEntropy = CalculateEntropyFromDeltas(data);
+                    g_state.entropyClock += newEntropy;
+                    
+                    // Log occasional updates
+                    // Logger::Log(Logger::Level::DEBUG, "Main", "Harvested %zu samples, added %.1f bits", data.size(), newEntropy);
+                }
+            }
+
+            // Simulate other sources for now until implemented
+            // logic::SimulateEntropyCollection() calls are currently in GUI... 
+            // We should probably move that or rely on real collectors eventually.
+            // For this phase, we replace simulated Clock Drift with real one.
+            
+        } else {
+            // Stop all collectors
+            if (g_state.clockDriftCollector.IsRunning()) {
+                g_state.clockDriftCollector.Stop();
+            }
+        }
+
+        // Draw the GUI
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
@@ -221,5 +264,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DestroyWindow(hwnd);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
     
+    Logger::Shutdown();
     return 0;
 }

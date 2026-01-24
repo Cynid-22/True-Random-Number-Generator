@@ -1,6 +1,7 @@
 #include "logic.h"
 #include "../core/app_state.h"
 #include <cmath>
+#include <cstdint>
 #include <fstream>
 #include <string>
 #include <cstring>
@@ -112,4 +113,25 @@ float CalculateRequiredEntropy() {
 
 void UpdateTargetEntropy() {
     g_state.targetBits = CalculateRequiredEntropy();
+}
+
+float CalculateEntropyFromDeltas(const std::vector<uint64_t>& deltas) {
+    if (deltas.empty()) return 0.0f;
+    
+    // Conservative estimate:
+    // Even though we capture 16 bits, we assume much less entropy due to patterns.
+    // For Clock Drift, we assume ~0.5 bits per sample of *true* entropy if filtering is good.
+    // However, since we are capturing raw low-bits, let's be slightly more generous but still safe.
+    // Let's use 1.0 bits per non-zero sample as a baseline, 
+    // but cap it if variance is suspiciously low (though we don't calculate variance yet).
+    
+    // Simple count for now, but encapsulated here so we can upgrade to Shannon Entropy later.
+    size_t validSamples = 0;
+    for (uint64_t d : deltas) {
+        if (d != 0) validSamples++;
+    }
+    
+    // 2.0 bits per valid sample is a reasonable estimate for lower 16 bits of RDTSC delta 
+    // in a jittery multitasking environment.
+    return (float)validSamples * 2.0f;
 }

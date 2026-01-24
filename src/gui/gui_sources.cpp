@@ -117,7 +117,14 @@ void RenderSystemInputTab() {
     ImGui::Checkbox("Include Clock Drift in Final Calculation", &g_state.clockDriftEnabled);
     if (g_state.clockDriftEnabled && g_state.isCollecting) {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active - Measuring drift]");
+        if (g_state.clockDriftCollector.IsRunning()) {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+            ImGui::Text("    Samples: %llu | Rate: %.0f samples/sec", 
+                g_state.clockDriftCollector.GetSampleCount(),
+                g_state.clockDriftCollector.GetEntropyRate());
+        } else {
+             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Starting...]");
+        }
     } else if (g_state.clockDriftEnabled) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");

@@ -5,15 +5,22 @@
 
 #include <string>
 #include <vector>
+#include "../entropy/clock_drift/clock_drift.h"
 
 // Application state - global configuration and runtime data
 struct AppState {
+    // Entropy Collectors
+    Entropy::ClockDriftCollector clockDriftCollector;
+
     // Entropy sources enabled
     bool microphoneEnabled = true;
     bool keystrokeEnabled = true;
     bool clockDriftEnabled = true;
     bool cpuJitterEnabled = true;
     bool mouseMovementEnabled = true;
+    
+    // Debug
+    bool keepLogs = false;
     
     // Collection state
     bool isCollecting = false;

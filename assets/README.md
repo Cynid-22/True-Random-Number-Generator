@@ -10,7 +10,7 @@ This folder contains resources for the TRNG application:
 ## Customization
 
 ### Word List
-Replace `wordlist.txt` with your own word list. Format:
+Replace `default_wordlist.txt` with your own word list. Format:
 - One word per line
 - Plain text file (UTF-8)
 - Recommended: 1000+ words for good entropy
