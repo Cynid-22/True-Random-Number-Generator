@@ -386,34 +386,49 @@ void RenderCollectionWindow() {
         // Show current source status
         ImGui::Text("Source Status:");
         
-        if (g_state.microphoneEnabled) {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Microphone: ACTIVE");
-        } else {
+        // Microphone
+        if (!FEATURE_MICROPHONE_IMPLEMENTED) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Microphone: NOT IMPLEMENTED");
+        } else if (!g_state.microphoneEnabled) {
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Microphone: DEACTIVATED");
+        } else {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Microphone: ACTIVE");
         }
         
-        if (g_state.keystrokeEnabled) {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Keystroke: ACTIVE");
-        } else {
+        // Keystroke
+        if (!FEATURE_KEYSTROKE_IMPLEMENTED) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Keystroke: NOT IMPLEMENTED");
+        } else if (!g_state.keystrokeEnabled) {
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Keystroke: DEACTIVATED");
-        }
-        
-        if (g_state.mouseMovementEnabled) {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Mouse: ACTIVE");
         } else {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Mouse: DEACTIVATED");
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Keystroke: ACTIVE");
         }
         
-        if (g_state.clockDriftEnabled) {
+        // Mouse
+        if (!FEATURE_MOUSE_IMPLEMENTED) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Mouse: NOT IMPLEMENTED");
+        } else if (!g_state.mouseMovementEnabled) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Mouse: DEACTIVATED");
+        } else {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Mouse: ACTIVE");
+        }
+        
+        // Clock Drift
+        if (!g_state.clockDriftEnabled) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Clock Drift: DEACTIVATED");
+        } else if (g_state.clockDriftCollector.IsRunning()) {
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Clock Drift: ACTIVE");
         } else {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Clock Drift: DEACTIVATED");
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "  Clock Drift: STARTING...");
         }
         
-        if (g_state.cpuJitterEnabled) {
-            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  CPU Jitter: ACTIVE");
-        } else {
+        // CPU Jitter
+        if (!FEATURE_CPU_JITTER_IMPLEMENTED) {
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  CPU Jitter: NOT IMPLEMENTED");
+        } else if (!g_state.cpuJitterEnabled) {
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  CPU Jitter: DEACTIVATED");
+        } else {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  CPU Jitter: ACTIVE");
         }
         
         ImGui::Spacing();
