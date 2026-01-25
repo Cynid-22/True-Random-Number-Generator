@@ -3,6 +3,7 @@
 #include "../../logging/logger.h"
 #include <intrin.h> // For __rdtsc
 #include <chrono>
+#include <windows.h> // For SecureZeroMemory
 
 namespace Entropy {
 
@@ -11,6 +12,7 @@ ClockDriftCollector::ClockDriftCollector() {
 
 ClockDriftCollector::~ClockDriftCollector() {
     Stop();
+    SecureClearBuffer();
 }
 
 void ClockDriftCollector::Start() {
@@ -41,21 +43,34 @@ void ClockDriftCollector::Stop() {
         count, m_rate.load(), count * 16, count * 2.0f);
         
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Collector thread stopped.");
+    
+    // Securely clear any remaining buffer data
+    SecureClearBuffer();
 }
 
 bool ClockDriftCollector::IsRunning() const {
     return m_running;
 }
 
-std::vector<uint64_t> ClockDriftCollector::Harvest() {
+std::vector<EntropyDataPoint> ClockDriftCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_buffer.empty()) {
         return {};
     }
     
-    std::vector<uint64_t> harvested;
+    std::vector<EntropyDataPoint> harvested;
     harvested.swap(m_buffer); // Efficient move
     return harvested;
+}
+
+void ClockDriftCollector::SecureClearBuffer() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_buffer.empty()) {
+        // Securely zero all memory before clearing
+        SecureZeroMemory(m_buffer.data(), m_buffer.size() * sizeof(EntropyDataPoint));
+        m_buffer.clear();
+        m_buffer.shrink_to_fit(); // Release memory
+    }
 }
 
 double ClockDriftCollector::GetEntropyRate() const {
@@ -95,20 +110,27 @@ void ClockDriftCollector::CollectionLoop() {
         // We take the lower 16 bits as the raw entropy data point.
         uint64_t entropyPoint = delta & 0xFFFF;
         
+        // 7. Capture timestamp
+        uint64_t timestamp = GetNanosecondTimestamp();
+        
         // Log details for every 10th sample (more detailed as requested)
         if (m_sampleCount % 10 == 0) {
              // Create 16-bit binary representation
              std::bitset<16> binary(entropyPoint);
              
              Logger::Log(Logger::Level::DEBUG, "ClockDrift", 
-                "Sample #%llu | Delta: %llu | Entropy: 0x%04X | Binary: %s", 
-                m_sampleCount.load(), delta, entropyPoint, binary.to_string().c_str());
+                "Sample #%llu | Delta: %llu | Entropy: 0x%04X | Binary: %s | Timestamp: %llu", 
+                m_sampleCount.load(), delta, entropyPoint, binary.to_string().c_str(), timestamp);
         }
 
-        // 7. Store sample
+        // 8. Store sample with timestamp and source
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_buffer.push_back(entropyPoint);
+            EntropyDataPoint dataPoint;
+            dataPoint.timestamp = timestamp;
+            dataPoint.value = entropyPoint;
+            dataPoint.source = EntropySource::ClockDrift;
+            m_buffer.push_back(dataPoint);
         }
         m_sampleCount++;
 

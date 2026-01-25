@@ -4,6 +4,15 @@
 
 namespace Entropy {
 
+// Entropy source types
+enum class EntropySource {
+    Microphone,
+    Keystroke,
+    ClockDrift,
+    CpuJitter,
+    Mouse
+};
+
 // High-precision timestamp (nanoseconds since epoch)
 inline uint64_t GetNanosecondTimestamp() {
     using namespace std::chrono;
@@ -12,10 +21,11 @@ inline uint64_t GetNanosecondTimestamp() {
     ).count();
 }
 
-// Data point with timestamp
+// Data point with timestamp and source
 struct EntropyDataPoint {
     uint64_t timestamp;     // Nanosecond timestamp
     uint64_t value;         // Collected entropy value (raw delta, etc)
+    EntropySource source;  // Which source generated this data point
 };
 
 } // namespace Entropy

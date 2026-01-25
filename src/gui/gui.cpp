@@ -202,7 +202,10 @@ static void ClearAllEntropyData() {
     // Drain clock drift collector buffer so no residual data remains
     (void)g_state.clockDriftCollector.Harvest();
     
-    // Clear all entropy data
+    // SECURITY: Securely wipe all pooled entropy data
+    g_state.entropyPool.SecureWipe();
+    
+    // Clear all entropy data counters
     g_state.entropyMic = 0.0f;
     g_state.entropyKeystroke = 0.0f;
     g_state.entropyClock = 0.0f;

@@ -63,6 +63,7 @@ g++ -std=c++17 -O2 -mwindows \
     src/platform/dx11.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
+    src/entropy/pool.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \

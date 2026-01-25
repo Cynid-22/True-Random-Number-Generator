@@ -7,6 +7,8 @@
 #include <cstring>
 #include <algorithm>
 #include <vector>
+#include <set>
+#include <windows.h> // For SecureZeroMemory
 
 // Default wordlist entropy: log2(123565) ≈ 16.9 bits per word
 // We use 16.5 bits for calculation (conservative)
@@ -134,4 +136,27 @@ float CalculateEntropyFromDeltas(const std::vector<uint64_t>& deltas) {
     // 2.0 bits per valid sample is a reasonable estimate for lower 16 bits of RDTSC delta 
     // in a jittery multitasking environment.
     return (float)validSamples * 2.0f;
+}
+
+std::vector<Entropy::EntropyDataPoint> GetPooledEntropyForOutput(const std::set<Entropy::EntropySource>& includedSources) {
+    // Get all pooled data filtered by included sources
+    // Note: This uses ALL data currently in the pool, regardless of current checkbox state
+    // Data was collected when sources were enabled, so it stays in the pool
+    return g_state.entropyPool.GetPooledDataForSources(includedSources);
+}
+
+bool PrepareConsolidation() {
+    // Consolidation: Input >= Output
+    // We have enough entropy to condense raw data into perfect random bits
+    // This enables Information Theoretic Security (for OTP)
+    float pooledBits = g_state.entropyPool.GetTotalBits();
+    return pooledBits >= g_state.targetBits;
+}
+
+bool PrepareExpansion() {
+    // Expansion: Input < Output
+    // We need to use CSPRNG (HKDF + ChaCha20) to expand the key
+    // Computationally Secure, but not 'True' Random for OTP
+    float pooledBits = g_state.entropyPool.GetTotalBits();
+    return pooledBits < g_state.targetBits;
 }

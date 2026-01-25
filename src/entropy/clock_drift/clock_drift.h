@@ -21,8 +21,8 @@ public:
     bool IsRunning() const;
     
     // Get collected entropy (clears internal buffer and returns data)
-    // Returns a vector of raw entropy values (deltas)
-    std::vector<uint64_t> Harvest();
+    // Returns a vector of timestamped entropy data points
+    std::vector<EntropyDataPoint> Harvest();
     
     // Statistics for GUI
     double GetEntropyRate() const;     // samples/sec estimate
@@ -34,9 +34,12 @@ private:
     std::atomic<bool> m_running{false};
     std::thread m_thread;
     std::mutex m_mutex;
-    std::vector<uint64_t> m_buffer;
+    std::vector<EntropyDataPoint> m_buffer;
     std::atomic<uint64_t> m_sampleCount{0};
     std::atomic<double> m_rate{0.0};
+    
+    // Secure memory clearing helper
+    void SecureClearBuffer();
 };
 
 } // namespace Entropy

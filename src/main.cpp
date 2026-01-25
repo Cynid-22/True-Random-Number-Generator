@@ -20,6 +20,7 @@
 #include "logging/logger.h"
 
 #include <shellscalingapi.h>
+#include <windows.h> // For SecureZeroMemory
 #pragma comment(lib, "shcore.lib")
 
 // Global application state
@@ -173,14 +174,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 g_state.clockDriftCollector.Stop();
             }
             
-            // Harvest Data
+            // Harvest Data - only from enabled sources
             if (g_state.clockDriftEnabled) {
                 auto data = g_state.clockDriftCollector.Harvest();
                 
                 if (!data.empty()) {
+                    // Add to centralized entropy pool (only if source is enabled)
+                    g_state.entropyPool.AddDataPoints(data);
+                    
                     // Update main entropy counter using the dedicated logic function
-                    float newEntropy = CalculateEntropyFromDeltas(data);
+                    // Extract values for backward compatibility with existing function
+                    std::vector<uint64_t> values;
+                    values.reserve(data.size());
+                    for (const auto& point : data) {
+                        values.push_back(point.value);
+                    }
+                    float newEntropy = CalculateEntropyFromDeltas(values);
                     g_state.entropyClock += newEntropy;
+                    
+                    // Securely clear the values vector before it goes out of scope
+                    if (!values.empty()) {
+                        SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
+                    }
                     
                     // Log occasional updates
                     // Logger::Log(Logger::Level::DEBUG, "Main", "Harvested %zu samples, added %.1f bits", data.size(), newEntropy);
@@ -271,6 +286,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     //=========================================================================
     // CLEANUP
     //=========================================================================
+    
+    // SECURITY: Securely wipe all entropy data before shutdown
+    g_state.entropyPool.SecureWipe();
     
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

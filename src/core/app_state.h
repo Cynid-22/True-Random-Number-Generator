@@ -6,11 +6,15 @@
 #include <string>
 #include <vector>
 #include "../entropy/clock_drift/clock_drift.h"
+#include "../entropy/pool.h"
 
 // Application state - global configuration and runtime data
 struct AppState {
     // Entropy Collectors
     Entropy::ClockDriftCollector clockDriftCollector;
+    
+    // Centralized entropy pool (stores all collected data with timestamps)
+    Entropy::EntropyPool entropyPool;
 
     // Entropy sources enabled
     bool microphoneEnabled = true;
