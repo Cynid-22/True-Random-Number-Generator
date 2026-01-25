@@ -54,7 +54,7 @@ void RenderUserInputTab() {
     if (!FEATURE_MICROPHONE_IMPLEMENTED) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nNo data is being collected from this source.");
         }
     } else if (!g_state.microphoneEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
@@ -132,7 +132,7 @@ void RenderUserInputTab() {
     if (!FEATURE_KEYSTROKE_IMPLEMENTED) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nNo data is being collected from this source.");
         }
     } else if (!g_state.keystrokeEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
@@ -175,7 +175,7 @@ void RenderUserInputTab() {
     if (!FEATURE_MOUSE_IMPLEMENTED) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nNo data is being collected from this source.");
         }
     } else if (!g_state.mouseMovementEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
@@ -331,7 +331,7 @@ void RenderSystemInputTab() {
     if (!FEATURE_CPU_JITTER_IMPLEMENTED) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nNo data is being collected from this source.");
         }
     } else if (!g_state.cpuJitterEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");

@@ -259,15 +259,9 @@ void RenderEntropyPoolBar() {
 void SimulateEntropyCollection() {
     if (!g_state.isCollecting) return;
     
-    // Simulate collection from ALL sources (conceptually they are always available/buffering)
-    // In real implementation, these would be separate threads writing to files.
-    
-    // Add small random amounts to specific pools
-    g_state.entropyMic += 0.5f;
-    g_state.entropyKeystroke += 0.2f; // Simulate typing occasionally
-    // g_state.entropyClock += 0.1f; // Now using real collection in main.cpp
-    g_state.entropyJitter += 0.3f;
-    g_state.entropyMouse += 0.4f; // Simulate movement
+    // Note: This function is now only used for calculating totals from real collectors.
+    // Unimplemented sources no longer generate fake data.
+    // Clock drift is collected via ClockDriftCollector in main.cpp
     
     // Calculate total based ONLY on included (checked) sources
     float total = 0.0f;
@@ -278,7 +272,4 @@ void SimulateEntropyCollection() {
     if (g_state.mouseMovementEnabled) total += g_state.entropyMouse;
     
     g_state.collectedBits = total;
-    
-    // Cap visual for demo (per source cap? or just total?)
-    // Let's just let it grow for now, or cap total for bar
 }
