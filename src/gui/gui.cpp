@@ -250,6 +250,33 @@ void RenderEntropyPoolBar() {
         }
         ImGui::PopStyleColor(2);
     }
+    
+    // Clear Data button
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.30f, 0.20f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.60f, 0.35f, 0.25f, 1.00f));
+    if (ImGui::Button("Clear All Data", ImVec2(-1, 0))) {
+        // Stop collection if active
+        if (g_state.isCollecting) {
+            g_state.isCollecting = false;
+        }
+        
+        // Clear all entropy data
+        g_state.entropyMic = 0.0f;
+        g_state.entropyKeystroke = 0.0f;
+        g_state.entropyClock = 0.0f;
+        g_state.entropyJitter = 0.0f;
+        g_state.entropyMouse = 0.0f;
+        g_state.collectedBits = 0.0f;
+        
+        Logger::Log(Logger::Level::INFO, "GUI", "All recorded entropy data cleared by user");
+    }
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Clear all collected entropy data from all sources.\n"
+            "This will reset all counters to zero.\n"
+            "Collection will be stopped if active.");
+    }
 }
 
 //=============================================================================
