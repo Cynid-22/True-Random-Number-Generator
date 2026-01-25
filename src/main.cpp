@@ -219,16 +219,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         RenderEntropyPoolBar();
         
         // Render tab bar for entropy sources + output
+        static int activeTab = 0;
         if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
             if (ImGui::BeginTabItem("User Input")) {
+                if (activeTab != 0) {
+                    Logger::Log(Logger::Level::INFO, "GUI", "Tab switched to: User Input");
+                    activeTab = 0;
+                }
                 RenderUserInputTab();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("System Input")) {
+                if (activeTab != 1) {
+                    Logger::Log(Logger::Level::INFO, "GUI", "Tab switched to: System Input");
+                    activeTab = 1;
+                }
                 RenderSystemInputTab();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Output")) {
+                if (activeTab != 2) {
+                    Logger::Log(Logger::Level::INFO, "GUI", "Tab switched to: Output");
+                    activeTab = 2;
+                }
                 ImGui::Spacing();
                 RenderOutputConfigSection();
                 RenderOutputSection();

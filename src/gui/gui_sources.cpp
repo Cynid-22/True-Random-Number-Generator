@@ -1,5 +1,6 @@
 #include "gui.h"
 #include "../core/app_state.h"
+#include "../logging/logger.h"
 #include "imgui.h"
 
 //=============================================================================
@@ -23,7 +24,9 @@ void RenderUserInputTab() {
                            "This bit is determined by thermal noise (electrons bouncing due to heat), "
                            "not actual sound. High sample rate (44.1kHz) provides ~44,000 random bits/sec.");
     }
-    ImGui::Checkbox("Include Microphone in Final Calculation", &g_state.microphoneEnabled);
+    if (ImGui::Checkbox("Include Microphone in Final Calculation", &g_state.microphoneEnabled)) {
+        Logger::Log(Logger::Level::INFO, "GUI", "Microphone source toggled: %s", g_state.microphoneEnabled ? "ON" : "OFF");
+    }
     if (g_state.microphoneEnabled && g_state.isCollecting) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
@@ -48,7 +51,9 @@ void RenderUserInputTab() {
                            "and Dwell Time (how long each key is held). These timings are measured "
                            "in nanoseconds and are unique to each person.");
     }
-    ImGui::Checkbox("Include Keystroke in Final Calculation", &g_state.keystrokeEnabled);
+    if (ImGui::Checkbox("Include Keystroke in Final Calculation", &g_state.keystrokeEnabled)) {
+        Logger::Log(Logger::Level::INFO, "GUI", "Keystroke source toggled: %s", g_state.keystrokeEnabled ? "ON" : "OFF");
+    }
     if (g_state.keystrokeEnabled && g_state.isCollecting) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
@@ -73,7 +78,9 @@ void RenderUserInputTab() {
                            "Your physical motor noise creates unpredictable patterns. "
                            "Small movements (<3 pixels) are filtered to avoid sensor drift.");
     }
-    ImGui::Checkbox("Include Mouse in Final Calculation", &g_state.mouseMovementEnabled);
+    if (ImGui::Checkbox("Include Mouse in Final Calculation", &g_state.mouseMovementEnabled)) {
+        Logger::Log(Logger::Level::INFO, "GUI", "Mouse source toggled: %s", g_state.mouseMovementEnabled ? "ON" : "OFF");
+    }
     if (g_state.mouseMovementEnabled && g_state.isCollecting) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
@@ -114,7 +121,9 @@ void RenderSystemInputTab() {
                            "A 3GHz CPU should count ~3,000,000 cycles per ms, but due to heat/voltage, "
                            "the actual count varies (e.g., 3,000,402 or 2,999,881). Those fluctuating digits are entropy.");
     }
-    ImGui::Checkbox("Include Clock Drift in Final Calculation", &g_state.clockDriftEnabled);
+    if (ImGui::Checkbox("Include Clock Drift in Final Calculation", &g_state.clockDriftEnabled)) {
+         Logger::Log(Logger::Level::INFO, "GUI", "Clock Drift source toggled: %s", g_state.clockDriftEnabled ? "ON" : "OFF");
+    }
     if (g_state.clockDriftEnabled && g_state.isCollecting) {
         ImGui::SameLine();
         if (g_state.clockDriftCollector.IsRunning()) {
@@ -146,7 +155,9 @@ void RenderSystemInputTab() {
                            "freezes it and reads the count. The exact count depends on OS scheduling, "
                            "background tasks (WiFi, updates), making it unpredictable.");
     }
-    ImGui::Checkbox("Include CPU Jitter in Final Calculation", &g_state.cpuJitterEnabled);
+    if (ImGui::Checkbox("Include CPU Jitter in Final Calculation", &g_state.cpuJitterEnabled)) {
+         Logger::Log(Logger::Level::INFO, "GUI", "CPU Jitter source toggled: %s", g_state.cpuJitterEnabled ? "ON" : "OFF");
+    }
     if (g_state.cpuJitterEnabled && g_state.isCollecting) {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active - Race running]");

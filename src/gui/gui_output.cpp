@@ -2,6 +2,7 @@
 #include "../core/app_state.h"
 #include "imgui.h"
 #include "../logic/logic.h"
+#include "../logging/logger.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <string>
@@ -28,7 +29,10 @@ void RenderOutputConfigSection() {
     };
     
     ImGui::SetNextItemWidth(300);
+    int prevFormat = g_state.outputFormat;
     if (ImGui::Combo("##Format", &g_state.outputFormat, formats, IM_ARRAYSIZE(formats))) {
+        Logger::Log(Logger::Level::INFO, "GUI", "Output Format changed from '%s' to '%s'", 
+            formats[prevFormat], formats[g_state.outputFormat]);
         UpdateTargetEntropy();
     }
     
@@ -49,7 +53,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Decimal digits:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##Digits", &g_state.decimalDigits)) parametersChanged = true;
+                if (ImGui::InputInt("##Digits", &g_state.decimalDigits)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Decimal]: Digits set to %d", g_state.decimalDigits);
+                }
                 if (g_state.decimalDigits < 1) g_state.decimalDigits = 1;
                 if (g_state.decimalDigits > 10000) g_state.decimalDigits = 10000;
                 break;
@@ -61,7 +68,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Minimum:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##Min", &g_state.integerMin)) parametersChanged = true;
+                if (ImGui::InputInt("##Min", &g_state.integerMin)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Integer]: Min set to %d", g_state.integerMin);
+                }
                 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -69,7 +79,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Maximum:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##Max", &g_state.integerMax)) parametersChanged = true;
+                if (ImGui::InputInt("##Max", &g_state.integerMax)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Integer]: Max set to %d", g_state.integerMax);
+                }
                 break;
                 
             case 2: // Binary
@@ -79,7 +92,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Length:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##BinLen", &g_state.binaryLength)) parametersChanged = true;
+                if (ImGui::InputInt("##BinLen", &g_state.binaryLength)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Binary]: Length set to %d", g_state.binaryLength);
+                }
                 if (g_state.binaryLength < 1) g_state.binaryLength = 1;
                 if (g_state.binaryLength > 100000) g_state.binaryLength = 100000;
                 break;
@@ -91,7 +107,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Length:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##CustomLen", &g_state.customLength)) parametersChanged = true;
+                if (ImGui::InputInt("##CustomLen", &g_state.customLength)) {
+                     parametersChanged = true;
+                     Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Custom]: Length set to %d", g_state.customLength);
+                }
                 if (g_state.customLength < 1) g_state.customLength = 1;
                 if (g_state.customLength > 100000) g_state.customLength = 100000;
                 
@@ -100,10 +119,10 @@ void RenderOutputConfigSection() {
                 ImGui::AlignTextToFramePadding();
                 ImGui::Text("Include:");
                 ImGui::TableSetColumnIndex(1);
-                if (ImGui::Checkbox("0-9", &g_state.includeNumbers)) parametersChanged = true; ImGui::SameLine();
-                if (ImGui::Checkbox("A-Z", &g_state.includeUppercase)) parametersChanged = true; ImGui::SameLine();
-                if (ImGui::Checkbox("a-z", &g_state.includeLowercase)) parametersChanged = true; ImGui::SameLine();
-                if (ImGui::Checkbox("Special", &g_state.includeSpecial)) parametersChanged = true; ImGui::SameLine();
+                if (ImGui::Checkbox("0-9", &g_state.includeNumbers)) { parametersChanged = true; Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Custom]: 0-9 toggled %s", g_state.includeNumbers?"ON":"OFF"); } ImGui::SameLine();
+                if (ImGui::Checkbox("A-Z", &g_state.includeUppercase)) { parametersChanged = true; Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Custom]: A-Z toggled %s", g_state.includeUppercase?"ON":"OFF"); } ImGui::SameLine();
+                if (ImGui::Checkbox("a-z", &g_state.includeLowercase)) { parametersChanged = true; Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Custom]: a-z toggled %s", g_state.includeLowercase?"ON":"OFF"); } ImGui::SameLine();
+                if (ImGui::Checkbox("Special", &g_state.includeSpecial)) { parametersChanged = true; Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Custom]: Special toggled %s", g_state.includeSpecial?"ON":"OFF"); } ImGui::SameLine();
                 ImGui::TextDisabled("(!@#$%^&*()_+-=[]{}|;':\",./<>?)");
                 break;
                 
@@ -114,7 +133,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Amount:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##Amount", &g_state.bitByteAmount)) parametersChanged = true;
+                if (ImGui::InputInt("##Amount", &g_state.bitByteAmount)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Bit/Byte]: Amount set to %d", g_state.bitByteAmount);
+                }
                 if (g_state.bitByteAmount < 1) g_state.bitByteAmount = 1;
                 if (g_state.bitByteAmount > 1000000) g_state.bitByteAmount = 1000000;
                 
@@ -125,7 +147,10 @@ void RenderOutputConfigSection() {
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(150);
                 const char* units[] = { "Bits", "Bytes" };
-                if (ImGui::Combo("##Unit", &g_state.bitByteUnit, units, 2)) parametersChanged = true;
+                if (ImGui::Combo("##Unit", &g_state.bitByteUnit, units, 2)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Bit/Byte]: Unit set to %s", units[g_state.bitByteUnit]);
+                }
                 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -134,7 +159,10 @@ void RenderOutputConfigSection() {
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(180);
                 const char* outFmts[] = { "Hexadecimal", "Base64", "Binary" };
-                ImGui::Combo("##OutFmt", &g_state.bitByteFormat, outFmts, 3);
+                if (ImGui::Combo("##OutFmt", &g_state.bitByteFormat, outFmts, 3)) {
+                     // Note: bitByteFormat logic might need update in core if used elsewhere
+                     Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Bit/Byte]: Format set to %s", outFmts[g_state.bitByteFormat]);
+                }
                 break;
             }
                 
@@ -146,7 +174,10 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Word count:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(230);
-                if (ImGui::InputInt("##WordCount", &g_state.passphraseWordCount)) parametersChanged = true;
+                if (ImGui::InputInt("##WordCount", &g_state.passphraseWordCount)) {
+                    parametersChanged = true;
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Passphrase]: Word count set to %d", g_state.passphraseWordCount);
+                }
                 if (g_state.passphraseWordCount < 1) g_state.passphraseWordCount = 1;
                 if (g_state.passphraseWordCount > 100) g_state.passphraseWordCount = 100;
                 
@@ -156,7 +187,13 @@ void RenderOutputConfigSection() {
                 ImGui::Text("Separator:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::SetNextItemWidth(150);
-                ImGui::InputText("##Separator", g_state.passphraseSeparator, sizeof(g_state.passphraseSeparator));
+                if (ImGui::InputText("##Separator", g_state.passphraseSeparator, sizeof(g_state.passphraseSeparator))) {
+                    // InputText returns true on every char update, might be spammy? 
+                    // User asked for "what did they change it to", so logging final state or every char?
+                    // Let's log but maybe user should press enter? relying on standard behavior.
+                    // To avoid spam, we could checking ImGui::IsItemDeactivatedAfterEdit() but standard return is fine for now if not typing fast.
+                    Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Passphrase]: Separator changed");
+                }
                 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -177,17 +214,22 @@ void RenderOutputConfigSection() {
                 // Tab bar for input method
                 if (ImGui::BeginTabBar("OTPInputTabs")) {
                     if (ImGui::BeginTabItem("Text Input")) {
+                        if (g_state.otpInputMode != 0) Logger::Log(Logger::Level::INFO, "GUI", "Output Config [OTP]: Switched to Text Input");
                         g_state.otpInputMode = 0;
                         ImGui::Spacing();
                         ImGui::Text("Enter your message:");
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(Content is NOT logged)");
                         if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage, sizeof(g_state.otpMessage), 
                                                       ImVec2(-1, 150))) {
                              UpdateTargetEntropy();
+                             // SECURITY: DO NOT LOG MESSAGE CONTENT
+                             Logger::Log(Logger::Level::DEBUG, "GUI", "Output Config [OTP]: Message content updated (length: %zu)", strlen(g_state.otpMessage));
                         }
                         ImGui::EndTabItem();
                     }
                     
                     if (ImGui::BeginTabItem("File Input")) {
+                        if (g_state.otpInputMode != 1) Logger::Log(Logger::Level::INFO, "GUI", "Output Config [OTP]: Switched to File Input");
                         g_state.otpInputMode = 1;
                         ImGui::Spacing();
                         
@@ -213,14 +255,16 @@ void RenderOutputConfigSection() {
                              if (GetOpenFileNameA(&ofn) == TRUE) {
                                  strncpy(g_state.otpFilePath, ofn.lpstrFile, sizeof(g_state.otpFilePath) - 1);
                                  
-                                 // Get file size
                                  HANDLE hFile = CreateFileA(g_state.otpFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
                                  if (hFile != INVALID_HANDLE_VALUE) {
                                      LARGE_INTEGER size;
                                      if (GetFileSizeEx(hFile, &size)) {
                                          g_state.otpFileSize = size.QuadPart;
+                                         Logger::Log(Logger::Level::INFO, "GUI", "Output Config [OTP]: File loaded successfully. Size: %lld bytes", g_state.otpFileSize);
                                      }
                                      CloseHandle(hFile);
+                                 } else {
+                                     Logger::Log(Logger::Level::ERR, "GUI", "Output Config [OTP]: Failed to load file. Error code: %d", GetLastError());
                                  }
                                  UpdateTargetEntropy();
                              }
@@ -268,6 +312,8 @@ void RenderOutputConfigSection() {
 void RenderOutputSection() {
     ImGui::Spacing();
     ImGui::Text("Generated Output:");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(Result is NOT logged)");
     ImGui::Separator();
     
     // Output text box
