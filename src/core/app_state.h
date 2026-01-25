@@ -21,6 +21,7 @@ struct AppState {
     
     // Debug
     bool keepLogs = false;
+    bool loggingWasEverEnabled = false;  // Track if logging was enabled at any point during session
     
     // Collection state
     bool isCollecting = false;
@@ -73,6 +74,10 @@ struct AppState {
     
     // UI state
     int currentTab = 0;
+    
+    // Logging warning window state
+    bool showLoggingWarningWindow = false;
+    float loggingWarningCountdown = 5.0f;  // 5 second countdown
     
     // Helper to check if we have enough entropy for consolidation (True Randomness)
     bool isEntropyValid() const {

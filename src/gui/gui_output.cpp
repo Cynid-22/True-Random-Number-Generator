@@ -347,13 +347,21 @@ void RenderOutputSection() {
     // Only disable if below 512 bits (minimum base security)
     if (!hasMinimumEntropy) ImGui::BeginDisabled();
     if (ImGui::Button("Generate", ImVec2(100, 0))) {
-        const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase", "OneTimePad" };
-        g_state.generatedOutput = "[Placeholder] Format: " + std::string(formatNames[g_state.outputFormat]);
-        time_t now = time(nullptr);
-        char timeStr[64];
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)", localtime(&now));
-        g_state.timestamp = timeStr;
-        g_state.entropyConsumed = 64.0f;
+        // Check if logging was ever enabled during this session
+        if (g_state.loggingWasEverEnabled) {
+            // Show warning window instead of generating immediately
+            g_state.showLoggingWarningWindow = true;
+            g_state.loggingWarningCountdown = 5.0f;  // Reset countdown
+        } else {
+            // Proceed with generation normally
+            const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase", "OneTimePad" };
+            g_state.generatedOutput = "[Placeholder] Format: " + std::string(formatNames[g_state.outputFormat]);
+            time_t now = time(nullptr);
+            char timeStr[64];
+            strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)", localtime(&now));
+            g_state.timestamp = timeStr;
+            g_state.entropyConsumed = 64.0f;
+        }
     }
     if (!hasMinimumEntropy) ImGui::EndDisabled();
     
@@ -382,5 +390,128 @@ void RenderOutputSection() {
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Generated at: %s", g_state.timestamp.c_str());
         ImGui::SameLine(ImGui::GetWindowWidth() - 280);
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Entropy Consumed: %.1f bits", g_state.entropyConsumed);
+    }
+}
+
+//=============================================================================
+// LOGGING WARNING WINDOW
+//=============================================================================
+
+void RenderLoggingWarningWindow() {
+    if (!g_state.showLoggingWarningWindow) return;
+    
+    // Update countdown timer
+    ImGuiIO& io = ImGui::GetIO();
+    if (g_state.loggingWarningCountdown > 0.0f) {
+        g_state.loggingWarningCountdown -= io.DeltaTime;
+        if (g_state.loggingWarningCountdown < 0.0f) {
+            g_state.loggingWarningCountdown = 0.0f;
+        }
+    }
+    
+    // Center the window
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(600, 580), ImGuiCond_FirstUseEver);
+    
+    // Make it modal (blocking) - OpenPopup must be called before BeginPopupModal
+    if (!ImGui::IsPopupOpen("Logging Warning")) {
+        ImGui::OpenPopup("Logging Warning");
+    }
+    
+    if (ImGui::BeginPopupModal("Logging Warning", &g_state.showLoggingWarningWindow, 
+                               ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        
+        // Title with warning icon
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+        ImGui::Text("SECURITY WARNING: Logging Mode Detected");
+        ImGui::PopStyleColor();
+        
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Risks section
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "RISKS:");
+        ImGui::Spacing();
+        ImGui::BulletText("Entropy data may have been compromised");
+        ImGui::BulletText("Randomness cannot be fully ensured");
+        ImGui::BulletText("Log files may contain sensitive entropy data");
+        ImGui::BulletText("Security of generated output is compromised");
+        ImGui::BulletText("Log files persist on disk and may be recoverable");
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Recommendations section
+        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "RECOMMENDATIONS:");
+        ImGui::Spacing();
+        ImGui::BulletText("Turn off logging mode if it is not already off");
+        ImGui::BulletText("Delete all recorded entropy data");
+        ImGui::BulletText("Record entropy data again with logging disabled");
+        ImGui::BulletText("Only use logging mode for debugging purposes");
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Generate Anyway button with countdown
+        bool canGenerate = (g_state.loggingWarningCountdown <= 0.0f);
+        
+        // Center the buttons
+        float buttonWidth1 = 220.0f;  // Width for "Generate Anyway (X.X)" with padding
+        float buttonWidth2 = 100.0f;  // Width for Cancel button
+        float totalButtonWidth = buttonWidth1 + 20.0f + buttonWidth2;  // 20px spacing between buttons
+        float startX = (ImGui::GetWindowWidth() - totalButtonWidth) * 0.5f;
+        
+        ImGui::SetCursorPosX(startX);
+        
+        if (!canGenerate) {
+            ImGui::BeginDisabled();
+        }
+        
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.7f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+        
+        char buttonText[64];
+        if (canGenerate) {
+            snprintf(buttonText, sizeof(buttonText), "Generate Anyway");
+        } else {
+            snprintf(buttonText, sizeof(buttonText), "Generate Anyway (%.1f)", g_state.loggingWarningCountdown);
+        }
+        
+        if (ImGui::Button(buttonText, ImVec2(buttonWidth1, 40))) {
+            // Proceed with generation
+            const char* formatNames[] = { "Decimal", "Integer", "Binary", "Custom", "BitByte", "Passphrase", "OneTimePad" };
+            g_state.generatedOutput = "[Placeholder] Format: " + std::string(formatNames[g_state.outputFormat]);
+            time_t now = time(nullptr);
+            char timeStr[64];
+            strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)", localtime(&now));
+            g_state.timestamp = timeStr;
+            g_state.entropyConsumed = 64.0f;
+            
+            // Close the warning window
+            g_state.showLoggingWarningWindow = false;
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::PopStyleColor(3);
+        
+        if (!canGenerate) {
+            ImGui::EndDisabled();
+        }
+        
+        ImGui::SameLine();
+        
+        // Cancel button
+        if (ImGui::Button("Cancel", ImVec2(buttonWidth2, 40))) {
+            g_state.showLoggingWarningWindow = false;
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::EndPopup();
+    } else {
+        // Popup was closed, reset the flag
+        g_state.showLoggingWarningWindow = false;
     }
 }

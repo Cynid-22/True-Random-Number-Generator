@@ -33,6 +33,7 @@ void RenderEntropyPoolBar();
 //=============================================================================
 void RenderOutputConfigSection();
 void RenderOutputSection();
+void RenderLoggingWarningWindow();
 
 //=============================================================================
 // SIMULATION (Placeholder)

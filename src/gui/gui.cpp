@@ -157,6 +157,10 @@ void RenderMenuBar() {
             if (ImGui::MenuItem("Keep Logs", nullptr, &keepLogs)) {
                 g_state.keepLogs = keepLogs;
                 Logger::SetEnabled(g_state.keepLogs);
+                // Track if logging was ever enabled during this session
+                if (g_state.keepLogs) {
+                    g_state.loggingWasEverEnabled = true;
+                }
             }
             ImGui::EndMenu();
         }
@@ -183,6 +187,35 @@ void RenderMenuBar() {
         
         ImGui::EndMenuBar();
     }
+}
+
+//=============================================================================
+// HELPER FUNCTIONS
+//=============================================================================
+
+static void ClearAllEntropyData() {
+    // Stop collection if active
+    if (g_state.isCollecting) {
+        g_state.isCollecting = false;
+    }
+    
+    // Drain clock drift collector buffer so no residual data remains
+    (void)g_state.clockDriftCollector.Harvest();
+    
+    // Clear all entropy data
+    g_state.entropyMic = 0.0f;
+    g_state.entropyKeystroke = 0.0f;
+    g_state.entropyClock = 0.0f;
+    g_state.entropyJitter = 0.0f;
+    g_state.entropyMouse = 0.0f;
+    g_state.collectedBits = 0.0f;
+    
+    // From this point onwards, treat session as clean: don't show logging warning
+    // unless the user enables logging again after the clear
+    g_state.loggingWasEverEnabled = false;
+    g_state.showLoggingWarningWindow = false;
+    
+    Logger::Log(Logger::Level::INFO, "GUI", "All recorded entropy data cleared by user");
 }
 
 //=============================================================================
@@ -229,53 +262,78 @@ void RenderEntropyPoolBar() {
         }
     }
     
-    // Show collection status indicator and Start/Stop button
-    ImGui::SameLine(ImGui::GetWindowWidth() - 350);
+    // Status and buttons: anchor from the right so the two buttons never move. Status text is right-aligned.
+    const float barRightMargin = 24.0f;
+    const float clearBtnW = 80.0f;
+    const float stopStartBtnW = 160.0f;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float buttonStartX = ImGui::GetWindowWidth() - barRightMargin - clearBtnW - spacing - stopStartBtnW;
+    const float statusEndX = buttonStartX - spacing;
+    
+    ImGui::SameLine(ImGui::GetWindowWidth() - barRightMargin - clearBtnW - spacing - stopStartBtnW - 120.0f); // move to same line, left of status area
+    const char* statusStr = g_state.isCollecting ? "[Collecting...]" : "[Stopped]";
+    ImVec2 statusSz = ImGui::CalcTextSize(statusStr);
+    ImGui::SetCursorPosX(statusEndX - statusSz.x);
     if (g_state.isCollecting) {
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Collecting...]");
-        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "%s", statusStr);
+    } else {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", statusStr);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", g_state.isCollecting ? "Collection in progress." : "Collection stopped.");
+    }
+    
+    ImGui::SameLine(buttonStartX);
+    if (g_state.isCollecting) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.60f, 0.20f, 0.20f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.25f, 0.25f, 1.00f));
-        if (ImGui::Button("Stop Collection", ImVec2(160, 0))) {
+        if (ImGui::Button("Stop Collection", ImVec2(stopStartBtnW, 0))) {
             g_state.isCollecting = false;
         }
         ImGui::PopStyleColor(2);
     } else {
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Stopped]");
-        ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.50f, 0.20f, 1.00f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.60f, 0.25f, 1.00f));
-        if (ImGui::Button("Start Collection", ImVec2(160, 0))) {
+        if (ImGui::Button("Start Collection", ImVec2(stopStartBtnW, 0))) {
             g_state.isCollecting = true;
         }
         ImGui::PopStyleColor(2);
     }
     
-    // Clear Data button
-    ImGui::Spacing();
+    ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.30f, 0.20f, 1.00f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.60f, 0.35f, 0.25f, 1.00f));
-    if (ImGui::Button("Clear All Data", ImVec2(-1, 0))) {
-        // Stop collection if active
-        if (g_state.isCollecting) {
-            g_state.isCollecting = false;
+    if (ImGui::Button("Clear", ImVec2(clearBtnW, 0))) {
+        // If >= 2048 bits, show confirmation dialog
+        if (g_state.collectedBits >= 2048.0f) {
+            ImGui::OpenPopup("Clear Data Confirmation");
+        } else {
+            // < 2048 bits: clear immediately
+            ClearAllEntropyData();
         }
-        
-        // Clear all entropy data
-        g_state.entropyMic = 0.0f;
-        g_state.entropyKeystroke = 0.0f;
-        g_state.entropyClock = 0.0f;
-        g_state.entropyJitter = 0.0f;
-        g_state.entropyMouse = 0.0f;
-        g_state.collectedBits = 0.0f;
-        
-        Logger::Log(Logger::Level::INFO, "GUI", "All recorded entropy data cleared by user");
     }
     ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Clear all collected entropy data from all sources.\n"
             "This will reset all counters to zero.\n"
             "Collection will be stopped if active.");
+    }
+    
+    // Confirmation dialog for >= 2048 bits
+    if (ImGui::BeginPopupModal("Clear Data Confirmation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Warning: You are about to clear %.0f bits of collected entropy.\n\n", g_state.collectedBits);
+        ImGui::Text("This action cannot be undone.\n\n");
+        ImGui::Separator();
+        
+        if (ImGui::Button("Confirm Clear", ImVec2(140, 0))) {
+            ClearAllEntropyData();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(140, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 
