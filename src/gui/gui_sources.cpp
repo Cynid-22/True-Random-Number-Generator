@@ -4,6 +4,27 @@
 #include "imgui.h"
 
 //=============================================================================
+// IMPLEMENTATION STATUS CONSTANTS
+//=============================================================================
+
+// Track which features are actually implemented
+static const bool FEATURE_MICROPHONE_IMPLEMENTED = false;
+static const bool FEATURE_KEYSTROKE_IMPLEMENTED = false;
+static const bool FEATURE_MOUSE_IMPLEMENTED = false;
+static const bool FEATURE_CLOCK_DRIFT_IMPLEMENTED = true;  // Has ClockDriftCollector
+static const bool FEATURE_CPU_JITTER_IMPLEMENTED = false;
+
+// Helper function to check if device is available (placeholder for future implementation)
+// For now, since features aren't implemented, this always returns false
+static bool IsDeviceAvailable(const char* deviceType) {
+    // TODO: When features are implemented, check actual device availability
+    // For microphone: check if audio device is connected and accessible
+    // For mouse: check if mouse input is being received
+    // For keystroke: keyboard is always available
+    return false; // Placeholder
+}
+
+//=============================================================================
 // ENTROPY SOURCE TABS
 //=============================================================================
 
@@ -27,15 +48,66 @@ void RenderUserInputTab() {
     if (ImGui::Checkbox("Include Microphone in Final Calculation", &g_state.microphoneEnabled)) {
         Logger::Log(Logger::Level::INFO, "GUI", "Microphone source toggled: %s", g_state.microphoneEnabled ? "ON" : "OFF");
     }
-    if (g_state.microphoneEnabled && g_state.isCollecting) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
-    } else if (g_state.microphoneEnabled) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
-    } else {
-        ImGui::SameLine();
+    
+    // Status display with implementation check
+    ImGui::SameLine();
+    if (!FEATURE_MICROPHONE_IMPLEMENTED) {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+        }
+    } else if (!g_state.microphoneEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This source is disabled by the user and will not contribute to entropy collection.");
+        }
+    } else if (g_state.isCollecting) {
+        // Check if device is available
+        bool deviceAvailable = IsDeviceAvailable("microphone");
+        if (!deviceAvailable && g_state.entropyMic > 0.0f) {
+            // Device was collecting but is now unavailable
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[UNAVAILABLE]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("This input device/mode is currently unavailable.\n\n"
+                    "Possible reasons:\n"
+                    "- Device unplugged/disconnected\n"
+                    "- Device not recognized by system\n"
+                    "- Driver issues or missing drivers\n"
+                    "- Permission denied (e.g., microphone access blocked)\n"
+                    "- Hardware failure\n"
+                    "- System-level problems preventing access\n\n"
+                    "Past collected entropy from this source is still included in the total calculation.\n"
+                    "No new data is being collected from this source while unavailable.\n"
+                    "Resolve the issue (reconnect device, check permissions, fix drivers, etc.) to resume collection.");
+            }
+        } else if (deviceAvailable) {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Microphone is actively collecting entropy.\n"
+                    "Collected: %.1f bits\n"
+                    "Source is working correctly.", g_state.entropyMic);
+            }
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[UNAVAILABLE]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("This input device/mode is currently unavailable.\n\n"
+                    "Possible reasons:\n"
+                    "- Device unplugged/disconnected\n"
+                    "- Device not recognized by system\n"
+                    "- Driver issues or missing drivers\n"
+                    "- Permission denied (e.g., microphone access blocked)\n"
+                    "- Hardware failure\n"
+                    "- System-level problems preventing access\n\n"
+                    "Past collected entropy from this source is still included in the total calculation.\n"
+                    "No new data is being collected from this source while unavailable.\n"
+                    "Resolve the issue (reconnect device, check permissions, fix drivers, etc.) to resume collection.");
+            }
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Microphone is enabled and ready to collect data when collection starts.");
+        }
     }
     ImGui::Unindent();
     
@@ -54,15 +126,31 @@ void RenderUserInputTab() {
     if (ImGui::Checkbox("Include Keystroke in Final Calculation", &g_state.keystrokeEnabled)) {
         Logger::Log(Logger::Level::INFO, "GUI", "Keystroke source toggled: %s", g_state.keystrokeEnabled ? "ON" : "OFF");
     }
-    if (g_state.keystrokeEnabled && g_state.isCollecting) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
-    } else if (g_state.keystrokeEnabled) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
-    } else {
-        ImGui::SameLine();
+    
+    // Status display with implementation check
+    ImGui::SameLine();
+    if (!FEATURE_KEYSTROKE_IMPLEMENTED) {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+        }
+    } else if (!g_state.keystrokeEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This source is disabled by the user and will not contribute to entropy collection.");
+        }
+    } else if (g_state.isCollecting) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Keystroke dynamics are actively being collected.\n"
+                "Collected: %.1f bits\n"
+                "Source is working correctly.", g_state.entropyKeystroke);
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Keystroke capture is enabled and ready to collect data when collection starts.");
+        }
     }
     ImGui::Unindent();
     
@@ -81,15 +169,68 @@ void RenderUserInputTab() {
     if (ImGui::Checkbox("Include Mouse in Final Calculation", &g_state.mouseMovementEnabled)) {
         Logger::Log(Logger::Level::INFO, "GUI", "Mouse source toggled: %s", g_state.mouseMovementEnabled ? "ON" : "OFF");
     }
-    if (g_state.mouseMovementEnabled && g_state.isCollecting) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
-    } else if (g_state.mouseMovementEnabled) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
-    } else {
-        ImGui::SameLine();
+    
+    // Status display with implementation check
+    ImGui::SameLine();
+    if (!FEATURE_MOUSE_IMPLEMENTED) {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+        }
+    } else if (!g_state.mouseMovementEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This source is disabled by the user and will not contribute to entropy collection.");
+        }
+    } else if (g_state.isCollecting) {
+        // Check if mouse input is being received
+        bool deviceAvailable = IsDeviceAvailable("mouse");
+        if (!deviceAvailable && g_state.entropyMouse > 0.0f) {
+            // Mouse was collecting but is now unavailable
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[UNAVAILABLE]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("This input device/mode is currently unavailable.\n\n"
+                    "Possible reasons:\n"
+                    "- Device unplugged/disconnected\n"
+                    "- Device not recognized by system\n"
+                    "- Driver issues or missing drivers\n"
+                    "- Permission denied (e.g., mouse access blocked)\n"
+                    "- Hardware failure\n"
+                    "- System-level problems preventing access\n"
+                    "- No mouse input detected\n\n"
+                    "Past collected entropy from this source is still included in the total calculation.\n"
+                    "No new data is being collected from this source while unavailable.\n"
+                    "Resolve the issue (reconnect device, check permissions, fix drivers, move mouse, etc.) to resume collection.");
+            }
+        } else if (deviceAvailable) {
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Mouse movement is actively being tracked.\n"
+                    "Collected: %.1f bits\n"
+                    "Source is working correctly.", g_state.entropyMouse);
+            }
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[UNAVAILABLE]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("This input device/mode is currently unavailable.\n\n"
+                    "Possible reasons:\n"
+                    "- Device unplugged/disconnected\n"
+                    "- Device not recognized by system\n"
+                    "- Driver issues or missing drivers\n"
+                    "- Permission denied (e.g., mouse access blocked)\n"
+                    "- Hardware failure\n"
+                    "- System-level problems preventing access\n"
+                    "- No mouse input detected\n\n"
+                    "Past collected entropy from this source is still included in the total calculation.\n"
+                    "No new data is being collected from this source while unavailable.\n"
+                    "Resolve the issue (reconnect device, check permissions, fix drivers, move mouse, etc.) to resume collection.");
+            }
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Mouse movement tracking is enabled and ready to collect data when collection starts.");
+        }
     }
     ImGui::Unindent();
 }
@@ -124,22 +265,48 @@ void RenderSystemInputTab() {
     if (ImGui::Checkbox("Include Clock Drift in Final Calculation", &g_state.clockDriftEnabled)) {
          Logger::Log(Logger::Level::INFO, "GUI", "Clock Drift source toggled: %s", g_state.clockDriftEnabled ? "ON" : "OFF");
     }
-    if (g_state.clockDriftEnabled && g_state.isCollecting) {
+    
+    // Status display (Clock Drift is implemented)
+    if (!g_state.clockDriftEnabled) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This source is disabled by the user and will not contribute to entropy collection.");
+        }
+    } else if (g_state.isCollecting) {
         ImGui::SameLine();
         if (g_state.clockDriftCollector.IsRunning()) {
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Clock Drift collector is actively running.\n\n"
+                    "Samples collected: %llu\n"
+                    "Collection rate: %.0f samples/sec\n"
+                    "Collected entropy: %.1f bits\n"
+                    "Estimated entropy per sample: ~2 bits\n"
+                    "Source is working correctly.",
+                    g_state.clockDriftCollector.GetSampleCount(),
+                    g_state.clockDriftCollector.GetEntropyRate(),
+                    g_state.entropyClock);
+            }
             ImGui::Text("    Samples: %llu | Rate: %.0f samples/sec", 
                 g_state.clockDriftCollector.GetSampleCount(),
                 g_state.clockDriftCollector.GetEntropyRate());
         } else {
-             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Starting...]");
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Starting...]");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Clock Drift collector is starting up.\n"
+                    "The background thread is initializing.\n"
+                    "Collection will begin shortly.");
+            }
         }
-    } else if (g_state.clockDriftEnabled) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
     } else {
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Clock Drift collection is enabled and ready.\n"
+                "The collector will start automatically when collection begins.\n"
+                "This source uses CPU cycle counter measurements to extract hardware entropy.");
+        }
     }
     ImGui::Unindent();
 
@@ -158,15 +325,34 @@ void RenderSystemInputTab() {
     if (ImGui::Checkbox("Include CPU Jitter in Final Calculation", &g_state.cpuJitterEnabled)) {
          Logger::Log(Logger::Level::INFO, "GUI", "CPU Jitter source toggled: %s", g_state.cpuJitterEnabled ? "ON" : "OFF");
     }
-    if (g_state.cpuJitterEnabled && g_state.isCollecting) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active - Race running]");
-    } else if (g_state.cpuJitterEnabled) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
-    } else {
-        ImGui::SameLine();
+    
+    // Status display with implementation check
+    ImGui::SameLine();
+    if (!FEATURE_CPU_JITTER_IMPLEMENTED) {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[NOT IMPLEMENTED]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This feature is planned but not yet implemented.\nSimulated data is being used for testing.\nThis is temporary during development.");
+        }
+    } else if (!g_state.cpuJitterEnabled) {
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "[Excluded]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("This source is disabled by the user and will not contribute to entropy collection.");
+        }
+    } else if (g_state.isCollecting) {
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "[Active]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("CPU Jitter race condition is actively running.\n"
+                "Collected: %.1f bits\n"
+                "Thread race is generating entropy from OS scheduling jitter.\n"
+                "Source is working correctly.", g_state.entropyJitter);
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[Ready]");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("CPU Jitter collection is enabled and ready.\n"
+                "The race condition threads will start automatically when collection begins.\n"
+                "This source exploits OS scheduling unpredictability for entropy.");
+        }
     }
     ImGui::Unindent();
 }
