@@ -29,7 +29,10 @@ struct AppState {
     
     // Collection state
     bool isCollecting = false;
-    float collectedBits = 0.0f; // Computed total of included sources
+    float collectedBits = 0.0f; // Total computed bits (Locked + New)
+    
+    // Pooling Logic State
+    uint64_t lockedDataTimestamp = 0; // 0 = No lock. Data <= this timestamp is locked.
     
     // Per-source collected entropy (raw)
     float entropyMic = 0.0f;

@@ -32,6 +32,15 @@ public:
     // Calculate total entropy bits from pooled data (conservative estimate)
     float GetTotalBits() const;
 
+    // Calculate entropy bits for "Locked" data (timestamp <= lockedTimestamp)
+    float GetEntropyBitsBefore(uint64_t timestamp) const;
+
+    // Calculate entropy bits for "New" data (timestamp > lockedTimestamp) filtered by sources
+    float GetEntropyBitsAfter(uint64_t timestamp, const std::set<EntropySource>& includedSources) const;
+
+    // Calculate combined total (Locked + New Filtered)
+    float GetTotalBits(uint64_t lockedTimestamp, const std::set<EntropySource>& includedSources) const;
+
     // Get count of data points in pool
     size_t GetDataPointCount() const;
 

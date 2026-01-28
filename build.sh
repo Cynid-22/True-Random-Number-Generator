@@ -52,7 +52,7 @@ echo "Compiling..."
 # Compile all source files
 g++ -std=c++17 -O2 -mwindows \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
-    -I"src/entropy/clock_drift" \
+    -I"src/entropy/clock_drift" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
     -o build/TRNG.exe \
     src/main.cpp \
@@ -60,10 +60,15 @@ g++ -std=c++17 -O2 -mwindows \
     src/gui/gui_sources.cpp \
     src/gui/gui_output.cpp \
     src/logic/logic.cpp \
+    src/logic/csprng.cpp \
     src/platform/dx11.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/pool.cpp \
+    src/crypto/sha512.cpp \
+    src/crypto/hkdf.cpp \
+    src/crypto/chacha20.cpp \
+    src/crypto/aes.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \
@@ -71,7 +76,7 @@ g++ -std=c++17 -O2 -mwindows \
     external/imgui/backends/imgui_impl_win32.cpp \
     external/imgui/backends/imgui_impl_dx11.cpp \
     -static \
-    -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lshcore -luser32 -lgdi32 -limm32
+    -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32
 
 if [ $? -eq 0 ]; then
     echo "========================================"

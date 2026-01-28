@@ -1,4 +1,5 @@
 #include "logic.h"
+#include "../logging/logger.h"
 #include "../core/app_state.h"
 #include <cmath>
 #include <cstdint>
@@ -22,8 +23,41 @@ bool LoadWordListForGeneration() {
             return true;
         }
         
-        std::ifstream file("assets/default_wordlist.txt");
-        if (!file.is_open()) return false;
+        // Try multiple paths for the wordlist
+        std::vector<std::string> paths = {
+            "assets/default_wordlist.txt",
+            "./assets/default_wordlist.txt",
+            "../assets/default_wordlist.txt",
+            "default_wordlist.txt"
+        };
+        
+        // Also try to get exe directory path
+        char exePath[MAX_PATH];
+        if (GetModuleFileNameA(NULL, exePath, MAX_PATH) > 0) {
+            std::string exeDir = exePath;
+            size_t lastSlash = exeDir.find_last_of("\\/");
+            if (lastSlash != std::string::npos) {
+                exeDir = exeDir.substr(0, lastSlash + 1);
+                paths.insert(paths.begin(), exeDir + "assets/default_wordlist.txt");
+                paths.insert(paths.begin(), exeDir + "assets\\default_wordlist.txt");
+            }
+        }
+        
+        std::ifstream file;
+        for (const auto& path : paths) {
+            file.open(path);
+            if (file.is_open()) {
+                Logger::Log(Logger::Level::INFO, "Logic", 
+                            "Loaded wordlist from: %s", path.c_str());
+                break;
+            }
+        }
+        
+        if (!file.is_open()) {
+            Logger::Log(Logger::Level::ERR, "Logic", 
+                        "Failed to find wordlist in any path");
+            return false;
+        }
         
         // Load all words
         g_state.cachedWordList.clear();
@@ -41,6 +75,10 @@ bool LoadWordListForGeneration() {
         
         file.close();
         g_state.wordListCacheValid = true;
+        
+        Logger::Log(Logger::Level::INFO, "Logic", 
+                    "Loaded %zu words into wordlist cache", 
+                    g_state.cachedWordList.size());
         
         return !g_state.cachedWordList.empty();
     } catch (...) {
