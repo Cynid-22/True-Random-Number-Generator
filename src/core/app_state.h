@@ -59,6 +59,8 @@ struct AppState {
     int bitByteAmount = 256;
     int bitByteUnit = 0;   // 0=Bits, 1=Bytes
     int bitByteFormat = 0; // 0=Hex, 1=Base64, 2=Binary
+    bool binarySeparatorEnabled = true; // Use space separator for binary output
+    int binarySeparatorInterval = 8;    // Number of bits between spaces
     
     // Passphrase params
     int passphraseWordCount = 6;

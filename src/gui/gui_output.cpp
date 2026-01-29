@@ -216,6 +216,23 @@ void RenderOutputConfigSection() {
                     "Output Config [Bit/Byte]: Format set to %s",
                     outFmts[g_state.bitByteFormat]);
       }
+      
+      // Inline Binary Separator Config
+      if (g_state.bitByteFormat == 2) { // Binary only
+        ImGui::SameLine();
+        ImGui::Text("|");
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Separator", &g_state.binarySeparatorEnabled)) {
+             Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Binary]: Separator toggled %s", g_state.binarySeparatorEnabled ? "ON" : "OFF");
+        }
+        if (g_state.binarySeparatorEnabled) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(150); 
+            if (ImGui::InputInt("bits", &g_state.binarySeparatorInterval)) {
+                if (g_state.binarySeparatorInterval < 1) g_state.binarySeparatorInterval = 1;
+            }
+        }
+      }
       break;
     }
 
@@ -283,6 +300,9 @@ void RenderOutputConfigSection() {
           g_state.otpInputMode = 0;
           ImGui::Spacing();
           ImGui::Text("Enter your message:");
+          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.0f, 1.0f));
+          ImGui::Text("(Note: Only supports ASCII characters. Output will be ASCII.)");
+          ImGui::PopStyleColor();
           ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
                              "(Content is NOT logged)");
           if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage,
@@ -404,11 +424,12 @@ void RenderOutputSection() {
 
   // Output text box (with text wrapping for long output)
   // Use a child window with TextWrapped for proper wrapping
-  // Size.y = -90.0f leaves space for the buttons and footer at the bottom
+  // Size.y = -160.0f leaves space for the buttons and footer at the bottom
   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.00f));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-  if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -90.0f), true)) {
+  if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -160.0f), true)) {
     if (!g_state.generatedOutput.empty()) {
+       // Using TextWrapped for native wrapping behavior (non-selectable)
       ImGui::TextWrapped("%s", g_state.generatedOutput.c_str());
     }
   }

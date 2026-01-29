@@ -367,11 +367,23 @@ std::string GenerateBitByte(
         }
         
         case 2: // Binary
-            for (size_t i = 0; i < bytesNeeded; i++) {
-                for (int bit = 7; bit >= 0; bit--) {
-                    oss << ((randomBytes[i] >> bit) & 1);
+            {
+                int bitsPrinted = 0;
+                size_t totalBits = bytesNeeded * 8;
+                for (size_t i = 0; i < bytesNeeded; i++) {
+                    for (int bit = 7; bit >= 0; bit--) {
+                        oss << ((randomBytes[i] >> bit) & 1);
+                        bitsPrinted++;
+                        
+                        // Add separator if enabled, interval reached, and not the very last bit
+                        if (g_state.binarySeparatorEnabled && 
+                            g_state.binarySeparatorInterval > 0 &&
+                            bitsPrinted % g_state.binarySeparatorInterval == 0 &&
+                            bitsPrinted < totalBits) {
+                            oss << ' ';
+                        }
+                    }
                 }
-                if (i < bytesNeeded - 1) oss << ' ';
             }
             break;
     }
@@ -415,19 +427,42 @@ std::string GenerateOTP(
     const std::vector<uint8_t>& randomBytes,
     const std::string& message) {
     
-    if (randomBytes.size() < message.size()) {
-        return "[Error: Not enough entropy for OTP]";
+    std::string result;
+    result.reserve(message.size());
+    size_t keyIdx = 0;
+    
+    for (char c : message) {
+        // Validate ASCII (Printable 32-126)
+        if (c < 32 || c > 126) {
+            return "[Error: Message contains non-ASCII characters. Only printable ASCII (32-126) allowed.]";
+        }
+        
+        // Rejection Sampling for Modulo 95 Uniformity
+        // Range 95 (0-94). 256 / 95 = 2 rem 66.
+        // Valid range: 0..189 (190 values = 2 * 95). Reject >= 190.
+        uint8_t keyVal = 0;
+        bool found = false;
+        
+        while (keyIdx < randomBytes.size()) {
+            uint8_t b = randomBytes[keyIdx++];
+            if (b < 190) {
+                keyVal = b % 95;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            return "[Error: Insufficient entropy (rejection sampling exhausted). Please retry.]";
+        }
+        
+        // ASCII Modulo Encryption: Cipher = (Msg + Key) % 95
+        int msgVal = static_cast<int>(c) - 32;
+        int cipherVal = (msgVal + static_cast<int>(keyVal)) % 95;
+        result += static_cast<char>(cipherVal + 32);
     }
     
-    // XOR each byte of message with random bytes
-    std::ostringstream oss;
-    for (size_t i = 0; i < message.size(); i++) {
-        uint8_t encrypted = static_cast<uint8_t>(message[i]) ^ randomBytes[i];
-        oss << std::hex << std::setw(2) << std::setfill('0')
-            << static_cast<int>(encrypted);
-    }
-    
-    return oss.str();
+    return result;
 }
 
 std::vector<uint8_t> GenerateOTPFile(
@@ -504,10 +539,13 @@ GenerationResult GenerateOutput() {
         case 5: // Passphrase - 3 bytes per word
             bytesNeeded = g_state.passphraseWordCount * 3;
             break;
-        case 6: // OTP - 1 byte per input byte
+        case 6: // OTP - 1 byte per input (Text Mode needs 2x for Rejection)
             if (g_state.otpInputMode == 0) {
-                bytesNeeded = strlen(g_state.otpMessage);
+                // Text mode: ASCII safe Modulo-95. 
+                // We request 2x bytes to ensure Rejection Sampling < 190 succeeds.
+                bytesNeeded = strlen(g_state.otpMessage) * 2;
             } else {
+                // File mode: Raw XOR, 1:1 ratio
                 bytesNeeded = static_cast<size_t>(g_state.otpFileSize);
             }
             break;

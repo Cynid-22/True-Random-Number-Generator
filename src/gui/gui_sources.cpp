@@ -452,6 +452,10 @@ void RenderCollectionWindow() {
     return;
 
   ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+  
+  // Center window on screen when it appears
+  ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
   if (ImGui::Begin("Collection Window", &g_state.isCollecting,
                    ImGuiWindowFlags_NoCollapse)) {
     ImGui::Text("Entropy Collection in Progress...");
