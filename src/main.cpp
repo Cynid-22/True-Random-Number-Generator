@@ -179,6 +179,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else if (!g_state.cpuJitterEnabled && g_state.cpuJitterCollector.IsRunning()) {
                 g_state.cpuJitterCollector.Stop();
             }
+
+            if (g_state.keystrokeEnabled && !g_state.keystrokeCollector.IsRunning()) {
+                g_state.keystrokeCollector.Start();
+            }
+            else if (!g_state.keystrokeEnabled && g_state.keystrokeCollector.IsRunning()) {
+                g_state.keystrokeCollector.Stop();
+            }
             
             // Harvest Data - only from enabled sources
             if (g_state.clockDriftEnabled) {
@@ -225,6 +232,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     }
                 }
             }
+            if (g_state.keystrokeEnabled) {
+                auto data = g_state.keystrokeCollector.Harvest();
+                if (!data.empty()) {
+                    g_state.entropyPool.AddDataPoints(data);
+                    
+                    std::vector<uint64_t> values;
+                    values.reserve(data.size());
+                    for (const auto& point : data) values.push_back(point.value);
+                    
+                    float newEntropy = CalculateEntropyFromDeltas(values);
+                    g_state.entropyKeystroke += newEntropy;
+                    
+                    if (!values.empty()) {
+                        SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
+                    }
+                }
+            }
 
 
             // Simulate other sources for now until implemented
@@ -239,6 +263,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
             if (g_state.cpuJitterCollector.IsRunning()) {
                 g_state.cpuJitterCollector.Stop();
+            }
+            if (g_state.keystrokeCollector.IsRunning()) {
+                g_state.keystrokeCollector.Stop();
             }
             // Clear visualization data
             g_state.mouseTrail.clear();

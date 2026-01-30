@@ -11,7 +11,7 @@
 
 // Track which features are actually implemented
 static const bool FEATURE_MICROPHONE_IMPLEMENTED = false;
-static const bool FEATURE_KEYSTROKE_IMPLEMENTED = false;
+static const bool FEATURE_KEYSTROKE_IMPLEMENTED = true;
 static const bool FEATURE_MOUSE_IMPLEMENTED = false;
 static const bool FEATURE_CLOCK_DRIFT_IMPLEMENTED =
     true; // Has ClockDriftCollector
@@ -53,11 +53,13 @@ void RenderUserInputTab() {
         "not actual sound. High sample rate (44.1kHz) provides ~44,000 random "
         "bits/sec.");
   }
+  ImGui::BeginDisabled(g_state.isCollecting);
   if (ImGui::Checkbox("Include Microphone in Final Calculation",
                       &g_state.microphoneEnabled)) {
     Logger::Log(Logger::Level::INFO, "GUI", "Microphone source toggled: %s",
                 g_state.microphoneEnabled ? "ON" : "OFF");
   }
+  ImGui::EndDisabled();
 
   // Status display with implementation check
   ImGui::SameLine();
@@ -147,11 +149,13 @@ void RenderUserInputTab() {
         "measured "
         "in nanoseconds and are unique to each person.");
   }
+  ImGui::BeginDisabled(g_state.isCollecting);
   if (ImGui::Checkbox("Include Keystroke in Final Calculation",
                       &g_state.keystrokeEnabled)) {
     Logger::Log(Logger::Level::INFO, "GUI", "Keystroke source toggled: %s",
                 g_state.keystrokeEnabled ? "ON" : "OFF");
   }
+  ImGui::EndDisabled();
 
   // Status display with implementation check
   ImGui::SameLine();
@@ -198,11 +202,13 @@ void RenderUserInputTab() {
         "Your physical motor noise creates unpredictable patterns. "
         "Small movements (<3 pixels) are filtered to avoid sensor drift.");
   }
+  ImGui::BeginDisabled(g_state.isCollecting);
   if (ImGui::Checkbox("Include Mouse in Final Calculation",
                       &g_state.mouseMovementEnabled)) {
     Logger::Log(Logger::Level::INFO, "GUI", "Mouse source toggled: %s",
                 g_state.mouseMovementEnabled ? "ON" : "OFF");
   }
+  ImGui::EndDisabled();
 
   // Status display with implementation check
   ImGui::SameLine();
@@ -333,11 +339,13 @@ void RenderSystemInputTab() {
   // 2. New entropy (everything > lockedTimestamp) - Only if source is enabled
   g_state.collectedBits = g_state.entropyPool.GetTotalBits(
       g_state.lockedDataTimestamp, enabledSources);
+  ImGui::BeginDisabled(g_state.isCollecting);
   if (ImGui::Checkbox("Include Clock Drift in Final Calculation",
                       &g_state.clockDriftEnabled)) {
     Logger::Log(Logger::Level::INFO, "GUI", "Clock Drift source toggled: %s",
                 g_state.clockDriftEnabled ? "ON" : "OFF");
   }
+  ImGui::EndDisabled();
 
   // Status display (Clock Drift is implemented)
   if (!g_state.clockDriftEnabled) {
@@ -401,11 +409,13 @@ void RenderSystemInputTab() {
         "scheduling, "
         "background tasks (WiFi, updates), making it unpredictable.");
   }
+  ImGui::BeginDisabled(g_state.isCollecting);
   if (ImGui::Checkbox("Include CPU Jitter in Final Calculation",
                       &g_state.cpuJitterEnabled)) {
     Logger::Log(Logger::Level::INFO, "GUI", "CPU Jitter source toggled: %s",
                 g_state.cpuJitterEnabled ? "ON" : "OFF");
   }
+  ImGui::EndDisabled();
 
   // Status display with implementation check
   ImGui::SameLine();
