@@ -14,7 +14,7 @@ static const bool FEATURE_KEYSTROKE_IMPLEMENTED = false;
 static const bool FEATURE_MOUSE_IMPLEMENTED = false;
 static const bool FEATURE_CLOCK_DRIFT_IMPLEMENTED =
     true; // Has ClockDriftCollector
-static const bool FEATURE_CPU_JITTER_IMPLEMENTED = false;
+static const bool FEATURE_CPU_JITTER_IMPLEMENTED = true;
 
 // Helper function to check if device is available (placeholder for future
 // implementation) For now, since features aren't implemented, this always
@@ -451,90 +451,109 @@ void RenderCollectionWindow() {
   if (!g_state.isCollecting)
     return;
 
-  ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
-  
   // Center window on screen when it appears
   ImGuiViewport* viewport = ImGui::GetMainViewport();
-  ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+  ImVec2 work_size = viewport->WorkSize;
+  
+  // Size: 80% width, 85% height (increased from 80%)
+  ImVec2 window_size = ImVec2(work_size.x * 0.8f, work_size.y * 0.82f);
+  
+  if (window_size.x < 1000.0f) window_size.x = 1000.0f;
+  if (window_size.y < 700.0f) window_size.y = 700.0f;
+  
+  ImGui::SetNextWindowSize(window_size, ImGuiCond_Appearing);
+  
+  // Position: Center X, Center Y + 5% offset (Lower)
+  ImVec2 centerPos = viewport->GetCenter();
+  centerPos.y += work_size.y * 0.05f; 
+  
+  ImGui::SetNextWindowPos(centerPos, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
   if (ImGui::Begin("Collection Window", &g_state.isCollecting,
                    ImGuiWindowFlags_NoCollapse)) {
-    ImGui::Text("Entropy Collection in Progress...");
+    // 1. Status Section (Top)
+    ImGui::Text("Status:");
+    
+    // Use columns to save vertical space
+    ImGui::Columns(3, "status_columns", false); 
+    
+    // Helper lambda for status line
+    auto StatusLine = [](const char* label, bool implemented, bool enabled, bool active, float entropy) {
+        ImGui::Text("%s:", label);
+        ImGui::SameLine();
+        if (!implemented) ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "N/A");
+        else if (!enabled) ImGui::TextColored(ImVec4(0.5f,0.5f,0.5f,1.0f), "OFF");
+        else if (active) ImGui::TextColored(ImVec4(0.3f,1.0f,0.5f,1.0f), "ACTIVE");
+        else ImGui::TextColored(ImVec4(1.0f,0.8f,0.3f,1.0f), "WAIT");
+    };
+
+    StatusLine("Mic", FEATURE_MICROPHONE_IMPLEMENTED, g_state.microphoneEnabled, true, g_state.entropyMic);
+    ImGui::NextColumn();
+    StatusLine("Keys", FEATURE_KEYSTROKE_IMPLEMENTED, g_state.keystrokeEnabled, true, g_state.entropyKeystroke);
+    ImGui::NextColumn();
+    StatusLine("Mouse", FEATURE_MOUSE_IMPLEMENTED, g_state.mouseMovementEnabled, true, g_state.entropyMouse);
+    ImGui::NextColumn();
+    StatusLine("Clock", true, g_state.clockDriftEnabled, g_state.clockDriftCollector.IsRunning(), g_state.entropyClock);
+    ImGui::NextColumn();
+    StatusLine("Jitter", FEATURE_CPU_JITTER_IMPLEMENTED, g_state.cpuJitterEnabled, g_state.cpuJitterCollector.IsRunning(), g_state.entropyJitter);
+    
+    ImGui::Columns(1); // Reset columns
+    
+    ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Placeholder content
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "[PLACEHOLDER]");
-    ImGui::Spacing();
-
-    ImGui::TextWrapped("This window will display:");
-    ImGui::BulletText("Mouse path visualization (trail of movement)");
-    ImGui::BulletText("Single-line textbox showing typed characters");
-    ImGui::BulletText(
-        "Status indicators for Microphone, Clock Drift, CPU Jitter");
+    // 2. Keyboard Output Section (Middle)
+    ImGui::Text("Keyboard Output:");
+    
+    // Draw a box around it (visual only, using child window for scrolling if needed)
+    ImGui::BeginChild("KeyOutputBox", ImVec2(0, 60), true);
+    if (g_state.keystrokePreview.empty()) {
+         ImGui::TextDisabled(" [ Keystrokes will appear here ] ");
+    } else {
+         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f)); // Matrix Green
+         ImGui::TextWrapped("%s", g_state.keystrokePreview.c_str());
+         ImGui::PopStyleColor();
+         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+            ImGui::SetScrollHereY(1.0f);
+    }
+    ImGui::EndChild();
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Show current source status
-    ImGui::Text("Source Status:");
+    // 3. Mouse Path Visualization (Bottom)
+    ImGui::Text("Mouse Path:");
+    
+    // Create a canvas for drawing
+    ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();      // ImDrawList API uses screen coordinates!
+    ImVec2 canvas_sz = ImGui::GetContentRegionAvail();   // Resize to fit remaining space
+    
+    // Deduct space for Stop button at bottom (approx 60px to avoid clipping)
+    canvas_sz.y -= 60.0f;
+    
+    if (canvas_sz.y < 100.0f) canvas_sz.y = 100.0f;        // Minimum height
+    
+    ImGui::InvisibleButton("canvas", canvas_sz);
+    
+    // Draw border and background
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddRectFilled(canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), IM_COL32(20, 20, 20, 255));
+    draw_list->AddRect(canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), IM_COL32(100, 100, 100, 255));
 
-    // Microphone
-    if (!FEATURE_MICROPHONE_IMPLEMENTED) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Microphone: NOT IMPLEMENTED");
-    } else if (!g_state.microphoneEnabled) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Microphone: DEACTIVATED");
+    // Draw Trail
+    if (!g_state.mouseTrail.empty()) {
+        for (const auto& point : g_state.mouseTrail) {
+            // Map normalized coordinates (0..1) to canvas size
+            float x = canvas_p0.x + point.x * canvas_sz.x;
+            float y = canvas_p0.y + point.y * canvas_sz.y;
+            draw_list->AddCircleFilled(ImVec2(x, y), 2.0f, IM_COL32(0, 255, 0, 150));
+        }
     } else {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f),
-                         "  Microphone: ACTIVE");
-    }
-
-    // Keystroke
-    if (!FEATURE_KEYSTROKE_IMPLEMENTED) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Keystroke: NOT IMPLEMENTED");
-    } else if (!g_state.keystrokeEnabled) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Keystroke: DEACTIVATED");
-    } else {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Keystroke: ACTIVE");
-    }
-
-    // Mouse
-    if (!FEATURE_MOUSE_IMPLEMENTED) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Mouse: NOT IMPLEMENTED");
-    } else if (!g_state.mouseMovementEnabled) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Mouse: DEACTIVATED");
-    } else {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f), "  Mouse: ACTIVE");
-    }
-
-    // Clock Drift
-    if (!g_state.clockDriftEnabled) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  Clock Drift: DEACTIVATED");
-    } else if (g_state.clockDriftCollector.IsRunning()) {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f),
-                         "  Clock Drift: ACTIVE");
-    } else {
-      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                         "  Clock Drift: STARTING...");
-    }
-
-    // CPU Jitter
-    if (!FEATURE_CPU_JITTER_IMPLEMENTED) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  CPU Jitter: NOT IMPLEMENTED");
-    } else if (!g_state.cpuJitterEnabled) {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                         "  CPU Jitter: DEACTIVATED");
-    } else {
-      ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.5f, 1.0f),
-                         "  CPU Jitter: ACTIVE");
+        // Placeholder text centered
+        const char* text = "Move mouse to generate trail...";
+        ImVec2 textSize = ImGui::CalcTextSize(text);
+        draw_list->AddText(ImVec2(canvas_p0.x + (canvas_sz.x - textSize.x) * 0.5f, canvas_p0.y + (canvas_sz.y - textSize.y) * 0.5f), IM_COL32(100, 100, 100, 255), text);
     }
 
     ImGui::Spacing();

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 #include <set>
+#include <map>
 #include <windows.h> // For SecureZeroMemory
 
 // Default wordlist entropy: log2(123565) ≈ 16.9 bits per word
@@ -155,25 +156,52 @@ void UpdateTargetEntropy() {
     g_state.targetBits = CalculateRequiredEntropy();
 }
 
+// Calculates Shannon Entropy (bits per symbol)
+float CalculateShannonEntropy(const std::vector<uint8_t>& data) {
+    if (data.empty()) return 0.0f;
+    
+    // 1. Build Histogram
+    std::map<uint8_t, size_t> counts;
+    for (uint8_t byte : data) {
+        counts[byte]++;
+    }
+    
+    // 2. Calculate Entropy: H = -Sum(p * log2(p))
+    float entropy = 0.0f;
+    float total = (float)data.size();
+    
+    for (const auto& pair : counts) {
+        float p = pair.second / total;
+        entropy -= p * std::log2(p);
+    }
+    
+    return entropy;
+}
+
 float CalculateEntropyFromDeltas(const std::vector<uint64_t>& deltas) {
     if (deltas.empty()) return 0.0f;
     
-    // Conservative estimate:
-    // Even though we capture 16 bits, we assume much less entropy due to patterns.
-    // For Clock Drift, we assume ~0.5 bits per sample of *true* entropy if filtering is good.
-    // However, since we are capturing raw low-bits, let's be slightly more generous but still safe.
-    // Let's use 1.0 bits per non-zero sample as a baseline, 
-    // but cap it if variance is suspiciously low (though we don't calculate variance yet).
+    // Convert deltas to raw bytes for analysis
+    // We only care about the lower 8 bits of variance usually, 
+    // but let's analyze the LSB byte of each delta.
+    std::vector<uint8_t> bytes;
+    bytes.reserve(deltas.size());
     
-    // Simple count for now, but encapsulated here so we can upgrade to Shannon Entropy later.
     size_t validSamples = 0;
     for (uint64_t d : deltas) {
-        if (d != 0) validSamples++;
+        if (d != 0) {
+            validSamples++;
+            bytes.push_back(static_cast<uint8_t>(d & 0xFF)); // Take LSB
+        }
     }
     
-    // 2.0 bits per valid sample is a reasonable estimate for lower 16 bits of RDTSC delta 
-    // in a jittery multitasking environment.
-    return (float)validSamples * 2.0f;
+    if (validSamples == 0) return 0.0f;
+    
+    // Calculate entropy per sample (0.0 - 8.0 bits)
+    float bitsPerSample = CalculateShannonEntropy(bytes);
+    
+    // Determine total entropy contribution
+    return (float)validSamples * bitsPerSample;
 }
 
 std::vector<Entropy::EntropyDataPoint> GetPooledEntropyForOutput(const std::set<Entropy::EntropySource>& includedSources) {

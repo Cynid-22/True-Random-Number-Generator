@@ -169,9 +169,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (g_state.clockDriftEnabled && !g_state.clockDriftCollector.IsRunning()) {
                 g_state.clockDriftCollector.Start();
             }
-            // Stop collectors if disabled but running (user unchecked box while collecting)
             else if (!g_state.clockDriftEnabled && g_state.clockDriftCollector.IsRunning()) {
                 g_state.clockDriftCollector.Stop();
+            }
+
+            if (g_state.cpuJitterEnabled && !g_state.cpuJitterCollector.IsRunning()) {
+                g_state.cpuJitterCollector.Start();
+            }
+            else if (!g_state.cpuJitterEnabled && g_state.cpuJitterCollector.IsRunning()) {
+                g_state.cpuJitterCollector.Stop();
             }
             
             // Harvest Data - only from enabled sources
@@ -198,9 +204,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     }
                     
                     // Log occasional updates
-                    // Logger::Log(Logger::Level::DEBUG, "Main", "Harvested %zu samples, added %.1f bits", data.size(), newEntropy);
+                    // ... (logging handled by logger logic if needed)
                 }
             }
+
+            if (g_state.cpuJitterEnabled) {
+                auto data = g_state.cpuJitterCollector.Harvest();
+                if (!data.empty()) {
+                    g_state.entropyPool.AddDataPoints(data);
+                    
+                    std::vector<uint64_t> values;
+                    values.reserve(data.size());
+                    for (const auto& point : data) values.push_back(point.value);
+                    
+                    float newEntropy = CalculateEntropyFromDeltas(values);
+                    g_state.entropyJitter += newEntropy;
+                    
+                    if (!values.empty()) {
+                        SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
+                    }
+                }
+            }
+
 
             // Simulate other sources for now until implemented
             // logic::SimulateEntropyCollection() calls are currently in GUI... 
@@ -211,6 +236,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             // Stop all collectors
             if (g_state.clockDriftCollector.IsRunning()) {
                 g_state.clockDriftCollector.Stop();
+            }
+            if (g_state.cpuJitterCollector.IsRunning()) {
+                g_state.cpuJitterCollector.Stop();
             }
         }
 

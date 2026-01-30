@@ -52,7 +52,7 @@ echo "Compiling..."
 # Compile all source files
 g++ -std=c++17 -O2 -mwindows \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
-    -I"src/entropy/clock_drift" -I"src/crypto" \
+    -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
     -o build/TRNG.exe \
     src/main.cpp \
@@ -64,6 +64,7 @@ g++ -std=c++17 -O2 -mwindows \
     src/platform/dx11.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
+    src/entropy/cpu_jitter/cpu_jitter.cpp \
     src/entropy/pool.cpp \
     src/crypto/sha512.cpp \
     src/crypto/hkdf.cpp \

@@ -6,12 +6,14 @@
 #include <string>
 #include <vector>
 #include "../entropy/clock_drift/clock_drift.h"
+#include "../entropy/cpu_jitter/cpu_jitter.h"
 #include "../entropy/pool.h"
 
 // Application state - global configuration and runtime data
 struct AppState {
     // Entropy Collectors
     Entropy::ClockDriftCollector clockDriftCollector;
+    Entropy::CpuJitterCollector cpuJitterCollector;
     
     // Centralized entropy pool (stores all collected data with timestamps)
     Entropy::EntropyPool entropyPool;
@@ -40,6 +42,11 @@ struct AppState {
     float entropyClock = 0.0f;
     float entropyJitter = 0.0f;
     float entropyMouse = 0.0f;
+
+    // Visualization State
+    struct VizPoint { float x, y; };
+    std::vector<VizPoint> mouseTrail; // Stores normalized coordinates (0.0-1.0)
+    std::string keystrokePreview;     // Stores recent keystrokes for display
 
     float targetBits = 512.0f;
     
