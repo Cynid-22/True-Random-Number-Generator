@@ -240,12 +240,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             if (g_state.cpuJitterCollector.IsRunning()) {
                 g_state.cpuJitterCollector.Stop();
             }
+            // Clear visualization data
+            g_state.mouseTrail.clear();
+            g_state.keystrokePreview.clear();
         }
 
         // Draw the GUI
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
+
         
         // Main window fills entire client area
         ImGui::SetNextWindowPos(ImVec2(0, 0));

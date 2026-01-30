@@ -451,6 +451,18 @@ void RenderCollectionWindow() {
   if (!g_state.isCollecting)
     return;
 
+  // VISUALIZATION CAPTURE: Keystrokes (Global while window is active)
+  ImGuiIO& io = ImGui::GetIO();
+  for (int i = 0; i < io.InputQueueCharacters.Size; i++) {
+      ImWchar c = io.InputQueueCharacters[i];
+      if (c >= 32 && c < 127) { // ASCII printable
+          g_state.keystrokePreview += (char)c;
+      }
+  }
+  if (g_state.keystrokePreview.length() > 500) {
+       g_state.keystrokePreview = g_state.keystrokePreview.substr(g_state.keystrokePreview.length() - 500);
+  }
+
   // Center window on screen when it appears
   ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImVec2 work_size = viewport->WorkSize;
@@ -511,7 +523,18 @@ void RenderCollectionWindow() {
          ImGui::TextDisabled(" [ Keystrokes will appear here ] ");
     } else {
          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f)); // Matrix Green
-         ImGui::TextWrapped("%s", g_state.keystrokePreview.c_str());
+         
+         // Calculate how many characters fit in the bar
+         float availWidth = ImGui::GetContentRegionAvail().x - 10.0f; // Padding
+         std::string displayText = g_state.keystrokePreview;
+         
+         // Trim from left until it fits (scroll effect)
+         while (!displayText.empty() && ImGui::CalcTextSize(displayText.c_str()).x > availWidth) {
+             displayText = displayText.substr(1);
+         }
+         
+         // Left aligned (normal document flow)
+         ImGui::Text("%s", displayText.c_str());
          ImGui::PopStyleColor();
          if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
             ImGui::SetScrollHereY(1.0f);
@@ -535,6 +558,27 @@ void RenderCollectionWindow() {
     if (canvas_sz.y < 100.0f) canvas_sz.y = 100.0f;        // Minimum height
     
     ImGui::InvisibleButton("canvas", canvas_sz);
+    
+    // VISUALIZATION CAPTURE: Mouse (Canvas Only)
+    if (ImGui::IsItemHovered()) {
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        // Calculate relative position (0.0 - 1.0)
+        float relX = (mouse_pos.x - canvas_p0.x) / canvas_sz.x;
+        float relY = (mouse_pos.y - canvas_p0.y) / canvas_sz.y;
+        
+        // Clamp to ensure 0..1
+        if (relX >= 0.0f && relX <= 1.0f && relY >= 0.0f && relY <= 1.0f) {
+             // Only add if changed
+             static ImVec2 lastRel = ImVec2(-1,-1);
+             if (relX != lastRel.x || relY != lastRel.y) {
+                 AppState::VizPoint pt;
+                 pt.x = relX; pt.y = relY;
+                 g_state.mouseTrail.push_back(pt);
+                 if (g_state.mouseTrail.size() > 1000) g_state.mouseTrail.erase(g_state.mouseTrail.begin());
+                 lastRel = ImVec2(relX, relY);
+             }
+        }
+    }
     
     // Draw border and background
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
