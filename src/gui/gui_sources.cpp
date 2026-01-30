@@ -2,6 +2,7 @@
 #include "../logging/logger.h"
 #include "gui.h"
 #include "imgui.h"
+#include <cmath>
 
 
 //=============================================================================
@@ -560,6 +561,7 @@ void RenderCollectionWindow() {
     ImGui::InvisibleButton("canvas", canvas_sz);
     
     // VISUALIZATION CAPTURE: Mouse (Canvas Only)
+    static float lastRelX = -1.0f, lastRelY = -1.0f;
     if (ImGui::IsItemHovered()) {
         ImVec2 mouse_pos = ImGui::GetMousePos();
         // Calculate relative position (0.0 - 1.0)
@@ -568,15 +570,40 @@ void RenderCollectionWindow() {
         
         // Clamp to ensure 0..1
         if (relX >= 0.0f && relX <= 1.0f && relY >= 0.0f && relY <= 1.0f) {
-             // Only add if changed
-             static ImVec2 lastRel = ImVec2(-1,-1);
-             if (relX != lastRel.x || relY != lastRel.y) {
+             // Interpolate from last position to current for smooth trail
+             if (lastRelX >= 0.0f && lastRelY >= 0.0f) {
+                 float dx = relX - lastRelX;
+                 float dy = relY - lastRelY;
+                 float dist = sqrtf(dx*dx + dy*dy);
+                 
+                 // If distance is significant, interpolate intermediate points
+                 float step = 0.002f; // Density of interpolation (smaller = denser)
+                 if (dist > step) {
+                     int numSteps = (int)(dist / step);
+                     for (int i = 0; i <= numSteps; i++) {
+                         float t = (float)i / (float)numSteps;
+                         AppState::VizPoint pt;
+                         pt.x = lastRelX + dx * t;
+                         pt.y = lastRelY + dy * t;
+                         g_state.mouseTrail.push_back(pt);
+                     }
+                 } else {
+                     AppState::VizPoint pt;
+                     pt.x = relX; pt.y = relY;
+                     g_state.mouseTrail.push_back(pt);
+                 }
+             } else {
+                 // First point
                  AppState::VizPoint pt;
                  pt.x = relX; pt.y = relY;
                  g_state.mouseTrail.push_back(pt);
-                 if (g_state.mouseTrail.size() > 1000) g_state.mouseTrail.erase(g_state.mouseTrail.begin());
-                 lastRel = ImVec2(relX, relY);
              }
+             
+             // Limit trail size
+             while (g_state.mouseTrail.size() > 4000) g_state.mouseTrail.erase(g_state.mouseTrail.begin());
+             
+             lastRelX = relX;
+             lastRelY = relY;
         }
     }
     
