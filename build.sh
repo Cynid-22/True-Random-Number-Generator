@@ -66,6 +66,7 @@ g++ -std=c++17 -O2 -mwindows \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \
     src/entropy/keystroke/keystroke.cpp \
+    src/entropy/mouse/mouse.cpp \
     src/entropy/pool.cpp \
     src/crypto/sha512.cpp \
     src/crypto/hkdf.cpp \

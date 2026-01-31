@@ -186,6 +186,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else if (!g_state.keystrokeEnabled && g_state.keystrokeCollector.IsRunning()) {
                 g_state.keystrokeCollector.Stop();
             }
+
+            if (g_state.mouseMovementEnabled && !g_state.mouseCollector.IsRunning()) {
+                g_state.mouseCollector.Start();
+            }
+            else if (!g_state.mouseMovementEnabled && g_state.mouseCollector.IsRunning()) {
+                g_state.mouseCollector.Stop();
+            }
             
             // Harvest Data - only from enabled sources
             if (g_state.clockDriftEnabled) {
@@ -250,6 +257,24 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 }
             }
 
+            if (g_state.mouseMovementEnabled) {
+                auto data = g_state.mouseCollector.Harvest();
+                if (!data.empty()) {
+                    g_state.entropyPool.AddDataPoints(data);
+                    
+                    std::vector<uint64_t> values;
+                    values.reserve(data.size());
+                    for (const auto& point : data) values.push_back(point.value);
+                    
+                    float newEntropy = CalculateEntropyFromDeltas(values);
+                    g_state.entropyMouse += newEntropy;
+                    
+                    if (!values.empty()) {
+                        SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
+                    }
+                }
+            }
+
 
             // Simulate other sources for now until implemented
             // logic::SimulateEntropyCollection() calls are currently in GUI... 
@@ -266,6 +291,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
             if (g_state.keystrokeCollector.IsRunning()) {
                 g_state.keystrokeCollector.Stop();
+            }
+            if (g_state.mouseCollector.IsRunning()) {
+                g_state.mouseCollector.Stop();
             }
             // Clear visualization data
             g_state.mouseTrail.clear();

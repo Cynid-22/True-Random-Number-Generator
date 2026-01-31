@@ -8,6 +8,7 @@
 #include "../entropy/clock_drift/clock_drift.h"
 #include "../entropy/cpu_jitter/cpu_jitter.h"
 #include "../entropy/keystroke/keystroke.h"
+#include "../entropy/mouse/mouse.h"
 #include "../entropy/pool.h"
 
 // Application state - global configuration and runtime data
@@ -16,6 +17,7 @@ struct AppState {
     Entropy::ClockDriftCollector clockDriftCollector;
     Entropy::CpuJitterCollector cpuJitterCollector;
     Entropy::KeystrokeCollector keystrokeCollector;
+    Entropy::MouseCollector mouseCollector;
     
     // Centralized entropy pool (stores all collected data with timestamps)
     Entropy::EntropyPool entropyPool;

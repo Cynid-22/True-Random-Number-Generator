@@ -12,7 +12,7 @@
 // Track which features are actually implemented
 static const bool FEATURE_MICROPHONE_IMPLEMENTED = false;
 static const bool FEATURE_KEYSTROKE_IMPLEMENTED = true;
-static const bool FEATURE_MOUSE_IMPLEMENTED = false;
+static const bool FEATURE_MOUSE_IMPLEMENTED = true;
 static const bool FEATURE_CLOCK_DRIFT_IMPLEMENTED =
     true; // Has ClockDriftCollector
 static const bool FEATURE_CPU_JITTER_IMPLEMENTED = true;
@@ -570,13 +570,25 @@ void RenderCollectionWindow() {
     
     ImGui::InvisibleButton("canvas", canvas_sz);
     
+    // Calculate canvas bounds for visualization only
+    ImVec2 canvas_min = canvas_p0;
+    ImVec2 canvas_max = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
+    
+    // TIME-WINDOW FILTERING: Tell MouseCollector if canvas is hovered
+    // The hook captures all events, but only keeps those during hover periods
+    bool isHovered = ImGui::IsItemHovered();
+    if (g_state.mouseMovementEnabled && g_state.mouseCollector.IsRunning()) {
+        g_state.mouseCollector.SetCanvasHovered(isHovered);
+    }
+    
     // VISUALIZATION CAPTURE: Mouse (Canvas Only)
     static float lastRelX = -1.0f, lastRelY = -1.0f;
-    if (ImGui::IsItemHovered()) {
+    if (isHovered) {
         ImVec2 mouse_pos = ImGui::GetMousePos();
+        
         // Calculate relative position (0.0 - 1.0)
-        float relX = (mouse_pos.x - canvas_p0.x) / canvas_sz.x;
-        float relY = (mouse_pos.y - canvas_p0.y) / canvas_sz.y;
+        float relX = (mouse_pos.x - canvas_min.x) / canvas_sz.x;
+        float relY = (mouse_pos.y - canvas_min.y) / canvas_sz.y;
         
         // Clamp to ensure 0..1
         if (relX >= 0.0f && relX <= 1.0f && relY >= 0.0f && relY <= 1.0f) {
@@ -619,8 +631,11 @@ void RenderCollectionWindow() {
     
     // Draw border and background
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    draw_list->AddRectFilled(canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), IM_COL32(20, 20, 20, 255));
-    draw_list->AddRect(canvas_p0, ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y), IM_COL32(100, 100, 100, 255));
+    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(20, 20, 20, 255));
+    draw_list->AddRect(canvas_min, canvas_max, IM_COL32(100, 100, 100, 255));
+
+    // Clip all drawing to canvas rectangle to prevent overflow
+    draw_list->PushClipRect(canvas_min, canvas_max, true);
 
     // Draw Trail
     if (!g_state.mouseTrail.empty()) {
@@ -636,6 +651,9 @@ void RenderCollectionWindow() {
         ImVec2 textSize = ImGui::CalcTextSize(text);
         draw_list->AddText(ImVec2(canvas_p0.x + (canvas_sz.x - textSize.x) * 0.5f, canvas_p0.y + (canvas_sz.y - textSize.y) * 0.5f), IM_COL32(100, 100, 100, 255), text);
     }
+    
+    // Restore clipping
+    draw_list->PopClipRect();
 
     ImGui::Spacing();
     ImGui::Spacing();
