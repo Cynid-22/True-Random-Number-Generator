@@ -10,7 +10,7 @@
 //=============================================================================
 
 // Track which features are actually implemented
-static const bool FEATURE_MICROPHONE_IMPLEMENTED = false;
+static const bool FEATURE_MICROPHONE_IMPLEMENTED = true;
 static const bool FEATURE_KEYSTROKE_IMPLEMENTED = true;
 static const bool FEATURE_MOUSE_IMPLEMENTED = true;
 static const bool FEATURE_CLOCK_DRIFT_IMPLEMENTED =
@@ -21,11 +21,17 @@ static const bool FEATURE_CPU_JITTER_IMPLEMENTED = true;
 // implementation) For now, since features aren't implemented, this always
 // returns false
 static bool IsDeviceAvailable(const char *deviceType) {
-  // TODO: When features are implemented, check actual device availability
-  // For microphone: check if audio device is connected and accessible
-  // For mouse: check if mouse input is being received
+  if (strcmp(deviceType, "microphone") == 0) {
+      // If collection is active, check if the collector is actually running (it stops itself on error)
+      if (g_state.isCollecting) {
+          return g_state.microphoneCollector.IsRunning();
+      }
+      // If not collecting, we assume it's available until proven otherwise
+      return true; 
+  }
+  // For mouse: check if mouse input is being received (already handled via entropy rate logic in UI)
   // For keystroke: keyboard is always available
-  return false; // Placeholder
+  return true; 
 }
 
 //=============================================================================

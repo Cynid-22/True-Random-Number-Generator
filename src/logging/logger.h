@@ -3,7 +3,8 @@
 namespace Logger {
 
 enum class Level {
-    DEBUG,
+    // DEBUG level removed for security hardening
+    // DEBUG,
     INFO,
     WARN,
     ERR
@@ -23,5 +24,8 @@ bool IsEnabled();
 
 // Log a message
 void Log(Level level, const char* module, const char* format, ...);
+
+// Get current log file path
+const char* GetCurrentLogPath();
 
 } // namespace Logger

@@ -193,6 +193,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             else if (!g_state.mouseMovementEnabled && g_state.mouseCollector.IsRunning()) {
                 g_state.mouseCollector.Stop();
             }
+
+            if (g_state.microphoneEnabled && !g_state.microphoneCollector.IsRunning()) {
+                g_state.microphoneCollector.Start();
+            }
+            else if (!g_state.microphoneEnabled && g_state.microphoneCollector.IsRunning()) {
+                g_state.microphoneCollector.Stop();
+            }
             
             // Harvest Data - only from enabled sources
             if (g_state.clockDriftEnabled) {
@@ -275,6 +282,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 }
             }
 
+            if (g_state.microphoneEnabled) {
+                auto data = g_state.microphoneCollector.Harvest();
+                if (!data.empty()) {
+                    g_state.entropyPool.AddDataPoints(data);
+                    
+                    // Microphone entropy logic: 
+                    // Each data point now contains 64 packed bits of LSB noise
+                    // We treat this as ~64 bits of entropy (assuming thermal noise is random)
+                    // This creates a much higher entropy rate than other sources, 
+                    // but it is real hardware entropy.
+                    
+                    float newEntropy = (float)(data.size() * 64);
+                    g_state.entropyMic += newEntropy;
+                    
+                    // Securely clear the data points (the vector itself is local and destroyed, 
+                    // but good practice to wipe values if we copied them. 
+                    // Here we didn't copy to a separate values vector, so just let the vector dtor handle it?
+                    // Actually, the vector contains structs with uint64_t values.
+                    // Strictly speaking we should wipe it if it's sensitive.
+                    if (!data.empty()) {
+                        SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
+                    }
+                }
+            }
+
 
             // Simulate other sources for now until implemented
             // logic::SimulateEntropyCollection() calls are currently in GUI... 
@@ -294,6 +326,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             }
             if (g_state.mouseCollector.IsRunning()) {
                 g_state.mouseCollector.Stop();
+            }
+            if (g_state.microphoneCollector.IsRunning()) {
+                g_state.microphoneCollector.Stop();
             }
             // Clear visualization data
             g_state.mouseTrail.clear();
@@ -356,7 +391,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         RenderCollectionWindow();
         
         // Render Logging Warning Window if needed
-        RenderLoggingWarningWindow();
+        // RenderLoggingWarningWindow();
         
         ImGui::End();
         

@@ -114,14 +114,8 @@ void ClockDriftCollector::CollectionLoop() {
         uint64_t timestamp = GetNanosecondTimestamp();
         
         // Log details for every 10th sample (more detailed as requested)
-        if (m_sampleCount % 10 == 0) {
-             // Create 16-bit binary representation
-        std::bitset<16> binary(entropyPoint);
-             
-             Logger::Log(Logger::Level::DEBUG, "ClockDrift", 
-            "Sample #%llu | Delta: %llu | Entropy: 0x%04X | Binary: %s | Timestamp: %llu", 
-            m_sampleCount.load(), delta, entropyPoint, binary.to_string().c_str(), timestamp);
-        }
+        // Log conversion removed for security
+        // if (m_sampleCount % 10 == 0) ...
 
         // 8. Store sample with timestamp and source
         {

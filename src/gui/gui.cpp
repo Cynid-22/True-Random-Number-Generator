@@ -171,25 +171,17 @@ void RenderMenuBar() {
       ImGui::EndMenu();
     }
 
-    // Global Warning if Logging is ON
+    // Global Status if Logging is ON
     if (g_state.keepLogs) {
-      // Move further left to prevent clipping
-      ImGui::SameLine(ImGui::GetWindowWidth() - 250);
+      const char* logPath = Logger::GetCurrentLogPath();
+      char statusText[512];
+      snprintf(statusText, sizeof(statusText), "[LOGGING ON: %s]", logPath);
 
-      // Add a background box for visibility
-      ImGui::PushStyleColor(ImGuiCol_Button,
-                            ImVec4(0.3f, 0.0f, 0.0f, 1.0f)); // Dark red bg
-      ImGui::PushStyleColor(ImGuiCol_Text,
-                            ImVec4(1.0f, 0.2f, 0.2f, 1.0f)); // Bright red text
-      ImGui::SmallButton("!! LOGGING ENABLED !!"); // Use Button for box effect
-      ImGui::PopStyleColor(2);
+      // Calc size to right align
+      ImVec2 textSize = ImGui::CalcTextSize(statusText);
+      ImGui::SameLine(ImGui::GetWindowWidth() - textSize.x - 20); // 20px padding
 
-      if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "Debug logs are being written to disk.\nThis WILL compromise "
-            "security, degrade performance, and fill storage.\nOnly turn this "
-            "on if you are debugging an issue.");
-      }
+      ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "%s", statusText);
     }
 
     ImGui::EndMenuBar();

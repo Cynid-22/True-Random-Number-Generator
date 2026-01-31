@@ -16,6 +16,7 @@ static std::mutex g_logMutex;
 static bool g_initialized = false;
 static bool g_enabled = false;
 static std::string g_logDir;
+static std::string g_currentLogPath;
 
 void Init(const char* logDir) {
     std::lock_guard<std::mutex> lock(g_logMutex);
@@ -26,8 +27,8 @@ void Init(const char* logDir) {
     g_initialized = true;
     
     // Create directory now to ensure permissions/existence
-    std::error_code ec;
-    std::filesystem::create_directories(g_logDir, ec);
+    // MOVED to SetEnabled to prevent empty folder creation if feature unused.
+    // std::filesystem::create_directories(g_logDir, ec);
     
     // Do NOT open file yet. Wait for SetEnabled(true).
     Log(Level::INFO, "Logger", "Logger initialized (File logging waiting for enable)");
@@ -54,11 +55,17 @@ void SetEnabled(bool enabled) {
             time_t now = time(nullptr);
             struct tm t;
             localtime_s(&t, &now);
+            // Create directory lazily when first enabled
+            std::error_code ec;
+            std::filesystem::create_directories(g_logDir, ec);
+
             char filename[256];
             snprintf(filename, sizeof(filename), "%s/trng_%04d%02d%02d_%02d%02d%02d.log",
                      g_logDir.c_str(), t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
                      t.tm_hour, t.tm_min, t.tm_sec);
             g_logFile.open(filename, std::ios::out | std::ios::app);
+            // Store relative path for UI
+            g_currentLogPath = std::string(filename); // filename contains full relative path e.g. "logs/..."
         }
         
         if (g_logFile.is_open()) {
@@ -102,6 +109,7 @@ void SetEnabled(bool enabled) {
             if (g_logFile.is_open()) {
                 g_logFile.close();
             }
+            g_currentLogPath = "";
         }
     }
 }
@@ -117,7 +125,7 @@ void LogInternal(Level level, const char* module, const char* message) {
 
     const char* levelStr = "UNKNOWN";
     switch (level) {
-        case Level::DEBUG: levelStr = "DEBUG"; break;
+        // case Level::DEBUG: levelStr = "DEBUG"; break;
         case Level::INFO:  levelStr = "INFO "; break;
         case Level::WARN:  levelStr = "WARN "; break;
         case Level::ERR:   levelStr = "ERROR"; break;
@@ -165,6 +173,12 @@ void Log(Level level, const char* module, const char* format, ...) {
     if (g_logFile.is_open()) {
         LogInternal(level, module, message);
     } 
+}
+
+const char* GetCurrentLogPath() {
+    // Determine path based on state
+    if (!g_enabled) return "";
+    return g_currentLogPath.c_str();
 }
 
 } // namespace Logger}

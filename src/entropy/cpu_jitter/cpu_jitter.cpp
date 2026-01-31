@@ -93,10 +93,7 @@ void CpuJitterCollector::RefereeLoop() {
         }
         
         // Log occasional sample (every 10th to avoid spamming >1000 logs/sec)
-        if (m_sampleCount % 10 == 0) {
-             Logger::Log(Logger::Level::DEBUG, "CpuJitter", 
-            "Sample #%llu | Delta: %llu", m_sampleCount.load(), delta);
-        }
+        // Detailed logging removed for security
         
         m_sampleCount++;
         samplesSinceRateCheck++;

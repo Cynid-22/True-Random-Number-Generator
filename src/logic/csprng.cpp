@@ -54,7 +54,8 @@ std::vector<uint8_t> GenerateRandomBytes(
     std::vector<uint8_t> entropyBytes = SerializeEntropyData(entropyData);
     
     // Log entropy pool state
-    Logger::Log(Logger::Level::DEBUG, "CSPRNG",
+    // Log entropy pool state
+    Logger::Log(Logger::Level::INFO, "CSPRNG",
                 "GenerateRandomBytes: %zu data points, %zu entropy bytes, requesting %zu output bytes",
                 entropyData.size(), entropyBytes.size(), numBytes);
     
@@ -123,7 +124,7 @@ std::vector<uint8_t> GenerateRandomBytes(
             stream1[i] ^= entropyBytes[i % entropyBytes.size()];
         }
     }
-    Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 2: Entropy Fold Complete");
+    // Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 2: Entropy Fold Complete");
     
     //-------------------------------------------------------------------------
     // LAYER 3: AES-256 Transformation
@@ -135,7 +136,7 @@ std::vector<uint8_t> GenerateRandomBytes(
     std::vector<uint8_t> aesIV(s1Hash.begin() + 32, s1Hash.begin() + 48); // 16 bytes IV
     
     std::vector<uint8_t> stream3 = Crypto::AES256::EncryptCTR(aesKey, aesIV, stream1);
-    Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 3: AES-256 Transformation Complete");
+    // Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 3: AES-256 Transformation Complete");
     
     //-------------------------------------------------------------------------
     // LAYER 4: ChaCha20 Final Whitening
@@ -154,15 +155,9 @@ std::vector<uint8_t> GenerateRandomBytes(
     std::copy(key4Mat.begin() + 32, key4Mat.begin() + 44, nonce4.begin());
     
     std::vector<uint8_t> result = Crypto::ChaCha20::GenerateStream(key4, nonce4, numBytes);
-    Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 4: Final Whitening Complete");
+    // Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 4: Final Whitening Complete");
     
-    // 7. Debug Logging
-    if (result.size() >= 8) {
-        Logger::Log(Logger::Level::DEBUG, "CSPRNG",
-                    "Final Output (First 8): %02x %02x %02x %02x %02x %02x %02x %02x",
-                    result[0], result[1], result[2], result[3],
-                    result[4], result[5], result[6], result[7]);
-    }
+    // 7. Debug Logging REMOVED for Security
     
     // 8. Secure Cleanup
     SecureZeroMemory(entropyBytes.data(), entropyBytes.size());

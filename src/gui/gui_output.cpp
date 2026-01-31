@@ -310,10 +310,8 @@ void RenderOutputConfigSection() {
                                         ImVec2(-1, 150))) {
             UpdateTargetEntropy();
             // SECURITY: DO NOT LOG MESSAGE CONTENT
-            Logger::Log(
-                Logger::Level::DEBUG, "GUI",
-                "Output Config [OTP]: Message content updated (length: %zu)",
-                strlen(g_state.otpMessage));
+            // SECURITY: DO NOT LOG MESSAGE CONTENT
+            // Previously logged length via DEBUG, removed for hardening
           }
           ImGui::EndTabItem();
         }
@@ -462,12 +460,6 @@ void RenderOutputSection() {
   if (!hasMinimumEntropy)
     ImGui::BeginDisabled();
   if (ImGui::Button("Generate", ImVec2(100, 0))) {
-    // Check if logging was ever enabled during this session
-    if (g_state.loggingWasEverEnabled) {
-      // Show warning window instead of generating immediately
-      g_state.showLoggingWarningWindow = true;
-      g_state.loggingWarningCountdown = 5.0f; // Reset countdown
-    } else {
       // Check OTP mode consolidation requirement
       if (g_state.outputFormat == 6 && !hasFullEntropy) {
         // OTP requires TRUE RANDOMNESS (consolidation mode)
@@ -508,7 +500,6 @@ void RenderOutputSection() {
       Logger::Log(Logger::Level::INFO, "GUI",
                   "Entropy locked at timestamp: %llu",
                   g_state.lockedDataTimestamp);
-    }
   }
   if (!hasMinimumEntropy)
     ImGui::EndDisabled();
@@ -552,161 +543,5 @@ void RenderOutputSection() {
 // LOGGING WARNING WINDOW
 //=============================================================================
 
-void RenderLoggingWarningWindow() {
-  if (!g_state.showLoggingWarningWindow)
-    return;
-
-  // Update countdown timer
-  ImGuiIO &io = ImGui::GetIO();
-  if (g_state.loggingWarningCountdown > 0.0f) {
-    g_state.loggingWarningCountdown -= io.DeltaTime;
-    if (g_state.loggingWarningCountdown < 0.0f) {
-      g_state.loggingWarningCountdown = 0.0f;
-    }
-  }
-
-  // Center the window
-  ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
-                          ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(600, 580), ImGuiCond_FirstUseEver);
-
-  // Make it modal (blocking) - OpenPopup must be called before BeginPopupModal
-  if (!ImGui::IsPopupOpen("Logging Warning")) {
-    ImGui::OpenPopup("Logging Warning");
-  }
-
-  if (ImGui::BeginPopupModal(
-          "Logging Warning", &g_state.showLoggingWarningWindow,
-          ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
-
-    // Title with warning icon
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-    ImGui::Text("SECURITY WARNING: Logging Mode Detected");
-    ImGui::PopStyleColor();
-
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // Risks section
-    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "RISKS:");
-    ImGui::Spacing();
-    ImGui::BulletText("Entropy data may have been compromised");
-    ImGui::BulletText("Randomness cannot be fully ensured");
-    ImGui::BulletText("Log files may contain sensitive entropy data");
-    ImGui::BulletText("Security of generated output is compromised");
-    ImGui::BulletText("Log files persist on disk and may be recoverable");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // Recommendations section
-    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "RECOMMENDATIONS:");
-    ImGui::Spacing();
-    ImGui::BulletText("Turn off logging mode if it is not already off");
-    ImGui::BulletText("Delete all recorded entropy data");
-    ImGui::BulletText("Record entropy data again with logging disabled");
-    ImGui::BulletText("Only use logging mode for debugging purposes");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // Generate Anyway button with countdown
-    bool canGenerate = (g_state.loggingWarningCountdown <= 0.0f);
-
-    // Center the buttons
-    float buttonWidth1 =
-        220.0f; // Width for "Generate Anyway (X.X)" with padding
-    float buttonWidth2 = 100.0f; // Width for Cancel button
-    float totalButtonWidth =
-        buttonWidth1 + 20.0f + buttonWidth2; // 20px spacing between buttons
-    float startX = (ImGui::GetWindowWidth() - totalButtonWidth) * 0.5f;
-
-    ImGui::SetCursorPosX(startX);
-
-    if (!canGenerate) {
-      ImGui::BeginDisabled();
-    }
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                          ImVec4(0.7f, 0.25f, 0.25f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-                          ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
-
-    char buttonText[64];
-    if (canGenerate) {
-      snprintf(buttonText, sizeof(buttonText), "Generate Anyway");
-    } else {
-      snprintf(buttonText, sizeof(buttonText), "Generate Anyway (%.1f)",
-               g_state.loggingWarningCountdown);
-    }
-
-    if (ImGui::Button(buttonText, ImVec2(buttonWidth1, 40))) {
-      // Check OTP consolidation requirement
-      bool hasFullEntropy = g_state.collectedBits >= g_state.targetBits;
-      
-      if (g_state.outputFormat == 6 && !hasFullEntropy) {
-        // OTP requires TRUE RANDOMNESS (consolidation mode)
-        g_state.generatedOutput = "[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
-                                  "Collect more entropy until the bar reaches 100%.";
-        g_state.entropyConsumed = 0.0f;
-      } else {
-        // Proceed with actual CSPRNG generation
-        CSPRNG::GenerationResult result = CSPRNG::GenerateOutput();
-        
-        if (result.success) {
-          g_state.generatedOutput = result.output;
-          g_state.entropyConsumed = result.entropyConsumed;
-          
-          time_t now = time(nullptr);
-          char timeStr[64];
-          strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)",
-                   localtime(&now));
-          g_state.timestamp = timeStr;
-          
-          const char* modeStr = (result.mode == CSPRNG::GenerationMode::Consolidation)
-                                ? "TRUE RANDOMNESS" : "PSEUDO-RANDOM";
-          Logger::Log(Logger::Level::INFO, "GUI",
-                      "Generated output using %s mode, consumed %.1f bits",
-                      modeStr, result.entropyConsumed);
-        } else {
-          g_state.generatedOutput = "[ERROR] " + result.errorMessage;
-          g_state.entropyConsumed = 0.0f;
-          Logger::Log(Logger::Level::ERR, "GUI",
-                      "Generation failed: %s", result.errorMessage.c_str());
-        }
-      }
-
-      // LOCK-IN: Lock all currently used entropy
-      g_state.lockedDataTimestamp = Entropy::GetNanosecondTimestamp();
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Entropy locked at timestamp: %llu",
-                  g_state.lockedDataTimestamp);
-
-      // Close the warning window
-      g_state.showLoggingWarningWindow = false;
-      ImGui::CloseCurrentPopup();
-    }
-
-    ImGui::PopStyleColor(3);
-
-    if (!canGenerate) {
-      ImGui::EndDisabled();
-    }
-
-    ImGui::SameLine();
-
-    // Cancel button
-    if (ImGui::Button("Cancel", ImVec2(buttonWidth2, 40))) {
-      g_state.showLoggingWarningWindow = false;
-      ImGui::CloseCurrentPopup();
-    }
-
-    ImGui::EndPopup();
-  } else {
-    // Popup was closed, reset the flag
-    g_state.showLoggingWarningWindow = false;
-  }
-}
+// Logging Warning Window removed for downgrading security warning logic
+// void RenderLoggingWarningWindow() { ... }
