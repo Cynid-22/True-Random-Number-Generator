@@ -146,27 +146,27 @@ The CSPRNG output was tested against the official **NIST SP 800-22 rev1a** Stati
 | Passed | 186 |
 | Marginal (flagged `*`) | 2 |
 | Failed | 0 |
-| **Verdict** | **PASS** ✅ |
+| **Verdict** | **PASS** |
 
 All 15 statistical tests passed:
 
 | Test | P-Value | Proportion | Status |
 |------|---------|------------|--------|
-| Frequency | 0.554420 | 99/100 | ✅ |
-| Block Frequency | 0.554420 | 96/100 | ✅ |
-| Cumulative Sums | 0.699313 | 98/100 | ✅ |
-| Runs | 0.115387 | 100/100 | ✅ |
-| Longest Run of Ones | 0.494392 | 98/100 | ✅ |
-| Rank | 0.437274 | 100/100 | ✅ |
-| FFT | 0.657933 | 98/100 | ✅ |
-| Non-Overlapping Template | 0.002374 – 0.999438 | 95–100/100 | ✅ |
-| Overlapping Template | 0.637119 | 99/100 | ✅ |
-| Universal | 0.066882 | 95/100 | ✅* |
-| Approximate Entropy | 0.897763 | 100/100 | ✅ |
-| Random Excursions | 0.213309 – 0.911413 | 61–62/62 | ✅ |
-| Random Excursions Variant | 0.054199 – 0.671779 | 60–62/62 | ✅ |
-| Serial | 0.304126 | 99/100 | ✅ |
-| Linear Complexity | 0.637119 | 98/100 | ✅ |
+| Frequency | 0.554420 | 99/100 | Passed |
+| Block Frequency | 0.554420 | 96/100 | Passed |
+| Cumulative Sums | 0.699313 | 98/100 | Passed |
+| Runs | 0.115387 | 100/100 | Passed |
+| Longest Run of Ones | 0.494392 | 98/100 | Passed |
+| Rank | 0.437274 | 100/100 | Passed |
+| FFT | 0.657933 | 98/100 | Passed |
+| Non-Overlapping Template | 0.002374 – 0.999438 | 95–100/100 | Passed |
+| Overlapping Template | 0.637119 | 99/100 | Passed |
+| Universal | 0.066882 | 95/100 | Passed* |
+| Approximate Entropy | 0.897763 | 100/100 | Passed |
+| Random Excursions | 0.213309 – 0.911413 | 61–62/62 | Passed |
+| Random Excursions Variant | 0.054199 – 0.671779 | 60–62/62 | Passed |
+| Serial | 0.304126 | 99/100 | Passed |
+| Linear Complexity | 0.637119 | 98/100 | Passed |
 
 > **Note**: The 2 marginal results (95/100 on one NonOverlappingTemplate and Universal) are within expected statistical noise. Even a perfect random source will produce ~1-2 borderline results out of 188 test instances by chance (1.06% ≈ expected 1%).
 
