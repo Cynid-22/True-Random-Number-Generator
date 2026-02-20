@@ -78,7 +78,7 @@ $TRNG_DIR/trng_gen.exe | head -c 1073741824 > $STS_DIR/data/nist_test.bin
 ```
 
 **Run**:
-```bash
+```bas
 cd $STS_DIR
 ./assess.exe 1000000
 ```
@@ -207,13 +207,16 @@ make
 ```
 This produces the executables (`ea_non_iid`, `ea_iid`, `ea_restart`, `ea_conditioning`) in the `cpp/` folder.
 
-**Generate test data** (1 MB – 10 MB):
+**Generate test data** (1 MB – 100 MB):
 ```bash
 # 1 MB (fast, sufficient for basic estimate)
 $TRNG_DIR/trng_gen.exe | head -c 1048576 > $SP90B_DIR/bin/trng_90b.bin
 
 # 10 MB (more accurate, but slower analysis)
 $TRNG_DIR/trng_gen.exe | head -c 10485760 > $SP90B_DIR/bin/trng_90b.bin
+
+# 100 MB
+$TRNG_DIR/trng_gen.exe | head -c 104857600 > $SP90B_DIR/bin/trng_90b.bin
 ```
 
 **Run**:
