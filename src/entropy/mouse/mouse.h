@@ -29,8 +29,8 @@ public:
     std::vector<EntropyDataPoint> Harvest();
     
     // Public method to handle mouse events (called by static hook)
-    // kernelTime is from MSLLHOOKSTRUCT.time (milliseconds from GetTickCount)
-    void ProcessMouse(POINT pt, DWORD kernelTime);
+    // timestamp is Entropy::GetNanosecondTimestamp()
+    void ProcessMouse(POINT pt, uint64_t timestamp);
     
     // Statistics for GUI
     double GetEntropyRate() const;     // samples/sec estimate
@@ -63,6 +63,10 @@ private:
     
     std::atomic<uint64_t> m_sampleCount{0};
     std::atomic<double> m_rate{0.0};
+    
+    // Rate calculation state (avoids static locals)
+    uint64_t m_lastRateTime{0};
+    uint64_t m_lastRateCount{0};
     
     // Thread-local pointer for hook callback
     static MouseCollector* s_instance;

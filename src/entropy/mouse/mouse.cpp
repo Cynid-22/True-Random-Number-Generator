@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <windows.h> // For SecureZeroMemory
+#include "../../crypto/secure_mem.h"
 
 namespace Entropy {
 
@@ -45,6 +46,12 @@ void MouseCollector::Start() {
     m_lastY = -1;
     m_canvasHovered = false;
     m_hoverStartTime = 0;
+    
+    // Reset rate tracking state for new session
+    m_lastRateTime = 0;
+    m_lastRateCount = 0;
+    m_sampleCount = 0;
+    m_rate = 0.0;
 }
 
 void MouseCollector::Stop() {
@@ -61,10 +68,7 @@ void MouseCollector::Stop() {
     // Flush any remaining local buffer
     FlushLocalBuffer();
 
-    uint64_t count = m_sampleCount.load();
-    Logger::Log(Logger::Level::INFO, "Mouse", 
-        "COLLECTION STOPPED | Samples: %llu | Rate: %.2f/s", 
-        count, m_rate.load());
+    Logger::Log(Logger::Level::INFO, "Mouse", "Collection stopped.");
         
     SecureClearBuffer();
 }
@@ -90,7 +94,7 @@ void MouseCollector::FlushLocalBuffer() {
     if (!m_localBuffer.empty()) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_buffer.insert(m_buffer.end(), m_localBuffer.begin(), m_localBuffer.end());
-        m_localBuffer.clear();
+        Crypto::SecureClearVector(m_localBuffer);
     }
 }
 
@@ -99,14 +103,16 @@ LRESULT CALLBACK MouseCollector::LowLevelMouseProc(int nCode, WPARAM wParam, LPA
     if (nCode == HC_ACTION && s_instance && s_instance->IsRunning()) {
         if (wParam == WM_MOUSEMOVE) {
             MSLLHOOKSTRUCT* pMouseStruct = (MSLLHOOKSTRUCT*)lParam;
-            // Pass kernel event timestamp for accurate timing even with V-Sync
-            s_instance->ProcessMouse(pMouseStruct->pt, pMouseStruct->time);
+            // Use unified high-resolution timestamp (same epoch as other sources)
+            // This fixes the security issue of chronological sorting failure in the pool
+            uint64_t now = GetNanosecondTimestamp();
+            s_instance->ProcessMouse(pMouseStruct->pt, now);
         }
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-void MouseCollector::ProcessMouse(POINT pt, DWORD kernelTime) {
+void MouseCollector::ProcessMouse(POINT pt, uint64_t timestamp) {
     // TIME-WINDOW FILTERING: Only capture if canvas is currently hovered
     if (!m_canvasHovered.load(std::memory_order_relaxed)) {
         return; // Canvas not hovered, skip this event
@@ -128,9 +134,8 @@ void MouseCollector::ProcessMouse(POINT pt, DWORD kernelTime) {
         return;
     }
 
-    // Convert kernel milliseconds to nanoseconds for entropy
-    // This preserves accurate hardware timing even when processed in batches
-    uint64_t eventTimeNs = (uint64_t)kernelTime * 1000000ULL;
+    // Use the unified high-res timestamp passed in
+    uint64_t eventTimeNs = timestamp;
 
     // Pack coordinates + deltas for high entropy density
     // Bits 48-63: X (16 bits)
@@ -171,7 +176,7 @@ void MouseCollector::ProcessMouse(POINT pt, DWORD kernelTime) {
         if (shouldFlush) {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_buffer.insert(m_buffer.end(), m_localBuffer.begin(), m_localBuffer.end());
-            m_localBuffer.clear();
+            Crypto::SecureClearVector(m_localBuffer);
             m_localBuffer.reserve(BATCH_SIZE);
             m_lastFlushTime.store(now, std::memory_order_relaxed);
         }
@@ -182,17 +187,15 @@ void MouseCollector::ProcessMouse(POINT pt, DWORD kernelTime) {
     m_lastY = pt.y;
 
     // Update rate (lightweight calculation)
-    static uint64_t lastRateTime = 0; 
     uint64_t timeCheck = GetNanosecondTimestamp();
-    if (lastRateTime == 0) lastRateTime = timeCheck;
+    if (m_lastRateTime == 0) m_lastRateTime = timeCheck;
     
-    double seconds = (double)(timeCheck - lastRateTime) / 1000000000.0;
+    double seconds = (double)(timeCheck - m_lastRateTime) / 1000000000.0;
     if (seconds >= 1.0) {
-        static uint64_t lastCount = 0;
         uint64_t currentCount = m_sampleCount.load();
-        m_rate = (double)(currentCount - lastCount) / seconds;
-        lastCount = currentCount;
-        lastRateTime = timeCheck;
+        m_rate = (double)(currentCount - m_lastRateCount) / seconds;
+        m_lastRateCount = currentCount;
+        m_lastRateTime = timeCheck;
     }
 }
 
@@ -203,20 +206,16 @@ std::vector<EntropyDataPoint> MouseCollector::Harvest() {
     }
     
     std::vector<EntropyDataPoint> harvested;
-    harvested.swap(m_buffer); 
+    harvested.swap(m_buffer);
+    // SECURITY: Shrink to release heap block that held entropy data
+    m_buffer.shrink_to_fit();
     return harvested;
 }
 
 void MouseCollector::SecureClearBuffer() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_buffer.empty()) {
-        SecureZeroMemory(m_buffer.data(), m_buffer.size() * sizeof(EntropyDataPoint));
-        m_buffer.clear();
-    }
-    if (!m_localBuffer.empty()) {
-        SecureZeroMemory(m_localBuffer.data(), m_localBuffer.size() * sizeof(EntropyDataPoint));
-        m_localBuffer.clear();
-    }
+    Crypto::SecureClearVector(m_buffer);
+    Crypto::SecureClearVector(m_localBuffer);
 }
 
 double MouseCollector::GetEntropyRate() const {

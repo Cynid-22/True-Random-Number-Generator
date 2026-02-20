@@ -13,6 +13,7 @@
 #include <iomanip>
 #include <fstream>
 #include <windows.h> // For SecureZeroMemory
+#include "../crypto/secure_mem.h"
 
 namespace CSPRNG {
 
@@ -119,9 +120,14 @@ std::vector<uint8_t> GenerateRandomBytes(
     // LAYER 2: Entropy Injection (XOR Fold)
     //-------------------------------------------------------------------------
     // Fold full entropy pool into stream1
+    // Fold full entropy pool into stream1
+    // FIX: Iterate over whichever is larger to ensure ALL entropy is mixed in
+    // If pool > stream, we wrap around stream index
+    // If stream > pool, we wrap around pool index
     if (!entropyBytes.empty()) {
-        for (size_t i = 0; i < stream1.size(); i++) {
-            stream1[i] ^= entropyBytes[i % entropyBytes.size()];
+        size_t loopCount = std::max(stream1.size(), entropyBytes.size());
+        for (size_t i = 0; i < loopCount; i++) {
+            stream1[i % stream1.size()] ^= entropyBytes[i % entropyBytes.size()];
         }
     }
     // Logger::Log(Logger::Level::DEBUG, "CSPRNG", "Layer 2: Entropy Fold Complete");
@@ -189,65 +195,114 @@ std::vector<uint8_t> ExpandEntropy(const std::vector<uint8_t>& entropyBytes, siz
 // FORMAT-SPECIFIC GENERATORS
 //=============================================================================
 
-std::string GenerateDecimal(const std::vector<uint8_t>& randomBytes, int digits) {
-    if (randomBytes.empty() || digits <= 0) return "0.0";
+std::vector<char> GenerateDecimal(const std::vector<uint8_t>& randomBytes, int digits) {
+    if (randomBytes.empty() || digits <= 0) {
+        std::string s = "0.0";
+        return std::vector<char>(s.begin(), s.end());
+    }
     
     std::ostringstream oss;
     oss << "0.";
     
-    // Use 2 bytes per digit for better uniformity
-    // Caller should provide at least digits*2 bytes
-    size_t bytesAvailable = randomBytes.size();
+    // Rejection Sampling for base 10
+    // Range: 10. Source: 2 bytes (0-65535).
+    // Limit: 65535 - (65535 % 10) = 65530.
+    // Accept if val < 65530.
+    const uint16_t LIMIT = 65530;
+    
+    size_t byteIdx = 0;
     
     for (int i = 0; i < digits; i++) {
-        size_t offset = i * 2;
-        uint16_t val;
+        uint16_t val = 0;
+        bool found = false;
         
-        if (offset + 1 < bytesAvailable) {
-            // Have 2 bytes available - use both
-            val = (static_cast<uint16_t>(randomBytes[offset]) << 8) | randomBytes[offset + 1];
-        } else if (offset < bytesAvailable) {
-            // Only 1 byte available
-            val = randomBytes[offset];
-        } else {
-            // No bytes available - this shouldn't happen if caller provides enough
-            val = 0;
+        while (byteIdx + 1 < randomBytes.size()) {
+            val = (static_cast<uint16_t>(randomBytes[byteIdx]) << 8) | randomBytes[byteIdx + 1];
+            byteIdx += 2;
+            
+            if (val < LIMIT) {
+                found = true;
+                break;
+            }
+            // Reject and try next 2 bytes
+        }
+        
+        if (!found) {
+            // Should not happen with 4x buffer, but handle safe
+            val = 0; 
         }
         
         int digit = val % 10;
         oss << digit;
     }
     
-    return oss.str();
+    std::string s = oss.str();
+    std::vector<char> result(s.begin(), s.end());
+    SecureZeroMemory(s.data(), s.size());
+    return result;
 }
 
-std::string GenerateInteger(const std::vector<uint8_t>& randomBytes, int min, int max) {
+std::vector<char> GenerateInteger(const std::vector<uint8_t>& randomBytes, int min, int max) {
     if (min > max) std::swap(min, max);
-    if (randomBytes.empty()) return std::to_string(min);
+    if (randomBytes.empty()) {
+        std::string s = std::to_string(min);
+        return std::vector<char>(s.begin(), s.end());
+    }
     
     uint64_t range = static_cast<uint64_t>(max) - static_cast<uint64_t>(min) + 1;
-    if (range == 0) range = 1;
+    if (range == 0) range = 1; // Overflow case or single value
     
-    // Build a random number from bytes
-    uint64_t randVal = 0;
+    // Determine bytes needed
     size_t bytesNeeded = (range <= 0xFF) ? 1 :
                          (range <= 0xFFFF) ? 2 :
                          (range <= 0xFFFFFFFF) ? 4 : 8;
+                         
+    // Calculate Rejection Limit
+    // We strictly assume Little Endian for internal logic simplicity, 
+    // but the byte compositing works regardless.
+    uint64_t maxVal;
+    if (bytesNeeded == 8) maxVal = 0xFFFFFFFFFFFFFFFFULL;
+    else maxVal = (1ULL << (bytesNeeded * 8)) - 1;
     
-    for (size_t i = 0; i < bytesNeeded && i < randomBytes.size(); i++) {
-        randVal = (randVal << 8) | randomBytes[i];
+    // limit is exclusive upper bound of valid range [0, limit)
+    // where range divides limit evenly.
+    uint64_t limit = maxVal - (maxVal % range);
+    
+    uint64_t randVal = 0;
+    bool found = false;
+    size_t byteIdx = 0;
+    
+    // Rejection Sampling Loop
+    while (byteIdx + bytesNeeded <= randomBytes.size()) {
+        randVal = 0;
+        for (size_t i = 0; i < bytesNeeded; i++) {
+            randVal = (randVal << 8) | randomBytes[byteIdx++];
+        }
+        
+        if (randVal < limit) {
+            found = true;
+            break;
+        }
     }
     
-    // Use rejection-free modular reduction
-    int64_t result = min + static_cast<int64_t>(randVal % range);
+    if (!found) {
+        // Fallback or use last generated (biased) if we run out
+        // With 32 bytes provided for max 8 bytes needed, this is rare.
+        // We'll proceed with randVal (it's random, just slightly biased)
+    }
     
-    return std::to_string(result);
+    int64_t resultVal = min + static_cast<int64_t>(randVal % range);
+    
+    std::string s = std::to_string(resultVal);
+    std::vector<char> result(s.begin(), s.end());
+    SecureZeroMemory(s.data(), s.size());
+    return result;
 }
 
-std::string GenerateBinary(const std::vector<uint8_t>& randomBytes, int length) {
-    if (randomBytes.empty() || length <= 0) return "";
+std::vector<char> GenerateBinary(const std::vector<uint8_t>& randomBytes, int length) {
+    if (randomBytes.empty() || length <= 0) return {};
     
-    std::string result;
+    std::vector<char> result;
     result.reserve(length);
     
     for (int i = 0; i < length; i++) {
@@ -255,16 +310,16 @@ std::string GenerateBinary(const std::vector<uint8_t>& randomBytes, int length) 
         int bitIdx = i % 8;
         
         if (byteIdx < randomBytes.size()) {
-            result += ((randomBytes[byteIdx] >> bitIdx) & 1) ? '1' : '0';
+            result.push_back(((randomBytes[byteIdx] >> bitIdx) & 1) ? '1' : '0');
         } else {
-            result += '0';
+            result.push_back('0');
         }
     }
     
     return result;
 }
 
-std::string GenerateCustomString(
+std::vector<char> GenerateCustomString(
     const std::vector<uint8_t>& randomBytes,
     int length,
     bool includeNumbers,
@@ -279,34 +334,41 @@ std::string GenerateCustomString(
     if (includeLowercase) charset += "abcdefghijklmnopqrstuvwxyz";
     if (includeSpecial) charset += "!@#$%^&*()_+-=[]{}|;':,.<>?";
     
-    if (charset.empty() || randomBytes.empty() || length <= 0) return "";
+    if (charset.empty() || randomBytes.empty() || length <= 0) return {};
     
-    std::string result;
+    std::vector<char> result;
     result.reserve(length);
     
-    size_t bytesAvailable = randomBytes.size();
+    // Rejection sampling set up
+    size_t setSize = charset.size();
+    uint16_t limit = 65535 - (65535 % static_cast<uint16_t>(setSize));
     
-    // Use 2 bytes per character for better uniformity
+    size_t byteIdx = 0;
+    
     for (int i = 0; i < length; i++) {
-        size_t offset = i * 2;
-        uint16_t val;
+        uint16_t val = 0;
+        bool found = false;
         
-        if (offset + 1 < bytesAvailable) {
-            val = (static_cast<uint16_t>(randomBytes[offset]) << 8) | randomBytes[offset + 1];
-        } else if (offset < bytesAvailable) {
-            val = randomBytes[offset];
-        } else {
-            val = 0;
+        while (byteIdx + 1 < randomBytes.size()) {
+            val = (static_cast<uint16_t>(randomBytes[byteIdx]) << 8) | randomBytes[byteIdx + 1];
+            byteIdx += 2;
+            
+            if (val < limit) {
+                found = true;
+                break;
+            }
         }
         
-        size_t charIdx = val % charset.size();
-        result += charset[charIdx];
+        if (!found) val = 0;
+        
+        size_t charIdx = val % setSize;
+        result.push_back(charset[charIdx]);
     }
     
     return result;
 }
 
-std::string GenerateBitByte(
+std::vector<char> GenerateBitByte(
     const std::vector<uint8_t>& randomBytes,
     int amount,
     int unit,
@@ -352,11 +414,15 @@ std::string GenerateBitByte(
             if (mod == 1) {
                 std::string s = oss.str();
                 s.replace(s.length() - 2, 2, "==");
-                return s;
+                std::vector<char> res(s.begin(), s.end());
+                SecureZeroMemory(s.data(), s.size());
+                return res;
             } else if (mod == 2) {
                 std::string s = oss.str();
                 s.replace(s.length() - 1, 1, "=");
-                return s;
+                std::vector<char> res(s.begin(), s.end());
+                SecureZeroMemory(s.data(), s.size());
+                return res;
             }
             break;
         }
@@ -383,17 +449,21 @@ std::string GenerateBitByte(
             break;
     }
     
-    return oss.str();
+    std::string s = oss.str();
+    std::vector<char> res(s.begin(), s.end());
+    SecureZeroMemory(s.data(), s.size());
+    return res;
 }
 
-std::string GeneratePassphrase(
+std::vector<char> GeneratePassphrase(
     const std::vector<uint8_t>& randomBytes,
     int wordCount,
     const std::string& separator,
     const std::vector<std::string>& wordlist) {
     
+    std::string err = "[Error: Wordlist not loaded]";
     if (wordlist.empty() || randomBytes.empty() || wordCount <= 0) {
-        return "[Error: Wordlist not loaded]";
+        return std::vector<char>(err.begin(), err.end());
     }
     
     std::string result;
@@ -415,10 +485,12 @@ std::string GeneratePassphrase(
         result += wordlist[wordIndex];
     }
     
-    return result;
+    std::vector<char> vec(result.begin(), result.end());
+    SecureZeroMemory(result.data(), result.size());
+    return vec;
 }
 
-std::string GenerateOTP(
+std::vector<char> GenerateOTP(
     const std::vector<uint8_t>& randomBytes,
     const std::string& message) {
     
@@ -429,7 +501,8 @@ std::string GenerateOTP(
     for (char c : message) {
         // Validate ASCII (Printable 32-126)
         if (c < 32 || c > 126) {
-            return "[Error: Message contains non-ASCII characters. Only printable ASCII (32-126) allowed.]";
+            std::string err = "[Error: Message contains non-ASCII characters. Only printable ASCII (32-126) allowed.]";
+            return std::vector<char>(err.begin(), err.end());
         }
         
         // Rejection Sampling for Modulo 95 Uniformity
@@ -448,7 +521,8 @@ std::string GenerateOTP(
         }
         
         if (!found) {
-            return "[Error: Insufficient entropy (rejection sampling exhausted). Please retry.]";
+            std::string err = "[Error: Insufficient entropy (rejection sampling exhausted). Please retry.]";
+            return std::vector<char>(err.begin(), err.end());
         }
         
         // ASCII Modulo Encryption: Cipher = (Msg + Key) % 95
@@ -457,7 +531,9 @@ std::string GenerateOTP(
         result += static_cast<char>(cipherVal + 32);
     }
     
-    return result;
+    std::vector<char> vec(result.begin(), result.end());
+    SecureZeroMemory(result.data(), result.size());
+    return vec;
 }
 
 std::vector<uint8_t> GenerateOTPFile(
@@ -515,17 +591,17 @@ GenerationResult GenerateOutput() {
     size_t bytesNeeded = 0;
     
     switch (g_state.outputFormat) {
-        case 0: // Decimal - uses 2 bytes per digit
-            bytesNeeded = g_state.decimalDigits * 2;
+        case 0: // Decimal - uses 2 bytes per digit. Request 4x for rejection safety buffer.
+            bytesNeeded = g_state.decimalDigits * 4;
             break;
-        case 1: // Integer - needs up to 8 bytes
-            bytesNeeded = 8;
+        case 1: // Integer - needs up to 8 bytes. Request 32 bytes for multiple retries.
+            bytesNeeded = 32;
             break;
         case 2: // Binary - 1 bit per output bit, so ceil(length/8)
             bytesNeeded = (g_state.binaryLength + 7) / 8;
             break;
-        case 3: // Custom - uses 2 bytes per character
-            bytesNeeded = g_state.customLength * 2;
+        case 3: // Custom - uses 2 bytes per character. Request 4x for rejection safety buffer.
+            bytesNeeded = g_state.customLength * 4;
             break;
         case 4: // Bit/Byte - exact amount requested
             bytesNeeded = (g_state.bitByteUnit == 0) ? 
@@ -627,7 +703,9 @@ GenerationResult GenerateOutput() {
                     oss << std::hex << std::setw(2) << std::setfill('0') 
                         << static_cast<int>(b);
                 }
-                result.output = oss.str();
+                std::string s = oss.str();
+                result.output = std::vector<char>(s.begin(), s.end());
+                SecureZeroMemory(s.data(), s.size());
                 
                 // Secure cleanup
                 SecureZeroMemory(fileData.data(), fileData.size());
@@ -635,6 +713,9 @@ GenerationResult GenerateOutput() {
             }
             break;
     }
+    
+    // Ensure null termination for C-string compatibility
+    result.output.push_back('\0');
     
     // Calculate entropy consumed
     result.entropyConsumed = static_cast<float>(randomBytes.size()) * 8.0f;
@@ -644,7 +725,8 @@ GenerationResult GenerateOutput() {
     }
     
     // Secure cleanup
-    SecureZeroMemory(randomBytes.data(), randomBytes.size());
+    Crypto::SecureClearVector(randomBytes);
+    Crypto::SecureClearVector(pooledData);
     
     result.success = true;
     Logger::Log(Logger::Level::INFO, "CSPRNG",

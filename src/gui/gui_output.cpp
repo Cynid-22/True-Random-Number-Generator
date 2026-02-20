@@ -37,6 +37,14 @@ void RenderOutputConfigSection() {
     Logger::Log(Logger::Level::INFO, "GUI",
                 "Output Format changed from '%s' to '%s'", formats[prevFormat],
                 formats[g_state.outputFormat]);
+    
+    // SECURITY: Wipe OTP message buffer when switching away from OTP mode
+    if (prevFormat == 6 && g_state.outputFormat != 6) {
+        SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
+        SecureZeroMemory(g_state.otpFilePath, sizeof(g_state.otpFilePath));
+        g_state.otpFileSize = 0;
+    }
+    
     UpdateTargetEntropy();
   }
 
@@ -428,7 +436,7 @@ void RenderOutputSection() {
   if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -160.0f), true)) {
     if (!g_state.generatedOutput.empty()) {
        // Using TextWrapped for native wrapping behavior (non-selectable)
-      ImGui::TextWrapped("%s", g_state.generatedOutput.c_str());
+      ImGui::TextWrapped("%s", g_state.generatedOutput.data());
     }
   }
   ImGui::EndChild();
@@ -463,8 +471,10 @@ void RenderOutputSection() {
       // Check OTP mode consolidation requirement
       if (g_state.outputFormat == 6 && !hasFullEntropy) {
         // OTP requires TRUE RANDOMNESS (consolidation mode)
-        g_state.generatedOutput = "[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
-                                  "Collect more entropy until the bar reaches 100%.";
+        std::string err = "[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
+                          "Collect more entropy until the bar reaches 100%.";
+        g_state.generatedOutput = std::vector<char>(err.begin(), err.end());
+        g_state.generatedOutput.push_back('\0');
         g_state.entropyConsumed = 0.0f;
       } else {
         // Proceed with actual CSPRNG generation
@@ -488,7 +498,9 @@ void RenderOutputSection() {
                       "Generated output using %s mode, consumed %.1f bits",
                       modeStr, result.entropyConsumed);
         } else {
-          g_state.generatedOutput = "[ERROR] " + result.errorMessage;
+          std::string err = "[ERROR] " + result.errorMessage;
+          g_state.generatedOutput = std::vector<char>(err.begin(), err.end());
+          g_state.generatedOutput.push_back('\0');
           g_state.entropyConsumed = 0.0f;
           Logger::Log(Logger::Level::ERR, "GUI",
                       "Generation failed: %s", result.errorMessage.c_str());
@@ -510,7 +522,7 @@ void RenderOutputSection() {
   if (!canCopy)
     ImGui::BeginDisabled();
   if (ImGui::Button("Copy", ImVec2(80, 0))) {
-    ImGui::SetClipboardText(g_state.generatedOutput.c_str());
+    ImGui::SetClipboardText(g_state.generatedOutput.data());
   }
   if (!canCopy)
     ImGui::EndDisabled();
@@ -520,9 +532,16 @@ void RenderOutputSection() {
   if (!canCopy)
     ImGui::BeginDisabled();
   if (ImGui::Button("Clear", ImVec2(80, 0))) {
-    g_state.generatedOutput = "";
+    // SECURITY: Securely wipe output data before clearing
+    if (!g_state.generatedOutput.empty()) {
+      SecureZeroMemory(g_state.generatedOutput.data(), g_state.generatedOutput.size());
+    }
+    g_state.generatedOutput.clear();
     g_state.entropyConsumed = 0.0f;
     g_state.timestamp = "";
+    
+    // SECURITY: Also wipe OTP message buffer on clear
+    SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
   }
   if (!canCopy)
     ImGui::EndDisabled();

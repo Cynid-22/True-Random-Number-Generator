@@ -2,6 +2,7 @@
 #include "../../logging/logger.h"
 #include <windows.h>
 #include <chrono>
+#include "../../crypto/secure_mem.h"
 
 namespace Entropy {
 
@@ -25,6 +26,11 @@ void KeystrokeCollector::Start() {
     }
 
     Logger::Log(Logger::Level::INFO, "Keystroke", "Installing keyboard hook...");
+    
+    // Reset rate tracking state for new session
+    m_lastRateTime = std::chrono::steady_clock::now();
+    m_sampleCount = 0;
+    m_rate = 0.0;
     
     // IMPORTANT: SetWindowsHookEx requires a message loop, which we have in main.cpp
     // We install the hook here. content of module handle usually needed for global hooks, 
@@ -52,11 +58,7 @@ void KeystrokeCollector::Stop() {
         m_hook = nullptr;
     }
     
-    // Log final summary
-    uint64_t count = m_sampleCount.load();
-    Logger::Log(Logger::Level::INFO, "Keystroke", 
-        "COLLECTION STOPPED | Samples: %llu | Rate: %.2f/s", 
-        count, m_rate.load());
+    Logger::Log(Logger::Level::INFO, "Keystroke", "Collection stopped.");
         
     SecureClearBuffer();
 }
@@ -72,16 +74,15 @@ std::vector<EntropyDataPoint> KeystrokeCollector::Harvest() {
     }
     
     std::vector<EntropyDataPoint> harvested;
-    harvested.swap(m_buffer); 
+    harvested.swap(m_buffer);
+    // SECURITY: Shrink to release heap block that held entropy data
+    m_buffer.shrink_to_fit();
     return harvested;
 }
 
 void KeystrokeCollector::SecureClearBuffer() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_buffer.empty()) {
-        SecureZeroMemory(m_buffer.data(), m_buffer.size() * sizeof(EntropyDataPoint));
-        m_buffer.clear();
-    }
+    Crypto::SecureClearVector(m_buffer);
 }
 
 double KeystrokeCollector::GetEntropyRate() const {
@@ -143,12 +144,12 @@ void KeystrokeCollector::OnKeyDown(uint64_t timestamp) {
             m_sampleCount++;
             
             // Rate calc (simplified for intermittent events)
-            static auto lastRateTime = std::chrono::steady_clock::now();
             auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastRateTime).count();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastRateTime).count();
             if (elapsed >= 1) {
                 // Just use raw count for now, it's very variable
                 m_rate = (double)m_sampleCount / (double)(elapsed + 1); // rough approx
+                m_lastRateTime = now;
             }
         }
     }

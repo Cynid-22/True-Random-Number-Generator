@@ -49,6 +49,9 @@ private:
     std::atomic<uint64_t> m_sampleCount{0};
     std::atomic<double> m_rate{0.0};
     
+    // Rate calculation state (avoids static locals)
+    std::chrono::steady_clock::time_point m_lastRateTime{};
+    
     // Thread-local pointer for hook callback
     static KeystrokeCollector* s_instance;
 };

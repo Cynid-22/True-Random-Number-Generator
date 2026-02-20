@@ -82,6 +82,10 @@ static inline uint8_t xtime(uint8_t x) {
     return (x << 1) ^ ((x >> 7) * 0x1b);
 }
 
+// FIPS 197 §5.1.3 — MixColumns
+// State uses linear byte layout: state[i*4 + j] where i=column, j=row.
+// VERIFY: Run FIPS 197 Appendix B (AES-128) and Appendix C.3 (AES-256) test vectors
+// to confirm correctness of column ordering.
 void AES256::MixColumns(uint8_t* state) {
     uint8_t tmp[16];
     for (int i = 0; i < 4; i++) {
@@ -91,10 +95,16 @@ void AES256::MixColumns(uint8_t* state) {
         uint8_t c = state[idx+2];
         uint8_t d = state[idx+3];
         
-        tmp[idx]   = xtime(a) ^ xtime(b) ^ b ^ a ^ c ^ d;
-        tmp[idx+1] = a ^ xtime(b) ^ xtime(c) ^ c ^ b ^ d;
-        tmp[idx+2] = a ^ b ^ xtime(c) ^ xtime(d) ^ d ^ c;
-        tmp[idx+3] = xtime(a) ^ a ^ b ^ c ^ xtime(d) ^ d;
+        // FIPS 197 MixColumns formula:
+        // s'[0] = 2*a + 3*b + c + d
+        // s'[1] = a + 2*b + 3*c + d
+        // s'[2] = a + b + 2*c + 3*d
+        // s'[3] = 3*a + b + c + 2*d
+        // Note: 3*x = xtime(x) ^ x
+        tmp[idx]   = xtime(a) ^ (xtime(b) ^ b) ^ c ^ d;
+        tmp[idx+1] = a ^ xtime(b) ^ (xtime(c) ^ c) ^ d;
+        tmp[idx+2] = a ^ b ^ xtime(c) ^ (xtime(d) ^ d);
+        tmp[idx+3] = (xtime(a) ^ a) ^ b ^ c ^ xtime(d);
     }
     memcpy(state, tmp, 16);
 }

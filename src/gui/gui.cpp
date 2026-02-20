@@ -138,6 +138,7 @@ void RenderMenuBar() {
     }
     if (ImGui::BeginMenu("Options")) {
       ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
+      ImGui::MenuItem("Show Locked Data Warning", nullptr, &g_state.showDataLockWarning);
       ImGui::Separator();
       if (ImGui::MenuItem("Reset Settings")) {
         // Reset configuration (can't assign AppState due to mutex/atomics)
@@ -152,19 +153,7 @@ void RenderMenuBar() {
       }
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Debug")) {
-      // Checkbox for logging
-      bool keepLogs = g_state.keepLogs;
-      if (ImGui::MenuItem("Keep Logs", nullptr, &keepLogs)) {
-        g_state.keepLogs = keepLogs;
-        Logger::SetEnabled(g_state.keepLogs);
-        // Track if logging was ever enabled during this session
-        if (g_state.keepLogs) {
-          g_state.loggingWasEverEnabled = true;
-        }
-      }
-      ImGui::EndMenu();
-    }
+    // Debug menu removed for security hardening (Issue 5 from security audit)
     if (ImGui::BeginMenu("Help")) {
       if (ImGui::MenuItem("About TRNG")) {
       }
@@ -209,7 +198,6 @@ static void ClearAllEntropyData() {
   g_state.entropyKeystroke = 0.0f;
   g_state.entropyClock = 0.0f;
   g_state.entropyJitter = 0.0f;
-  g_state.entropyMouse = 0.0f;
   g_state.entropyMouse = 0.0f;
   g_state.collectedBits = 0.0f;
   g_state.lockedDataTimestamp = 0; // Reset lock

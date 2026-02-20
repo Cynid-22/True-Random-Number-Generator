@@ -43,6 +43,21 @@ void RenderUserInputTab() {
   ImGui::Separator();
   ImGui::Spacing();
 
+  // Add Lock-In Warning
+  if (g_state.lockedDataTimestamp > 0 && g_state.showDataLockWarning) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
+      ImGui::TextWrapped("WARNING: Data is locked! Source selection only affects NEW data collected after the previous generation.");
+      ImGui::TextWrapped("Due to security requirements, locked entropy (past collection) cannot be excluded.");
+      ImGui::PopStyleColor();
+      
+      if (ImGui::Button("Dismiss Warning")) {
+          g_state.showDataLockWarning = false;
+      }
+      
+      ImGui::Spacing();
+      ImGui::Separator();
+  }
+
   ImGui::TextWrapped("Configure which user-generated entropy sources to "
                      "include in the final calculation.");
   ImGui::Spacing();
@@ -298,6 +313,21 @@ void RenderSystemInputTab() {
   ImGui::Separator();
   ImGui::Spacing();
 
+  // Add Lock-In Warning
+  if (g_state.lockedDataTimestamp > 0 && g_state.showDataLockWarning) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
+      ImGui::TextWrapped("WARNING: Data is locked! Source selection only affects NEW data collected after the previous generation.");
+      ImGui::TextWrapped("Due to security requirements, locked entropy (past collection) cannot be excluded.");
+      ImGui::PopStyleColor();
+      
+      if (ImGui::Button("Dismiss Warning")) {
+          g_state.showDataLockWarning = false;
+      }
+      
+      ImGui::Spacing();
+      ImGui::Separator();
+  }
+
   ImGui::TextWrapped(
       "These sources exploit hardware imperfections and OS scheduling chaos. "
       "They run in parallel to intentionally create CPU 'traffic jams' for "
@@ -473,11 +503,13 @@ void RenderCollectionWindow() {
   for (int i = 0; i < io.InputQueueCharacters.Size; i++) {
       ImWchar c = io.InputQueueCharacters[i];
       if (c >= 32 && c < 127) { // ASCII printable
-          g_state.keystrokePreview += (char)c;
+          g_state.keystrokePreview.push_back((char)c);
       }
   }
-  if (g_state.keystrokePreview.length() > 500) {
-       g_state.keystrokePreview = g_state.keystrokePreview.substr(g_state.keystrokePreview.length() - 500);
+  if (g_state.keystrokePreview.size() > 500) {
+       size_t len = g_state.keystrokePreview.size();
+       std::vector<char> temp(g_state.keystrokePreview.begin() + (len - 500), g_state.keystrokePreview.end());
+       g_state.keystrokePreview = temp;
   }
 
   // Center window on screen when it appears
@@ -543,7 +575,7 @@ void RenderCollectionWindow() {
          
          // Calculate how many characters fit in the bar
          float availWidth = ImGui::GetContentRegionAvail().x - 10.0f; // Padding
-         std::string displayText = g_state.keystrokePreview;
+         std::string displayText(g_state.keystrokePreview.begin(), g_state.keystrokePreview.end());
          
          // Trim from left until it fits (scroll effect)
          while (!displayText.empty() && ImGui::CalcTextSize(displayText.c_str()).x > availWidth) {

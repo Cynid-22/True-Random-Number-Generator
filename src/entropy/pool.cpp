@@ -2,6 +2,7 @@
 #include "../../logging/logger.h"
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <windows.h> // For SecureZeroMemory
 
 namespace Entropy {
@@ -59,76 +60,119 @@ void EntropyPool::Clear() {
   }
 }
 
+// Helper to calculate Shannon Entropy over a byte stream
+// Returns TOTAL bits of entropy in the stream
+static float CalculateBytesEntropy(const std::vector<uint8_t>& data) {
+    if (data.empty()) return 0.0f;
+    
+    std::map<uint8_t, size_t> counts;
+    for (uint8_t byte : data) {
+        counts[byte]++;
+    }
+    
+    float entropyPerByte = 0.0f;
+    float totalSamples = static_cast<float>(data.size());
+    
+    for (const auto& pair : counts) {
+        float p = static_cast<float>(pair.second) / totalSamples;
+        if (p > 0) {
+            entropyPerByte -= p * std::log2(p);
+        }
+    }
+    
+    // Total bits = Entropy/Byte * Number of Bytes
+    return entropyPerByte * totalSamples;
+}
+
 float EntropyPool::GetTotalBits() const {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  if (m_data.empty())
-    return 0.0f;
+  if (m_data.empty()) return 0.0f;
 
-  // Conservative estimate: ~2 bits per data point
-  // This matches the estimate used in CalculateEntropyFromDeltas
-  return static_cast<float>(m_data.size()) * 2.0f;
+  std::vector<uint8_t> byteStream;
+  byteStream.reserve(m_data.size() * 8);
+  
+  for (const auto& point : m_data) {
+      uint64_t val = point.value;
+      for (int i = 0; i < 8; i++) {
+          byteStream.push_back(static_cast<uint8_t>((val >> (i * 8)) & 0xFF));
+      }
+  }
+  
+  return CalculateBytesEntropy(byteStream);
 }
 
 float EntropyPool::GetEntropyBitsBefore(uint64_t timestamp) const {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  // If no lock (timestamp 0), nothing is locked
-  if (timestamp == 0)
-    return 0.0f;
+  if (timestamp == 0 || m_data.empty()) return 0.0f;
 
-  size_t count = 0;
+  std::vector<uint8_t> byteStream;
+  byteStream.reserve(m_data.size() * 8); // Conservative reserve
+
   for (const auto &point : m_data) {
     if (point.timestamp <= timestamp) {
-      count++;
+        uint64_t val = point.value;
+        for (int i = 0; i < 8; i++) {
+            byteStream.push_back(static_cast<uint8_t>((val >> (i * 8)) & 0xFF));
+        }
     } else {
-      // Since data is sorted, we can break early
-      break;
+      break; // Sorted
     }
   }
 
-  return static_cast<float>(count) * 2.0f;
+  return CalculateBytesEntropy(byteStream);
 }
 
 float EntropyPool::GetEntropyBitsAfter(
     uint64_t timestamp, const std::set<EntropySource> &includedSources) const {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  size_t count = 0;
+  std::vector<uint8_t> byteStream;
+  byteStream.reserve(m_data.size() * 8); // Conservative reserve
+
   for (const auto &point : m_data) {
-    // Only count data AFTER the timestamp
     if (point.timestamp > timestamp) {
-      // AND check if source is included
       if (includedSources.find(point.source) != includedSources.end()) {
-        count++;
+          uint64_t val = point.value;
+          for (int i = 0; i < 8; i++) {
+              byteStream.push_back(static_cast<uint8_t>((val >> (i * 8)) & 0xFF));
+          }
       }
     }
   }
 
-  return static_cast<float>(count) * 2.0f;
+  return CalculateBytesEntropy(byteStream);
 }
 
 float EntropyPool::GetTotalBits(
     uint64_t lockedTimestamp,
     const std::set<EntropySource> &includedSources) const {
-  // Note: We can't reuse the other functions easily because of mutex deadlock
-  // if we call them directly
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  size_t count = 0;
+  std::vector<uint8_t> byteStream;
+  byteStream.reserve(m_data.size() * 8);
+
   for (const auto &point : m_data) {
+    bool include = false;
+    
     if (point.timestamp <= lockedTimestamp) {
-      // Locked data: Always included
-      count++;
+      include = true; // Always include locked
     } else {
-      // New data: Only included if source is enabled
       if (includedSources.find(point.source) != includedSources.end()) {
-        count++;
+        include = true; // Include new if enabled
       }
+    }
+    
+    if (include) {
+        uint64_t val = point.value;
+        for (int i = 0; i < 8; i++) {
+            byteStream.push_back(static_cast<uint8_t>((val >> (i * 8)) & 0xFF));
+        }
     }
   }
 
-  return static_cast<float>(count) * 2.0f;
+  return CalculateBytesEntropy(byteStream);
 }
 
 size_t EntropyPool::GetDataPointCount() const {

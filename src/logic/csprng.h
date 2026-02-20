@@ -17,7 +17,7 @@ enum class GenerationMode {
 // Result of a generation operation
 struct GenerationResult {
     bool success;
-    std::string output;           // Formatted output string
+    std::vector<char> output;     // Formatted output (vector for secure wiping)
     std::string errorMessage;     // Error message if failed
     GenerationMode mode;          // Which mode was used
     float entropyConsumed;        // Bits of entropy consumed
@@ -58,16 +58,16 @@ std::vector<uint8_t> SerializeEntropyData(
 //=============================================================================
 
 // Format 0: Decimal number (0.0 - 1.0)
-std::string GenerateDecimal(const std::vector<uint8_t>& randomBytes, int digits);
+std::vector<char> GenerateDecimal(const std::vector<uint8_t>& randomBytes, int digits);
 
 // Format 1: Integer in range [min, max]
-std::string GenerateInteger(const std::vector<uint8_t>& randomBytes, int min, int max);
+std::vector<char> GenerateInteger(const std::vector<uint8_t>& randomBytes, int min, int max);
 
 // Format 2: Binary string of specified length
-std::string GenerateBinary(const std::vector<uint8_t>& randomBytes, int length);
+std::vector<char> GenerateBinary(const std::vector<uint8_t>& randomBytes, int length);
 
 // Format 3: Custom string from character set
-std::string GenerateCustomString(
+std::vector<char> GenerateCustomString(
     const std::vector<uint8_t>& randomBytes,
     int length,
     bool includeNumbers,
@@ -76,21 +76,21 @@ std::string GenerateCustomString(
     bool includeSpecial);
 
 // Format 4: Bit/Byte output (hex, base64, or binary)
-std::string GenerateBitByte(
+std::vector<char> GenerateBitByte(
     const std::vector<uint8_t>& randomBytes,
     int amount,
     int unit,    // 0=Bits, 1=Bytes
     int format); // 0=Hex, 1=Base64, 2=Binary
 
 // Format 5: Passphrase from wordlist
-std::string GeneratePassphrase(
+std::vector<char> GeneratePassphrase(
     const std::vector<uint8_t>& randomBytes,
     int wordCount,
     const std::string& separator,
     const std::vector<std::string>& wordlist);
 
 // Format 6: One-Time Pad (XOR with message)
-std::string GenerateOTP(
+std::vector<char> GenerateOTP(
     const std::vector<uint8_t>& randomBytes,
     const std::string& message);
 

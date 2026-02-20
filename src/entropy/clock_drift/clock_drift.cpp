@@ -34,13 +34,7 @@ void ClockDriftCollector::Stop() {
         m_thread.join();
     }
     
-    // Log final summary as requested
-    uint64_t count = m_sampleCount.load();
-    // Raw bits = 16 bits per sample (what we capture)
-    // Entropy estimate = ~2 bits per sample (what we assume is truly random)
-    Logger::Log(Logger::Level::INFO, "ClockDrift", 
-        "COLLECTION STOPPED | Samples: %llu | Rate: %.2f/s | Raw Data: %llu bits | Entropy Est: %.0f bits", 
-        count, m_rate.load(), count * 16, count * 2.0f);
+    Logger::Log(Logger::Level::INFO, "ClockDrift", "Collection stopped.");
         
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Collector thread stopped.");
     
@@ -59,7 +53,10 @@ std::vector<EntropyDataPoint> ClockDriftCollector::Harvest() {
     }
     
     std::vector<EntropyDataPoint> harvested;
-    harvested.swap(m_buffer); // Efficient move
+    harvested.swap(m_buffer);
+    // SECURITY: After swap, m_buffer holds harvested's old (empty) allocation.
+    // Shrink to release the previous heap block that held entropy data.
+    m_buffer.shrink_to_fit();
     return harvested;
 }
 
@@ -135,9 +132,6 @@ void ClockDriftCollector::CollectionLoop() {
             uint64_t count = m_sampleCount;
             uint64_t diff = count - lastSampleCount;
             m_rate = (double)diff * 1000.0 / elapsed;
-            
-            lastSampleCount = count;
-            lastRateCheck = now;
             
             lastSampleCount = count;
             lastRateCheck = now;

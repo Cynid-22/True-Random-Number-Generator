@@ -181,27 +181,29 @@ float CalculateShannonEntropy(const std::vector<uint8_t>& data) {
 float CalculateEntropyFromDeltas(const std::vector<uint64_t>& deltas) {
     if (deltas.empty()) return 0.0f;
     
-    // Convert deltas to raw bytes for analysis
-    // We only care about the lower 8 bits of variance usually, 
-    // but let's analyze the LSB byte of each delta.
+    // Convert deltas to raw bytes for analysis.
+    // Use 2 bytes per delta (lower 16 bits) to capture the entropy range
+    // that clock drift (16-bit mask) and other sources provide.
+    // Previously only the LSB was used, discarding significant entropy.
     std::vector<uint8_t> bytes;
-    bytes.reserve(deltas.size());
+    bytes.reserve(deltas.size() * 2);
     
     size_t validSamples = 0;
     for (uint64_t d : deltas) {
         if (d != 0) {
             validSamples++;
-            bytes.push_back(static_cast<uint8_t>(d & 0xFF)); // Take LSB
+            bytes.push_back(static_cast<uint8_t>(d & 0xFF));         // Low byte
+            bytes.push_back(static_cast<uint8_t>((d >> 8) & 0xFF));  // High byte
         }
     }
     
     if (validSamples == 0) return 0.0f;
     
-    // Calculate entropy per sample (0.0 - 8.0 bits)
-    float bitsPerSample = CalculateShannonEntropy(bytes);
+    // Calculate entropy per byte (0.0 - 8.0 bits) across the byte stream
+    float bitsPerByte = CalculateShannonEntropy(bytes);
     
-    // Determine total entropy contribution
-    return (float)validSamples * bitsPerSample;
+    // Total entropy = bits_per_byte * total_bytes_analyzed
+    return bitsPerByte * (float)bytes.size();
 }
 
 std::vector<Entropy::EntropyDataPoint> GetPooledEntropyForOutput(const std::set<Entropy::EntropySource>& includedSources) {

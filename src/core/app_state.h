@@ -11,6 +11,7 @@
 #include "../entropy/mouse/mouse.h"
 #include "../entropy/microphone/microphone.h"
 #include "../entropy/pool.h"
+#include "../crypto/secure_mem.h"
 
 // Application state - global configuration and runtime data
 struct AppState {
@@ -52,7 +53,7 @@ struct AppState {
     // Visualization State
     struct VizPoint { float x, y; };
     std::vector<VizPoint> mouseTrail; // Stores normalized coordinates (0.0-1.0)
-    std::string keystrokePreview;     // Stores recent keystrokes for display
+    std::vector<char> keystrokePreview; // Stores recent keystrokes for display (vector for secure wiping)
 
     float targetBits = 512.0f;
     
@@ -86,7 +87,7 @@ struct AppState {
     int otpInputMode = 0;              // 0=Text, 1=File
     
     // Result
-    std::string generatedOutput = "";
+    std::vector<char> generatedOutput; // Vector for secure wiping (avoid std::string heap artifacts)
     std::string timestamp = "";
     float entropyConsumed = 0.0f;
     
@@ -101,9 +102,22 @@ struct AppState {
     bool showLoggingWarningWindow = false;
     float loggingWarningCountdown = 5.0f;  // 5 second countdown
     
+    // Data Lock Warning State
+    bool showDataLockWarning = true;
+    
     // Helper to check if we have enough entropy for consolidation (True Randomness)
     bool isEntropyValid() const {
         return collectedBits >= targetBits;
+    }
+
+    // Destructor to ensure global buffers are wiped
+    ~AppState() {
+        if (!generatedOutput.empty()) {
+            Crypto::SecureClearVector(generatedOutput);
+        }
+        SecureZeroMemory(otpMessage, sizeof(otpMessage));
+        SecureZeroMemory(passphraseSeparator, sizeof(passphraseSeparator));
+        // Other members like collectors have their own destructors
     }
 };
 

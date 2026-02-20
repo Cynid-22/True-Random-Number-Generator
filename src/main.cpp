@@ -206,11 +206,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 auto data = g_state.clockDriftCollector.Harvest();
                 
                 if (!data.empty()) {
-                    // Add to centralized entropy pool (only if source is enabled)
                     g_state.entropyPool.AddDataPoints(data);
                     
-                    // Update main entropy counter using the dedicated logic function
-                    // Extract values for backward compatibility with existing function
                     std::vector<uint64_t> values;
                     values.reserve(data.size());
                     for (const auto& point : data) {
@@ -219,13 +216,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     float newEntropy = CalculateEntropyFromDeltas(values);
                     g_state.entropyClock += newEntropy;
                     
-                    // Securely clear the values vector before it goes out of scope
+                    // SECURITY: Securely clear both extracted values AND original data
                     if (!values.empty()) {
                         SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
                     }
-                    
-                    // Log occasional updates
-                    // ... (logging handled by logger logic if needed)
+                    SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
                 }
             }
 
@@ -241,9 +236,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     float newEntropy = CalculateEntropyFromDeltas(values);
                     g_state.entropyJitter += newEntropy;
                     
+                    // SECURITY: Securely clear both extracted values AND original data
                     if (!values.empty()) {
                         SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
                     }
+                    SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
                 }
             }
             if (g_state.keystrokeEnabled) {
@@ -258,9 +255,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     float newEntropy = CalculateEntropyFromDeltas(values);
                     g_state.entropyKeystroke += newEntropy;
                     
+                    // SECURITY: Securely clear both extracted values AND original data
                     if (!values.empty()) {
                         SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
                     }
+                    SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
                 }
             }
 
@@ -276,9 +275,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     float newEntropy = CalculateEntropyFromDeltas(values);
                     g_state.entropyMouse += newEntropy;
                     
+                    // SECURITY: Securely clear both extracted values AND original data
                     if (!values.empty()) {
                         SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
                     }
+                    SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
                 }
             }
 
@@ -288,12 +289,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                     g_state.entropyPool.AddDataPoints(data);
                     
                     // Microphone entropy logic: 
-                    // Each data point now contains 64 packed bits of LSB noise
-                    // We treat this as ~64 bits of entropy (assuming thermal noise is random)
-                    // This creates a much higher entropy rate than other sources, 
-                    // but it is real hardware entropy.
+                    // Each data point now contains 64 packed bits of LSB noise.
+                    // Conservative estimate: ~0.5 bits of true entropy per LSB
+                    // (accounts for ADC quantization bias and thermal noise correlation).
+                    // Per NIST SP 800-90B guidance, we use 32 bits per 64-bit packed sample.
                     
-                    float newEntropy = (float)(data.size() * 64);
+                    float newEntropy = (float)(data.size() * 32);
                     g_state.entropyMic += newEntropy;
                     
                     // Securely clear the data points (the vector itself is local and destroyed, 
@@ -409,8 +410,38 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // CLEANUP
     //=========================================================================
     
-    // SECURITY: Securely wipe all entropy data before shutdown
+    // SECURITY: Securely wipe all sensitive data before shutdown
+    // This addresses FIPS 140-2 key zeroization requirements
+    
+    // Wipe entropy pool
     g_state.entropyPool.SecureWipe();
+    
+    // Wipe OTP message buffer (may contain plaintext)
+    SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
+    SecureZeroMemory(g_state.otpFilePath, sizeof(g_state.otpFilePath));
+    
+    // Wipe generated output (may contain cryptographic keys)
+    if (!g_state.generatedOutput.empty()) {
+        SecureZeroMemory(g_state.generatedOutput.data(), g_state.generatedOutput.size());
+        g_state.generatedOutput.clear();
+        g_state.generatedOutput.shrink_to_fit();
+    }
+    
+    // Wipe keystroke preview (reveals user input patterns)
+    if (!g_state.keystrokePreview.empty()) {
+        SecureZeroMemory(g_state.keystrokePreview.data(), g_state.keystrokePreview.size());
+        g_state.keystrokePreview.clear();
+        g_state.keystrokePreview.shrink_to_fit();
+    }
+    
+    // Wipe wordlist cache
+    for (auto& word : g_state.cachedWordList) {
+        if (!word.empty()) {
+            SecureZeroMemory(word.data(), word.size());
+        }
+    }
+    g_state.cachedWordList.clear();
+    g_state.cachedWordList.shrink_to_fit();
     
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

@@ -13,11 +13,12 @@ CpuJitterCollector::~CpuJitterCollector() {
 }
 
 void CpuJitterCollector::Start() {
-    if (m_running) return;
+    if (m_running.exchange(true)) {
+        return; // Already running
+    }
     
     Logger::Log(Logger::Level::INFO, "CpuJitter", "Starting collector threads...");
     
-    m_running = true;
     m_paused = false;
     m_counter = 0;
     
@@ -26,19 +27,17 @@ void CpuJitterCollector::Start() {
 }
 
 void CpuJitterCollector::Stop() {
-    if (!m_running) return;
+    if (!m_running.exchange(false)) {
+        return; // Not running
+    }
 
     Logger::Log(Logger::Level::INFO, "CpuJitter", "Stopping collector threads...");
-    m_running = false;
     
     // Wait for threads to finish
     if (m_runnerThread.joinable()) m_runnerThread.join();
     if (m_refereeThread.joinable()) m_refereeThread.join();
 
-    uint64_t count = m_sampleCount.load();
-    Logger::Log(Logger::Level::INFO, "CpuJitter", 
-        "COLLECTION STOPPED | Samples: %llu | Rate: %.2f/s", 
-        count, m_rate.load());
+    Logger::Log(Logger::Level::INFO, "CpuJitter", "Collection stopped.");
 }
 
 bool CpuJitterCollector::IsRunning() const {
@@ -111,8 +110,10 @@ void CpuJitterCollector::RefereeLoop() {
 
 std::vector<EntropyDataPoint> CpuJitterCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    std::vector<EntropyDataPoint> result = std::move(m_buffer);
-    m_buffer.clear(); 
+    std::vector<EntropyDataPoint> result;
+    result.swap(m_buffer);
+    // SECURITY: Shrink to release heap block that held entropy data
+    m_buffer.shrink_to_fit();
     return result;
 }
 

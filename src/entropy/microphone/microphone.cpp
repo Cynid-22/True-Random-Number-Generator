@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include "../../crypto/secure_mem.h"
 
 // Link against required libraries
 #pragma comment(lib, "ole32.lib")
@@ -47,11 +48,7 @@ void MicrophoneCollector::Stop() {
         m_captureThread.join();
     }
     
-    // Log final stats
-    uint64_t count = m_sampleCount.load();
-    Logger::Log(Logger::Level::INFO, "Microphone", 
-        "COLLECTION STOPPED | Samples: %llu | Rate: %.2f/s", 
-        count, m_rate.load());
+    Logger::Log(Logger::Level::INFO, "Microphone", "Collection stopped.");
         
     SecureClearBuffer();
 }
@@ -68,15 +65,14 @@ std::vector<EntropyDataPoint> MicrophoneCollector::Harvest() {
     
     std::vector<EntropyDataPoint> harvested;
     harvested.swap(m_buffer);
+    // SECURITY: Shrink to release heap block that held entropy data
+    m_buffer.shrink_to_fit();
     return harvested;
 }
 
 void MicrophoneCollector::SecureClearBuffer() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_buffer.empty()) {
-        SecureZeroMemory(m_buffer.data(), m_buffer.size() * sizeof(EntropyDataPoint));
-        m_buffer.clear();
-    }
+    Crypto::SecureClearVector(m_buffer);
 }
 
 double MicrophoneCollector::GetEntropyRate() const {
@@ -302,6 +298,9 @@ void MicrophoneCollector::CaptureThread() {
                     m_sampleCount += newPoints.size(); // Count EVENTS, not raw samples now
                     samplesSinceLastRateCheck += newPoints.size();
                 }
+                
+                // Secure clear local buffer
+                Crypto::SecureClearVector(newPoints);
             }
 
             hr = pCaptureClient->ReleaseBuffer(numFramesAvailable);
