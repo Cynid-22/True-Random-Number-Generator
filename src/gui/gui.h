@@ -33,11 +33,13 @@ void RenderEntropyPoolBar();
 //=============================================================================
 void RenderOutputConfigSection();
 void RenderOutputSection();
+void HandleExportOutput();
 // void RenderLoggingWarningWindow();
 
 //=============================================================================
 // MODALS
 //=============================================================================
+void RenderAboutModal();
 void RenderNistProgressModal();
 
 //=============================================================================

@@ -12,6 +12,7 @@
 #include <d3d11.h>
 #include <thread>
 #include <commdlg.h>
+#include <fstream>
 #include "../logic/csprng.h" // For GenerateNistData
 
 //=============================================================================
@@ -129,9 +130,44 @@ void SetupNativeStyle() {
 //=============================================================================
 
 void RenderMenuBar() {
+  // Handle Global Shortcuts
+  if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_S)) {
+    HandleExportOutput();
+  }
+
   if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {
+      if (ImGui::MenuItem("Export Settings...")) {
+        char filename[MAX_PATH] = "trng_settings.txt";
+        OPENFILENAMEA ofn;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = NULL;
+        ofn.lpstrFilter = "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
+        ofn.lpstrFile = filename;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+        ofn.lpstrDefExt = "txt";
+
+        if (GetSaveFileNameA(&ofn)) {
+          std::ofstream out(filename);
+          if (out.is_open()) {
+            out << "TRNG Configuration Export" << std::endl;
+            out << "--------------------------" << std::endl;
+            out << "Microphone: " << (g_state.microphoneEnabled ? "ON" : "OFF") << std::endl;
+            out << "Keystroke: " << (g_state.keystrokeEnabled ? "ON" : "OFF") << std::endl;
+            out << "Clock Drift: " << (g_state.clockDriftEnabled ? "ON" : "OFF") << std::endl;
+            out << "CPU Jitter: " << (g_state.cpuJitterEnabled ? "ON" : "OFF") << std::endl;
+            out << "Mouse Movement: " << (g_state.mouseMovementEnabled ? "ON" : "OFF") << std::endl;
+            out << "Target Bits: " << g_state.targetBits << std::endl;
+            out << "Output Format: " << g_state.outputFormat << std::endl;
+            out.close();
+            Logger::Log(Logger::Level::INFO, "GUI", "Settings exported to %s", filename);
+          }
+        }
+      }
       if (ImGui::MenuItem("Export Output...", "Ctrl+S")) {
+        HandleExportOutput();
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -140,33 +176,6 @@ void RenderMenuBar() {
       ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Tools")) {
-        if (ImGui::MenuItem("Export NIST Data (100 MB)...")) {
-            // Check entropy state first?
-            // NIST Export uses Expansion mode (Pseudo-Random) usually, so we don't strictly *need*
-            // full consolidation entropy, but having *some* entropy is good.
-            // The logic::GenerateNistData handles the generation.
-            
-            // Open Save Dialog
-            char filename[MAX_PATH] = "nist_test.bin";
-            OPENFILENAMEA ofn;
-            ZeroMemory(&ofn, sizeof(ofn));
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = NULL; // Uses main window if possible, but nullptr works
-            ofn.lpstrFilter = "Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filename;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
-            ofn.lpstrDefExt = "bin";
-
-            if (GetSaveFileNameA(&ofn)) {
-                // Start export in background thread
-                std::thread exportThread(CSPRNG::GenerateNistData, std::string(filename), 104857600); // 100 MB
-                exportThread.detach(); // Detach to let it run in background while we show modal
-            }
-        }
-        ImGui::EndMenu();
-    }
 
     if (ImGui::BeginMenu("Options")) {
       ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
@@ -188,6 +197,7 @@ void RenderMenuBar() {
     // Debug menu removed for security hardening (Issue 5 from security audit)
     if (ImGui::BeginMenu("Help")) {
       if (ImGui::MenuItem("About TRNG")) {
+        g_state.showAboutModal = true;
       }
       ImGui::EndMenu();
     }
@@ -544,5 +554,66 @@ void RenderNistProgressModal() {
         }
 
         ImGui::EndPopup();
+    }
+}
+
+void RenderAboutModal() {
+    if (g_state.showAboutModal) {
+        ImGui::OpenPopup("About TRNG");
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("About TRNG", &g_state.showAboutModal, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("True Random Number Generator (TRNG)");
+        ImGui::Text("Version 1.0.0");
+        ImGui::Separator();
+        ImGui::Text("A high-security cryptographic randomness tool.");
+        ImGui::Text("Uses a Quad-Layer CSPRNG architecture:");
+        ImGui::BulletText("Layer 1: ChaCha20 Masking");
+        ImGui::BulletText("Layer 2: Entropy Injection (XOR Fold)");
+        ImGui::BulletText("Layer 3: AES-256 Transformation");
+        ImGui::BulletText("Layer 4: ChaCha20 Final Whitening");
+        ImGui::Spacing();
+        ImGui::Text("Entropy sources: Clock Drift, CPU Jitter, Keystrokes, Mouse, Mic.");
+        ImGui::Separator();
+        
+        if (ImGui::Button("Close", ImVec2(120, 0))) {
+            g_state.showAboutModal = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void HandleExportOutput() {
+    if (g_state.generatedOutput.empty()) {
+        return;
+    }
+
+    char filename[MAX_PATH] = "output.txt";
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFilter = "Text Files (*.txt)\0*.txt\0Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+    ofn.lpstrDefExt = "txt";
+
+    if (GetSaveFileNameA(&ofn)) {
+        std::ofstream out(filename, std::ios::binary);
+        if (out.is_open()) {
+            size_t size = g_state.generatedOutput.size();
+            // Remove null terminator if present
+            if (size > 0 && g_state.generatedOutput.back() == '\0') {
+                size--;
+            }
+            out.write(g_state.generatedOutput.data(), size);
+            out.close();
+            Logger::Log(Logger::Level::INFO, "GUI", "Output exported to %s", filename);
+        }
     }
 }

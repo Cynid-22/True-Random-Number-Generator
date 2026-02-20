@@ -394,6 +394,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Render NIST Export Progress Modal
         RenderNistProgressModal();
         
+        // Render About Modal
+        RenderAboutModal();
+        
         // Render Logging Warning Window if needed
         // RenderLoggingWarningWindow();
         

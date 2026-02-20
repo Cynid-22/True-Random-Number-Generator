@@ -105,6 +105,9 @@ struct AppState {
     // Data Lock Warning State
     bool showDataLockWarning = true;
     
+    // UI Modal State
+    bool showAboutModal = false;
+    
     // NIST Export State
     bool isExportingNist = false;
     std::atomic<size_t> nistBytesWritten = 0;
