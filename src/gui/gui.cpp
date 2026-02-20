@@ -10,6 +10,9 @@
 #include "imgui_impl_win32.h"
 #include <cstdio>
 #include <d3d11.h>
+#include <thread>
+#include <commdlg.h>
+#include "../logic/csprng.h" // For GenerateNistData
 
 //=============================================================================
 // STYLE SETUP
@@ -136,6 +139,35 @@ void RenderMenuBar() {
       }
       ImGui::EndMenu();
     }
+
+    if (ImGui::BeginMenu("Tools")) {
+        if (ImGui::MenuItem("Export NIST Data (100 MB)...")) {
+            // Check entropy state first?
+            // NIST Export uses Expansion mode (Pseudo-Random) usually, so we don't strictly *need*
+            // full consolidation entropy, but having *some* entropy is good.
+            // The logic::GenerateNistData handles the generation.
+            
+            // Open Save Dialog
+            char filename[MAX_PATH] = "nist_test.bin";
+            OPENFILENAMEA ofn;
+            ZeroMemory(&ofn, sizeof(ofn));
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = NULL; // Uses main window if possible, but nullptr works
+            ofn.lpstrFilter = "Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0";
+            ofn.lpstrFile = filename;
+            ofn.nMaxFile = MAX_PATH;
+            ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
+            ofn.lpstrDefExt = "bin";
+
+            if (GetSaveFileNameA(&ofn)) {
+                // Start export in background thread
+                std::thread exportThread(CSPRNG::GenerateNistData, std::string(filename), 104857600); // 100 MB
+                exportThread.detach(); // Detach to let it run in background while we show modal
+            }
+        }
+        ImGui::EndMenu();
+    }
+
     if (ImGui::BeginMenu("Options")) {
       ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
       ImGui::MenuItem("Show Locked Data Warning", nullptr, &g_state.showDataLockWarning);
@@ -443,4 +475,74 @@ void SimulateEntropyCollection() {
     total += g_state.entropyMouse;
 
   g_state.collectedBits = total;
+}
+
+//=============================================================================
+// MODALS
+//=============================================================================
+
+void RenderNistProgressModal() {
+    if (g_state.isExportingNist) {
+        if (!ImGui::IsPopupOpen("Exporting NIST Data")) {
+            ImGui::OpenPopup("Exporting NIST Data");
+        }
+    }
+
+    // Always center this window when appearing
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Exporting NIST Data", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::Text("Generating raw binary data for NIST SP 800-22...");
+        ImGui::Separator();
+        
+        float progress = 0.0f;
+        if (g_state.nistTotalBytes > 0) {
+            progress = (float)g_state.nistBytesWritten / (float)g_state.nistTotalBytes;
+        }
+        
+        char progressOverlay[64];
+        snprintf(progressOverlay, sizeof(progressOverlay), "%.1f MB / %.1f MB", 
+            (float)g_state.nistBytesWritten / (1024*1024), 
+            (float)g_state.nistTotalBytes / (1024*1024));
+            
+        ImGui::ProgressBar(progress, ImVec2(300, 0), progressOverlay);
+        
+        if (!g_state.isExportingNist) {
+            // Finished
+            if (g_state.nistError.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Export Complete!");
+                ImGui::Spacing();
+                
+                // Center the close button
+                float windowWidth = ImGui::GetWindowSize().x;
+                float buttonWidth = 120.0f;
+                ImGui::SetCursorPosX((windowWidth - buttonWidth) * 0.5f);
+                
+                if (ImGui::Button("Close", ImVec2(buttonWidth, 0))) {
+                    ImGui::CloseCurrentPopup();
+                }
+            } else {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Export Failed:");
+                ImGui::TextWrapped("%s", g_state.nistError.c_str());
+                ImGui::Spacing();
+                
+                float windowWidth = ImGui::GetWindowSize().x;
+                float buttonWidth = 120.0f;
+                ImGui::SetCursorPosX((windowWidth - buttonWidth) * 0.5f);
+                
+                if (ImGui::Button("Close", ImVec2(buttonWidth, 0))) {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        } else {
+            // Still running - show spinner? Or just progress bar is fine.
+            ImGui::Spacing();
+            ImGui::TextDisabled("Please wait... (Generating 100MB)");
+        }
+
+        ImGui::EndPopup();
+    }
 }

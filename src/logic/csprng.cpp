@@ -738,4 +738,99 @@ GenerationResult GenerateOutput() {
     return result;
 }
 
+void GenerateNistData(const std::string& filepath, size_t totalBytes) {
+    g_state.isExportingNist = true;
+    g_state.nistBytesWritten = 0;
+    g_state.nistTotalBytes = totalBytes;
+    g_state.nistError = "";
+
+    std::ofstream file(filepath, std::ios::binary);
+    if (!file.is_open()) {
+        g_state.nistError = "Failed to open output file";
+        g_state.isExportingNist = false;
+        return;
+    }
+
+    // Capture initial entropy state
+    std::set<Entropy::EntropySource> sources;
+    // Enable all available sources for the seed
+    sources.insert(Entropy::EntropySource::ClockDrift);
+    sources.insert(Entropy::EntropySource::CpuJitter);
+    // (User input sources might be empty if automated, but we use what we have)
+    
+    std::vector<Entropy::EntropyDataPoint> pooledData = g_state.entropyPool.GetPooledData();
+    
+    if (pooledData.empty()) {
+        // Fallback: Force some collection if completely empty?
+        // For now, let GenerateRandomBytes handle it (it will just be deterministic if empty)
+        // But in a real scenario we'd want to block.
+        Logger::Log(Logger::Level::WARN, "CSPRNG", "Exporting NIST data with empty entropy pool!");
+    }
+
+    const size_t CHUNK_SIZE = 1024 * 1024; // 1 MB chunks
+    size_t remaining = totalBytes;
+    std::vector<uint8_t> buffer;
+    buffer.reserve(CHUNK_SIZE);
+    
+    GenerationMode mode; // Dummy
+
+    while (remaining > 0 && g_state.isExportingNist) { // Check flag to allow cancellation
+        size_t currentChunk = std::min(remaining, CHUNK_SIZE);
+        
+        // Use Quad-Layer Generator (same as main output)
+        // Note: In a real NIST test, we want to test the DRBG mechanism mostly.
+        // We reuse the pooledData for the seed. 
+        // Ideally we would "reseed" occasionally, but for 100MB expansion from one seed is fine for testing the expansion algo.
+        // Actually, to simulate continuous operation, we should refresh the pool if possible, 
+        // but this function runs in a tight loop. The background threads might be adding entropy.
+        // validData = g_state.entropyPool.GetPooledData(); <-- would need mutex
+        
+        // For this test: We use the *initial* seed and let the CSPRNG expand it.
+        // This validates the specific CSPRNG "Expansion" algorithm (HKDF -> ChaCha20 -> AES -> ChaCha20).
+        
+        // We pass 'pooledData' (the seed) every time? 
+        // GenerateRandomBytes uses the seed to derive keys. 
+        // If we pass the SAME seed every time, we get the SAME output?
+        // WAIT. GenerateRandomBytes is stateless!
+        // It deterministically derives keys from the entropy pool!
+        // If the pool doesn't change, the keys don't change!
+        // AND 'GenerateStream' uses a nonce, but does it increment?
+        // 'GenerateRandomBytes' creates a fresh ChaCha20 key/nonce from HKDF(seed).
+        // If seed is identical, output is identical!
+        
+        // FIX: we need to vary the input to GenerateRandomBytes or modify it to be stateful.
+        // Since we can't easily make it stateful without refactoring, 
+        // we will manually inject a counter into the "entropy" for this export loop.
+        
+        // Hack: Add a synthetic counter data point to the pool copy for each chunk
+        // This ensures unique key derivation for each 1MB chunk.
+        pooledData.push_back({
+            Entropy::GetNanosecondTimestamp(), // Increasing timestamp
+            static_cast<uint64_t>(g_state.nistBytesWritten.load()), // Increasing counter (value)
+            Entropy::EntropySource::CpuJitter  // Fake source
+        });
+        
+        // Generate chunk
+        std::vector<uint8_t> chunk = GenerateRandomBytes(pooledData, currentChunk, mode);
+        
+        // Write to file
+        file.write(reinterpret_cast<const char*>(chunk.data()), chunk.size());
+        
+        // Update progress
+        g_state.nistBytesWritten += currentChunk;
+        remaining -= currentChunk;
+        
+        // Cleanup chunk
+        SecureZeroMemory(chunk.data(), chunk.size());
+    }
+
+    file.close();
+    
+    // Cleanup pool copy
+    SecureZeroMemory(pooledData.data(), pooledData.size() * sizeof(Entropy::EntropyDataPoint));
+    
+    g_state.isExportingNist = false;
+    Logger::Log(Logger::Level::INFO, "CSPRNG", "NIST Data Export verify complete: %zu bytes", totalBytes);
+}
+
 } // namespace CSPRNG

@@ -391,6 +391,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         // Render Collection Window popup when collecting
         RenderCollectionWindow();
         
+        // Render NIST Export Progress Modal
+        RenderNistProgressModal();
+        
         // Render Logging Warning Window if needed
         // RenderLoggingWarningWindow();
         

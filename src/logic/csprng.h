@@ -107,4 +107,9 @@ std::vector<uint8_t> GenerateOTPFile(
 // Returns a GenerationResult with the formatted output
 GenerationResult GenerateOutput();
 
+// Generate raw binary data file for NIST SP 800-22 testing
+// Bypasses GUI formatting and writes directly to disk in chunks
+// Updates g_state.nistBytesWritten during generation
+void GenerateNistData(const std::string& filepath, size_t totalBytes);
+
 } // namespace CSPRNG

@@ -105,6 +105,12 @@ struct AppState {
     // Data Lock Warning State
     bool showDataLockWarning = true;
     
+    // NIST Export State
+    bool isExportingNist = false;
+    std::atomic<size_t> nistBytesWritten = 0;
+    size_t nistTotalBytes = 0;
+    std::string nistError = "";
+    
     // Helper to check if we have enough entropy for consolidation (True Randomness)
     bool isEntropyValid() const {
         return collectedBits >= targetBits;
