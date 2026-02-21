@@ -2,7 +2,7 @@
 
 A desktop application for generating cryptographically secure random numbers using multiple hardware entropy sources. Built with C++ and Dear ImGui for Windows.
 
-**🏆 Platinum-Standard Validation**: Passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand**, and **TestU01**, achieving Information Theoretic minimum entropy guarantees under **NIST SP 800-90B**. [Scroll down for detailed statistical results](#statistical-validation-results).
+**Platinum-Standard Validation**: Passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand**, and **TestU01**, achieving Information Theoretic minimum entropy guarantees under **NIST SP 800-90B**. [Scroll down for detailed statistical results](#statistical-validation-results).
 
 ---
 
