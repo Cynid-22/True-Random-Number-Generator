@@ -5,6 +5,7 @@ standards.md
 audit.md
 *.ini
 *.exe
+recover_nist.py
 
 # C++ Build Artifacts
 build/

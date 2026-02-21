@@ -12,7 +12,7 @@ g++ -O3 -o trng_gen.exe \
   src/crypto/hkdf.cpp \
   src/crypto/chacha20.cpp \
   src/crypto/aes.cpp \
-  -I src -std=c++17
+  -I src -std=c++17 -lpthread
 
 echo "Done! Built trng_gen.exe"
 echo ""

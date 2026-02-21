@@ -12,6 +12,9 @@
 //
 // No GUI dependencies. Links only against crypto primitives.
 
+// Percentage of available CPU threads to use (1-100)
+static constexpr int THREAD_USAGE_PERCENT = 50;
+
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -19,6 +22,9 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -146,41 +152,71 @@ int main() {
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+    // Enlarge stdout buffer to reduce syscall overhead
+    static char outBuf[4 * 1024 * 1024];
+    setvbuf(stdout, outBuf, _IOFBF, sizeof(outBuf));
+
     // Seed from hardware
     std::vector<uint8_t> seed = CollectSeed();
 
-    const size_t CHUNK_SIZE = 1024 * 1024; // 1 MB per chunk
+    const size_t CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB per chunk
+    const int totalCores = std::max(1, (int)std::thread::hardware_concurrency());
+    const int N = std::max(1, totalCores * THREAD_USAGE_PERCENT / 100);
     uint64_t counter = 0;
 
+    // Two batch buffers for pipelining (generate one while writing the other)
+    std::vector<std::vector<uint8_t>> batchA(N), batchB(N);
+
+    // Generate N chunks in parallel using worker threads
+    auto generateBatch = [&](std::vector<std::vector<uint8_t>>& batch) {
+        std::vector<std::thread> threads;
+        std::vector<uint64_t> counters(N);
+        for (int t = 0; t < N; t++) {
+            counter++;
+            counters[t] = counter;
+        }
+        for (int t = 0; t < N; t++) {
+            threads.emplace_back([&seed, &batch, t, c = counters[t], CHUNK_SIZE]() {
+                std::vector<uint8_t> chunkSeed = seed;
+                for (int i = 0; i < 8; i++)
+                    chunkSeed.push_back(static_cast<uint8_t>(c >> (i * 8)));
+                uint64_t tsc = __rdtsc();
+                const uint8_t* tp = reinterpret_cast<const uint8_t*>(&tsc);
+                chunkSeed.insert(chunkSeed.end(), tp, tp + 8);
+                batch[t] = QuadLayerGenerate(chunkSeed, CHUNK_SIZE, c);
+                SecureZeroMemory(chunkSeed.data(), chunkSeed.size());
+            });
+        }
+        for (auto& th : threads) th.join();
+    };
+
+    // Write completed batch to stdout in sequential order
+    auto writeBatch = [&](std::vector<std::vector<uint8_t>>& batch) -> bool {
+        for (int t = 0; t < N; t++) {
+            size_t written = fwrite(batch[t].data(), 1, batch[t].size(), stdout);
+            if (written != batch[t].size() || ferror(stdout)) return false;
+            SecureZeroMemory(batch[t].data(), batch[t].size());
+        }
+        return true;
+    };
+
+    // Generate first batch
+    generateBatch(batchA);
+
     while (true) {
-        counter++;
+        // Pipeline: generate batchB while writing batchA
+        std::thread bg([&]() { generateBatch(batchB); });
+        bool ok = writeBatch(batchA);
+        bg.join();
+        if (!ok) break;
 
-        // Inject counter into seed copy for unique key derivation per chunk
-        std::vector<uint8_t> chunkSeed = seed;
-        for (int i = 0; i < 8; i++) {
-            chunkSeed.push_back(static_cast<uint8_t>(counter >> (i * 8)));
-        }
-
-        // Add fresh RDTSC for each chunk
-        uint64_t tsc = __rdtsc();
-        const uint8_t* tp = reinterpret_cast<const uint8_t*>(&tsc);
-        chunkSeed.insert(chunkSeed.end(), tp, tp + 8);
-
-        // Generate 1 MB via Quad-Layer pipeline
-        std::vector<uint8_t> chunk = QuadLayerGenerate(chunkSeed, CHUNK_SIZE, counter);
-
-        // Write to stdout
-        size_t written = fwrite(chunk.data(), 1, chunk.size(), stdout);
-        if (written != chunk.size() || ferror(stdout)) {
-            break; // Pipe closed — exit gracefully
-        }
-
-        // Secure cleanup
-        SecureZeroMemory(chunk.data(), chunk.size());
-        SecureZeroMemory(chunkSeed.data(), chunkSeed.size());
+        // Pipeline: generate batchA while writing batchB
+        std::thread bg2([&]() { generateBatch(batchA); });
+        ok = writeBatch(batchB);
+        bg2.join();
+        if (!ok) break;
     }
 
-    // Final cleanup
     SecureZeroMemory(seed.data(), seed.size());
     return 0;
 }

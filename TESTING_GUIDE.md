@@ -8,7 +8,7 @@ This guide covers how to build the CLI generator and run 4 statistical test suit
 
 Install all required MSYS2 packages first:
 ```bash
-pacman -S git mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-jsoncpp mingw-w64-ucrt-x86_64-bzip2 mingw-w64-ucrt-x86_64-openssl
+pacman -S git unzip mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-jsoncpp mingw-w64-ucrt-x86_64-bzip2 mingw-w64-ucrt-x86_64-openssl
 ```
 
 ---
@@ -27,6 +27,12 @@ The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the s
     bash build_gen.sh
     ```
     This produces `trng_gen.exe` in the project root.
+
+> **Multithreading**: The generator uses parallel batch generation across all available CPU cores. To adjust CPU usage, edit the constant at the top of `src/tools/trng_gen.cpp`:
+> ```cpp
+> static constexpr int THREAD_USAGE_PERCENT = 75; // 1-100
+> ```
+> At 75% (default), a 16-thread CPU uses 12 workers. Set to `100` for maximum speed. Rebuild after changing.
 
 4.  **Quick sanity check** (dump 1 MB to a file):
     ```bash
@@ -112,15 +118,16 @@ A passing score is **> 96%** per test (e.g., 96/100 streams).
 3. Build in MSYS2:
 ```bash
 cd $PRACTRAND_DIR
-g++ -O3 -DWIN32 -o RNG_test tools/RNG_test.cpp $(find src -name "*.cpp") -I include -std=c++14
+g++ -O3 -march=native -flto -DWIN32 -o RNG_test tools/RNG_test.cpp $(find src -name "*.cpp") -I include -std=c++14
 ```
 > **Important**: The `-DWIN32` flag is required on MSYS2. Without it, PractRand won't read binary stdin correctly.
 
 This creates `RNG_test.exe` in the PractRand folder.
 
-**Run** (direct pipe — no file needed):
+**Run** (logs to terminal and appends to file):
 ```bash
-$TRNG_DIR/trng_gen.exe | $PRACTRAND_DIR/RNG_test stdin
+echo "--- Run started: $(date) ---" >> $PRACTRAND_DIR/practrand_log.txt
+$TRNG_DIR/trng_gen.exe | $PRACTRAND_DIR/RNG_test stdin8 -multithreaded | tee -a $PRACTRAND_DIR/practrand_log.txt
 ```
 
 **Reading results**: PractRand prints results at each power-of-two size:
@@ -148,30 +155,44 @@ length= 2 megabytes (2^21 bytes), time= 0.5 seconds
 
 **Download & Install**:
 1. Download TestU01 from: http://simul.iro.umontreal.ca/testu01/tu01.html
-   - Click the **"TestU01"** download link (tarball `.tar.gz`)
-2. Extract to your Desktop
-3. Build in MSYS2:
+   - Click the **"Source files (zip archive)"** download link.
+2. Extract the `.zip` to your Desktop (you will get a folder like `TestU01-1.2.3`)
+2. Build in MSYS2:
 ```bash
 cd $TESTU01_DIR
+
+# Compiling 1990s C code with modern GCC 14 requires restoring old GNU standards:
+export CFLAGS="-std=gnu89 -Wno-int-conversion -Wno-implicit-function-declaration -Wno-implicit-int -Wno-incompatible-pointer-types"
 LIBS="-lws2_32" ./configure --prefix=/ucrt64
+
 make
 make install
 ```
 > **Important**: The `LIBS="-lws2_32"` flag is required on MSYS2. Without it, the build fails with `undefined reference to gethostname`.
-4. Install a stdin wrapper (required for piping):
+3. Build the stdin wrapper (included in this project at `src/tools/testu01_stdin.c`):
 ```bash
-# Clone the testingRNG repo which includes a stdin wrapper:
-git clone https://github.com/lemire/testingRNG.git $TESTU01_DIR/testingRNG
-cd $TESTU01_DIR/testingRNG/testu01
-make    # Builds testu01_stdin
-cp testu01_stdin $TESTU01_DIR/
+cd $TRNG_DIR
+gcc -std=c99 -O2 -o testu01_stdin src/tools/testu01_stdin.c \
+    -I/ucrt64/include -L/ucrt64/lib \
+    -ltestu01 -lprobdist -lmylib -lm -lws2_32
 ```
 
 > **Note**: TestU01 is the hardest to set up on Windows/MSYS2. If it fails, **skip it** — PractRand is equally powerful and much easier to install.
 
 **Run** (via stdin wrapper):
+
+You can run any of the three main batteries depending on how much time you have.
+SmallCrush takes ~1 minute; Crush takes ~1 hour; BigCrush takes ~6+ hours.
+
 ```bash
-$TRNG_DIR/trng_gen.exe | $TESTU01_DIR/testu01_stdin BigCrush
+# 1. SmallCrush (15 tests / ~1 minute)
+$TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin SmallCrush | tee $TESTU01_DIR/small_testu01_log.txt
+
+# 2. Crush (144 tests / ~1 hour)
+$TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin Crush | tee $TESTU01_DIR/medium_testu01_log.txt
+
+# 3. BigCrush (106 tests / ~6 hours)
+$TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin BigCrush | tee $TESTU01_DIR/big_testu01_log.txt
 ```
 
 **Reading results**: Each of the 106 tests reports a p-value. A p-value outside [0.001, 0.999] is suspicious.
@@ -222,8 +243,9 @@ $TRNG_DIR/trng_gen.exe | head -c 104857600 > $SP90B_DIR/bin/trng_90b.bin
 **Run**:
 ```bash
 cd $SP90B_DIR/cpp
-./ea_non_iid ../bin/trng_90b.bin 8
+./ea_non_iid -a ../bin/trng_90b.bin 8
 ```
+- `-a` = Read all data in the file (overriding the default 1,000,000 byte cap)
 - `8` = bits per symbol (1 byte = 8 bits)
 - Use `ea_non_iid` (non-IID) since CSPRNG output is not strictly IID
 
@@ -245,13 +267,13 @@ Open 4 separate MSYS2 terminals and run simultaneously:
 Terminal 1 (PractRand):     $TRNG_DIR/trng_gen.exe | $PRACTRAND_DIR/RNG_test stdin
 Terminal 2 (800-22 prep):   $TRNG_DIR/trng_gen.exe | head -c 1073741824 > $STS_DIR/data/nist.bin
 Terminal 3 (800-90B prep):  $TRNG_DIR/trng_gen.exe | head -c 10485760 > $SP90B_DIR/data/raw_90b.bin
-Terminal 4 (TestU01):       $TRNG_DIR/trng_gen.exe | $TESTU01_DIR/testu01_stdin BigCrush
+Terminal 4 (TestU01):       $TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin BigCrush | tee $TESTU01_DIR/big_testu01_log.txt
 ```
 
 Once Terminals 2 and 3 finish generating files, run:
 ```bash
 Terminal 2: cd $STS_DIR && ./assess.exe 1000000
-Terminal 3: cd $SP90B_DIR/cpp && ./ea_non_iid ../bin/raw_90b.bin 8
+Terminal 3: cd $SP90B_DIR/cpp && ./ea_non_iid -a ../bin/raw_90b.bin 8
 ```
 
 ---
@@ -261,6 +283,6 @@ Terminal 3: cd $SP90B_DIR/cpp && ./ea_non_iid ../bin/raw_90b.bin 8
 | Suite | Method | Data | Time | Priority |
 |-------|--------|------|------|----------|
 | **PractRand** | Direct pipe | Progressive (1 KB → TB) | Minutes → hours | Highest |
-| **NIST 800-22** | File dump → tool | 100 MB – 1 GB | 5-30 min | High |
-| **800-90B** | File dump → C++ tool | 1-10 MB | 10-60 min | Medium |
+| **NIST 800-22** | File dump → tool | 100 MB – 1 GB | 30+ min | High |
+| **NIST 800-90B** | File dump → C++ tool | 1-10 MB | 10-60 min | Medium |
 | **TestU01** | Direct pipe (via wrapper) | ~200 GB | Hours | Low (hard to install) |
