@@ -567,7 +567,7 @@ void RenderAboutModal() {
 
     if (ImGui::BeginPopupModal("About TRNG", &g_state.showAboutModal, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("True Random Number Generator (TRNG)");
-        ImGui::Text("Version 1.0.0");
+        ImGui::Text("Version %s", APP_VERSION);
         ImGui::Separator();
         ImGui::Text("A high-security cryptographic randomness tool.");
         ImGui::Text("Uses a Quad-Layer CSPRNG architecture:");

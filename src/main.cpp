@@ -22,6 +22,7 @@
 #include <shellscalingapi.h>
 #include <windows.h> // For SecureZeroMemory
 #pragma comment(lib, "shcore.lib")
+#include "resource.h"
 
 // Global application state
 AppState g_state;
@@ -79,6 +80,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     // Register window class
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), 
                        nullptr, nullptr, nullptr, nullptr, L"TRNG", nullptr };
+                       
+    wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    wc.hIconSm = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    
     RegisterClassExW(&wc);
     
     // Get screen size for adaptive window

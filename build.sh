@@ -47,10 +47,17 @@ fi
 
 mkdir -p build
 
+echo "Compiling resources..."
+windres src/resource.rc -O coff -o build/resource.res
+
 echo "Compiling..."
+
+# Use VERSION env var if set, otherwise fall back to "dev"
+BUILD_VERSION="${VERSION:-dev}"
 
 # Compile all source files
 g++ -std=c++17 -O2 -mwindows \
+    -DAPP_VERSION="\"${BUILD_VERSION}\"" \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
@@ -79,6 +86,7 @@ g++ -std=c++17 -O2 -mwindows \
     external/imgui/imgui_widgets.cpp \
     external/imgui/backends/imgui_impl_win32.cpp \
     external/imgui/backends/imgui_impl_dx11.cpp \
+    build/resource.res \
     -static \
     -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32 -lole32 -loleaut32 -luuid -lmmdevapi -lksuser
 

@@ -13,6 +13,13 @@
 #include "../entropy/pool.h"
 #include "../crypto/secure_mem.h"
 
+// Application constants
+// APP_VERSION is injected at compile time via -DAPP_VERSION="x.y.z"
+// Falls back to "dev" for local builds without the flag.
+#ifndef APP_VERSION
+#define APP_VERSION "dev"
+#endif
+
 // Application state - global configuration and runtime data
 struct AppState {
     // Entropy Collectors

@@ -1,0 +1,85 @@
+name: Build and Release
+
+# Triggers when you publish a new Release on GitHub (e.g. tag v1.2.0)
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install MSYS2 and the MinGW-w64 toolchain (same as your local setup)
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-binutils
+
+      # Strip the leading 'v' from the tag (e.g. "v1.2.0" → "1.2.0")
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Build the executable, injecting the version number and icon resource
+      - name: Build TRNG.exe
+        shell: msys2 {0}
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          mkdir -p build
+
+          echo "Compiling resources (icon)..."
+          windres src/resource.rc -O coff -o build/resource.res
+
+          echo "Compiling TRNG v${VERSION}..."
+          g++ -std=c++17 -O2 -mwindows \
+              -DAPP_VERSION="\"${VERSION}\"" \
+              -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
+              -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
+              -I"external/imgui" -I"external/imgui/backends" \
+              -o build/TRNG.exe \
+              src/main.cpp \
+              src/gui/gui.cpp \
+              src/gui/gui_sources.cpp \
+              src/gui/gui_output.cpp \
+              src/logic/logic.cpp \
+              src/logic/csprng.cpp \
+              src/platform/dx11.cpp \
+              src/logging/logger.cpp \
+              src/entropy/clock_drift/clock_drift.cpp \
+              src/entropy/cpu_jitter/cpu_jitter.cpp \
+              src/entropy/keystroke/keystroke.cpp \
+              src/entropy/mouse/mouse.cpp \
+              src/entropy/microphone/microphone.cpp \
+              src/entropy/pool.cpp \
+              src/crypto/sha512.cpp \
+              src/crypto/hkdf.cpp \
+              src/crypto/chacha20.cpp \
+              src/crypto/aes.cpp \
+              external/imgui/imgui.cpp \
+              external/imgui/imgui_draw.cpp \
+              external/imgui/imgui_tables.cpp \
+              external/imgui/imgui_widgets.cpp \
+              external/imgui/backends/imgui_impl_win32.cpp \
+              external/imgui/backends/imgui_impl_dx11.cpp \
+              build/resource.res \
+              -static \
+              -ld3d11 -ld3dcompiler -ldxgi -ldwmapi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32 -lole32 -loleaut32 -luuid -lmmdevapi -lksuser
+
+          echo "Build complete: build/TRNG.exe"
+
+      # Upload the built .exe to the GitHub Release
+      - name: Upload TRNG.exe to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/TRNG.exe
+          token: ${{ secrets.GITHUB_TOKEN }}
