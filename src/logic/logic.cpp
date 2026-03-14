@@ -11,7 +11,8 @@
 #include <set>
 #include <map>
 #include <windows.h> // For SecureZeroMemory
-
+#include <sstream>
+#include "../resource.h"
 // Default wordlist entropy: log2(123565) ≈ 16.9 bits per word
 // We use 16.5 bits for calculation (conservative)
 static const float DEFAULT_WORDLIST_ENTROPY = 16.5f;
@@ -24,6 +25,35 @@ bool LoadWordListForGeneration() {
             return true;
         }
         
+        // --- ADDED: Try loading from embedded executable resource ---
+        HRSRC hRes = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_WORDLIST), (LPCSTR)RT_RCDATA);
+        if (hRes) {
+            HGLOBAL hData = LoadResource(NULL, hRes);
+            if (hData) {
+                DWORD size = SizeofResource(NULL, hRes);
+                const char* data = (const char*)LockResource(hData);
+                if (data && size > 0) {
+                    g_state.cachedWordList.clear();
+                    g_state.cachedWordList.reserve(125000);
+                    
+                    std::string wordlistData(data, size);
+                    std::istringstream iss(wordlistData);
+                    std::string line;
+                    while (std::getline(iss, line)) {
+                        size_t start = line.find_first_not_of(" \t\r\n");
+                        size_t end = line.find_last_not_of(" \t\r\n");
+                        if (start != std::string::npos && end != std::string::npos) {
+                            g_state.cachedWordList.push_back(line.substr(start, end - start + 1));
+                        }
+                    }
+                    
+                    g_state.wordListCacheValid = true;
+                    Logger::Log(Logger::Level::INFO, "Logic", "Loaded %zu words from embedded resource", g_state.cachedWordList.size());
+                    return !g_state.cachedWordList.empty();
+                }
+            }
+        }
+
         // Try multiple paths for the wordlist
         std::vector<std::string> paths = {
             "assets/default_wordlist.txt",

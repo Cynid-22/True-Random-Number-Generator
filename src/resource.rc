@@ -1,3 +1,4 @@
 #include "resource.h"
 
 IDI_APP_ICON ICON "../assets/icons/icon-256.ico"
+IDR_WORDLIST RCDATA "../assets/default_wordlist.txt"
