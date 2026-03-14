@@ -176,7 +176,7 @@ void RenderOutputConfigSection() {
                     g_state.includeSpecial ? "ON" : "OFF");
       }
       ImGui::SameLine();
-      ImGui::TextDisabled("(!@#$%^&*()_+-=[]{}|;':\",./<>?)");
+      ImGui::TextDisabled("(!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~)");
       break;
 
     case 4: { // Bit/Byte

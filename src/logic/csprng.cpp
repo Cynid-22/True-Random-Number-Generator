@@ -332,7 +332,7 @@ std::vector<char> GenerateCustomString(
     if (includeNumbers) charset += "0123456789";
     if (includeUppercase) charset += "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     if (includeLowercase) charset += "abcdefghijklmnopqrstuvwxyz";
-    if (includeSpecial) charset += "!@#$%^&*()_+-=[]{}|;':,.<>?";
+    if (includeSpecial) charset += "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
     
     if (charset.empty() || randomBytes.empty() || length <= 0) return {};
     
