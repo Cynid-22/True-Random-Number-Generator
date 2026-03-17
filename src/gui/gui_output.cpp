@@ -40,8 +40,8 @@ void RenderOutputConfigSection() {
     
     // SECURITY: Wipe OTP message buffer when switching away from OTP mode
     if (prevFormat == 6 && g_state.outputFormat != 6) {
-        SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
-        SecureZeroMemory(g_state.otpFilePath, sizeof(g_state.otpFilePath));
+        Crypto::SecureClearVector(g_state.otpMessage);
+        Crypto::SecureClearVector(g_state.otpFilePath);
         g_state.otpFileSize = 0;
     }
     
@@ -72,10 +72,10 @@ void RenderOutputConfigSection() {
                     "Output Config [Decimal]: Digits set to %d",
                     g_state.decimalDigits);
       }
-      if (g_state.decimalDigits < 1)
-        g_state.decimalDigits = 1;
-      if (g_state.decimalDigits > 10000)
-        g_state.decimalDigits = 10000;
+      if (g_state.decimalDigits < AppConfig::DECIMAL_MIN_DIGITS)
+        g_state.decimalDigits = AppConfig::DECIMAL_MIN_DIGITS;
+      if (g_state.decimalDigits > AppConfig::DECIMAL_MAX_DIGITS)
+        g_state.decimalDigits = AppConfig::DECIMAL_MAX_DIGITS;
       break;
 
     case 1: // Integer
@@ -85,12 +85,16 @@ void RenderOutputConfigSection() {
       ImGui::Text("Minimum:");
       ImGui::TableSetColumnIndex(1);
       ImGui::SetNextItemWidth(230);
-      if (ImGui::InputInt("##Min", &g_state.integerMin)) {
+      if (ImGui::InputScalar("##Min", ImGuiDataType_S64, &g_state.integerMin)) {
         parametersChanged = true;
         Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [Integer]: Min set to %d",
+                    "Output Config [Integer]: Min set to %lld",
                     g_state.integerMin);
       }
+      if (g_state.integerMin < AppConfig::INTEGER_RANGE_MIN)
+        g_state.integerMin = AppConfig::INTEGER_RANGE_MIN;
+      if (g_state.integerMin > AppConfig::INTEGER_RANGE_MAX)
+        g_state.integerMin = AppConfig::INTEGER_RANGE_MAX;
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
@@ -98,12 +102,16 @@ void RenderOutputConfigSection() {
       ImGui::Text("Maximum:");
       ImGui::TableSetColumnIndex(1);
       ImGui::SetNextItemWidth(230);
-      if (ImGui::InputInt("##Max", &g_state.integerMax)) {
+      if (ImGui::InputScalar("##Max", ImGuiDataType_S64, &g_state.integerMax)) {
         parametersChanged = true;
         Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [Integer]: Max set to %d",
+                    "Output Config [Integer]: Max set to %lld",
                     g_state.integerMax);
       }
+      if (g_state.integerMax < AppConfig::INTEGER_RANGE_MIN)
+        g_state.integerMax = AppConfig::INTEGER_RANGE_MIN;
+      if (g_state.integerMax > AppConfig::INTEGER_RANGE_MAX)
+        g_state.integerMax = AppConfig::INTEGER_RANGE_MAX;
       break;
 
     case 2: // Binary
@@ -119,10 +127,10 @@ void RenderOutputConfigSection() {
                     "Output Config [Binary]: Length set to %d",
                     g_state.binaryLength);
       }
-      if (g_state.binaryLength < 1)
-        g_state.binaryLength = 1;
-      if (g_state.binaryLength > 100000)
-        g_state.binaryLength = 100000;
+      if (g_state.binaryLength < AppConfig::BINARY_MIN_LENGTH)
+        g_state.binaryLength = AppConfig::BINARY_MIN_LENGTH;
+      if (g_state.binaryLength > AppConfig::BINARY_MAX_LENGTH)
+        g_state.binaryLength = AppConfig::BINARY_MAX_LENGTH;
       break;
 
     case 3: // Custom
@@ -138,10 +146,10 @@ void RenderOutputConfigSection() {
                     "Output Config [Custom]: Length set to %d",
                     g_state.customLength);
       }
-      if (g_state.customLength < 1)
-        g_state.customLength = 1;
-      if (g_state.customLength > 100000)
-        g_state.customLength = 100000;
+      if (g_state.customLength < AppConfig::CUSTOM_MIN_LENGTH)
+        g_state.customLength = AppConfig::CUSTOM_MIN_LENGTH;
+      if (g_state.customLength > AppConfig::CUSTOM_MAX_LENGTH)
+        g_state.customLength = AppConfig::CUSTOM_MAX_LENGTH;
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
@@ -192,10 +200,10 @@ void RenderOutputConfigSection() {
                     "Output Config [Bit/Byte]: Amount set to %d",
                     g_state.bitByteAmount);
       }
-      if (g_state.bitByteAmount < 1)
-        g_state.bitByteAmount = 1;
-      if (g_state.bitByteAmount > 1000000)
-        g_state.bitByteAmount = 1000000;
+      if (g_state.bitByteAmount < AppConfig::BITBYTE_MIN_AMOUNT)
+        g_state.bitByteAmount = AppConfig::BITBYTE_MIN_AMOUNT;
+      if (g_state.bitByteAmount > AppConfig::BITBYTE_MAX_AMOUNT)
+        g_state.bitByteAmount = AppConfig::BITBYTE_MAX_AMOUNT;
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
@@ -258,10 +266,10 @@ void RenderOutputConfigSection() {
                     "Output Config [Passphrase]: Word count set to %d",
                     g_state.passphraseWordCount);
       }
-      if (g_state.passphraseWordCount < 1)
-        g_state.passphraseWordCount = 1;
-      if (g_state.passphraseWordCount > 100)
-        g_state.passphraseWordCount = 100;
+      if (g_state.passphraseWordCount < AppConfig::PASSPHRASE_MIN_WORDS)
+        g_state.passphraseWordCount = AppConfig::PASSPHRASE_MIN_WORDS;
+      if (g_state.passphraseWordCount > AppConfig::PASSPHRASE_MAX_WORDS)
+        g_state.passphraseWordCount = AppConfig::PASSPHRASE_MAX_WORDS;
 
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
@@ -269,8 +277,8 @@ void RenderOutputConfigSection() {
       ImGui::Text("Separator:");
       ImGui::TableSetColumnIndex(1);
       ImGui::SetNextItemWidth(150);
-      if (ImGui::InputText("##Separator", g_state.passphraseSeparator,
-                           sizeof(g_state.passphraseSeparator))) {
+      if (ImGui::InputText("##Separator", g_state.passphraseSeparator.data(),
+                           g_state.passphraseSeparator.size())) {
         // InputText returns true on every char update, might be spammy?
         // User asked for "what did they change it to", so logging final state
         // or every char? Let's log but maybe user should press enter? relying
@@ -313,8 +321,8 @@ void RenderOutputConfigSection() {
           ImGui::PopStyleColor();
           ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
                              "(Content is NOT logged)");
-          if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage,
-                                        sizeof(g_state.otpMessage),
+          if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage.data(),
+                                        g_state.otpMessage.size(),
                                         ImVec2(-1, 150))) {
             UpdateTargetEntropy();
             // SECURITY: DO NOT LOG MESSAGE CONTENT
@@ -333,8 +341,8 @@ void RenderOutputConfigSection() {
 
           ImGui::Text("File to process:");
           ImGui::SetNextItemWidth(-1);
-          ImGui::InputText("##OTPFilePath", g_state.otpFilePath,
-                           sizeof(g_state.otpFilePath),
+          ImGui::InputText("##OTPFilePath", g_state.otpFilePath.data(),
+                           g_state.otpFilePath.size(),
                            ImGuiInputTextFlags_ReadOnly);
 
           if (ImGui::Button("Browse File...")) {
@@ -353,10 +361,11 @@ void RenderOutputConfigSection() {
             ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
             if (GetOpenFileNameA(&ofn) == TRUE) {
-              strncpy(g_state.otpFilePath, ofn.lpstrFile,
-                      sizeof(g_state.otpFilePath) - 1);
+              strncpy(g_state.otpFilePath.data(), ofn.lpstrFile,
+                      g_state.otpFilePath.size() - 1);
+              g_state.otpFilePath[g_state.otpFilePath.size() - 1] = '\0';
 
-              HANDLE hFile = CreateFileA(g_state.otpFilePath, GENERIC_READ,
+              HANDLE hFile = CreateFileA(g_state.otpFilePath.data(), GENERIC_READ,
                                          FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                          FILE_ATTRIBUTE_NORMAL, NULL);
               if (hFile != INVALID_HANDLE_VALUE) {
@@ -541,7 +550,7 @@ void RenderOutputSection() {
     g_state.timestamp = "";
     
     // SECURITY: Also wipe OTP message buffer on clear
-    SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
+    Crypto::SecureClearVector(g_state.otpMessage);
   }
   if (!canCopy)
     ImGui::EndDisabled();

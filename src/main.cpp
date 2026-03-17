@@ -428,8 +428,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_state.entropyPool.SecureWipe();
     
     // Wipe OTP message buffer (may contain plaintext)
-    SecureZeroMemory(g_state.otpMessage, sizeof(g_state.otpMessage));
-    SecureZeroMemory(g_state.otpFilePath, sizeof(g_state.otpFilePath));
+    Crypto::SecureClearVector(g_state.otpMessage);
+    Crypto::SecureClearVector(g_state.otpFilePath);
     
     // Wipe generated output (may contain cryptographic keys)
     if (!g_state.generatedOutput.empty()) {

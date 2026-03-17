@@ -14,6 +14,7 @@
 #include <fstream>
 #include <windows.h> // For SecureZeroMemory
 #include "../crypto/secure_mem.h"
+#include "../../config/AppConfig.h"
 
 namespace CSPRNG {
 
@@ -594,8 +595,8 @@ GenerationResult GenerateOutput() {
         case 0: // Decimal - uses 2 bytes per digit. Request 4x for rejection safety buffer.
             bytesNeeded = g_state.decimalDigits * 4;
             break;
-        case 1: // Integer - needs up to 8 bytes. Request 32 bytes for multiple retries.
-            bytesNeeded = 32;
+        case 1: // Integer - needs up to 8 bytes. Request configured size for multiple retries.
+            bytesNeeded = AppConfig::INTEGER_ENTROPY_BLOCK_BYTES;
             break;
         case 2: // Binary - 1 bit per output bit, so ceil(length/8)
             bytesNeeded = (g_state.binaryLength + 7) / 8;
@@ -614,7 +615,7 @@ GenerationResult GenerateOutput() {
             if (g_state.otpInputMode == 0) {
                 // Text mode: ASCII safe Modulo-95. 
                 // We request 2x bytes to ensure Rejection Sampling < 190 succeeds.
-                bytesNeeded = strlen(g_state.otpMessage) * 2;
+                bytesNeeded = strlen(g_state.otpMessage.data()) * 2;
             } else {
                 // File mode: Raw XOR, 1:1 ratio
                 bytesNeeded = static_cast<size_t>(g_state.otpFileSize);
@@ -673,17 +674,17 @@ GenerationResult GenerateOutput() {
             result.output = GeneratePassphrase(
                 randomBytes,
                 g_state.passphraseWordCount,
-                g_state.passphraseSeparator,
+                std::string(g_state.passphraseSeparator.data()),
                 g_state.cachedWordList);
             break;
             
         case 6: // OTP
             if (g_state.otpInputMode == 0) {
                 // Text input
-                result.output = GenerateOTP(randomBytes, g_state.otpMessage);
+                result.output = GenerateOTP(randomBytes, std::string(g_state.otpMessage.data()));
             } else {
                 // File input - read file and XOR
-                std::ifstream file(g_state.otpFilePath, std::ios::binary);
+                std::ifstream file(g_state.otpFilePath.data(), std::ios::binary);
                 if (!file.is_open()) {
                     result.errorMessage = "Failed to open input file";
                     SecureZeroMemory(randomBytes.data(), randomBytes.size());

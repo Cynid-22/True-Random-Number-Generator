@@ -12,6 +12,7 @@
 #include "../entropy/microphone/microphone.h"
 #include "../entropy/pool.h"
 #include "../crypto/secure_mem.h"
+#include "../../config/AppConfig.h"
 
 // Application constants
 // APP_VERSION is injected at compile time via -DAPP_VERSION="x.y.z"
@@ -22,6 +23,13 @@
 
 // Application state - global configuration and runtime data
 struct AppState {
+    AppState() {
+        passphraseSeparator.assign(AppConfig::PASSPHRASE_SEPARATOR_MAX_BYTES, '\0');
+        passphraseSeparator[0] = '-';
+        otpMessage.assign(AppConfig::OTP_MESSAGE_MAX_BYTES, '\0');
+        otpFilePath.assign(AppConfig::OTP_FILEPATH_MAX_BYTES, '\0');
+    }
+
     // Entropy Collectors
     Entropy::ClockDriftCollector clockDriftCollector;
     Entropy::CpuJitterCollector cpuJitterCollector;
@@ -69,8 +77,8 @@ struct AppState {
     
     // Format params
     int decimalDigits = 16;
-    int integerMin = 0;
-    int integerMax = 100;
+    long long integerMin = 0;
+    long long integerMax = 100;
     int binaryLength = 64;
     int customLength = 16;
     bool includeNumbers = true;
@@ -85,11 +93,11 @@ struct AppState {
     
     // Passphrase params
     int passphraseWordCount = 6;
-    char passphraseSeparator[16] = "-";
+    std::vector<char> passphraseSeparator;
     
     // One-Time Pad params
-    char otpMessage[1024 * 1024] = ""; // 1MB buffer for manual input
-    char otpFilePath[512] = "";        // Path for file input
+    std::vector<char> otpMessage; // Buffer for manual input
+    std::vector<char> otpFilePath; // Path for file input
     long long otpFileSize = 0;         // Size of selected file
     int otpInputMode = 0;              // 0=Text, 1=File
     
@@ -131,8 +139,8 @@ struct AppState {
         if (!generatedOutput.empty()) {
             Crypto::SecureClearVector(generatedOutput);
         }
-        SecureZeroMemory(otpMessage, sizeof(otpMessage));
-        SecureZeroMemory(passphraseSeparator, sizeof(passphraseSeparator));
+        Crypto::SecureClearVector(otpMessage);
+        Crypto::SecureClearVector(passphraseSeparator);
         // Other members like collectors have their own destructors
     }
 };

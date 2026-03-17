@@ -170,7 +170,7 @@ float CalculateRequiredEntropy() {
         case 6: // One-Time Pad
         {
             if (g_state.otpInputMode == 0) { // Text Input
-                bits = strlen(g_state.otpMessage) * 8.0f;
+                bits = strlen(g_state.otpMessage.data()) * 8.0f;
             } else { // File Input
                 bits = (float)g_state.otpFileSize * 8.0f;
             }
