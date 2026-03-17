@@ -5,6 +5,7 @@
 
 #include <string>
 #include <vector>
+#include <atomic>
 #include "../entropy/clock_drift/clock_drift.h"
 #include "../entropy/cpu_jitter/cpu_jitter.h"
 #include "../entropy/keystroke/keystroke.h"
@@ -112,6 +113,8 @@ struct AppState {
     
     // UI state
     int currentTab = 0;
+    bool truncateOutputView = true;
+    volatile bool cancelGeneration{false};
     
     // Logging warning window state
     bool showLoggingWarningWindow = false;

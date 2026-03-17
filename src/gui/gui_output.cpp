@@ -5,19 +5,30 @@
 #include "../core/app_state.h"
 #include "../entropy/entropy_common.h"
 #include "../logging/logger.h"
-#include "../logic/logic.h"
 #include "../logic/csprng.h"
+#include "../logic/logic.h"
 #include "gui.h"
 
+#include <atomic>
 #include <cstdio>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <time.h>
+#include <utility>
+
+static std::atomic<bool> s_isGenerating{false};
+static std::mutex s_genMutex;
+static CSPRNG::GenerationResult s_genResult;
+static std::atomic<bool> s_genFinished{false};
 
 //=============================================================================
 // OUTPUT CONFIGURATION
 //=============================================================================
 
 void RenderOutputConfigSection() {
+  if (s_isGenerating.load())
+    ImGui::BeginDisabled();
   ImGui::Text("Output Configuration");
   ImGui::Separator();
   ImGui::Spacing();
@@ -37,14 +48,14 @@ void RenderOutputConfigSection() {
     Logger::Log(Logger::Level::INFO, "GUI",
                 "Output Format changed from '%s' to '%s'", formats[prevFormat],
                 formats[g_state.outputFormat]);
-    
+
     // SECURITY: Wipe OTP message buffer when switching away from OTP mode
     if (prevFormat == 6 && g_state.outputFormat != 6) {
-        Crypto::SecureClearVector(g_state.otpMessage);
-        Crypto::SecureClearVector(g_state.otpFilePath);
-        g_state.otpFileSize = 0;
+      Crypto::SecureClearVector(g_state.otpMessage);
+      Crypto::SecureClearVector(g_state.otpFilePath);
+      g_state.otpFileSize = 0;
     }
-    
+
     UpdateTargetEntropy();
   }
 
@@ -232,21 +243,24 @@ void RenderOutputConfigSection() {
                     "Output Config [Bit/Byte]: Format set to %s",
                     outFmts[g_state.bitByteFormat]);
       }
-      
+
       // Inline Binary Separator Config
       if (g_state.bitByteFormat == 2) { // Binary only
         ImGui::SameLine();
         ImGui::Text("|");
         ImGui::SameLine();
         if (ImGui::Checkbox("Separator", &g_state.binarySeparatorEnabled)) {
-             Logger::Log(Logger::Level::INFO, "GUI", "Output Config [Binary]: Separator toggled %s", g_state.binarySeparatorEnabled ? "ON" : "OFF");
+          Logger::Log(Logger::Level::INFO, "GUI",
+                      "Output Config [Binary]: Separator toggled %s",
+                      g_state.binarySeparatorEnabled ? "ON" : "OFF");
         }
         if (g_state.binarySeparatorEnabled) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(150); 
-            if (ImGui::InputInt("bits", &g_state.binarySeparatorInterval)) {
-                if (g_state.binarySeparatorInterval < 1) g_state.binarySeparatorInterval = 1;
-            }
+          ImGui::SameLine();
+          ImGui::SetNextItemWidth(150);
+          if (ImGui::InputInt("bits", &g_state.binarySeparatorInterval)) {
+            if (g_state.binarySeparatorInterval < 1)
+              g_state.binarySeparatorInterval = 1;
+          }
         }
       }
       break;
@@ -317,13 +331,14 @@ void RenderOutputConfigSection() {
           ImGui::Spacing();
           ImGui::Text("Enter your message:");
           ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.0f, 1.0f));
-          ImGui::Text("(Note: Only supports ASCII characters. Output will be ASCII.)");
+          ImGui::Text(
+              "(Note: Only supports ASCII characters. Output will be ASCII.)");
           ImGui::PopStyleColor();
           ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
                              "(Content is NOT logged)");
-          if (ImGui::InputTextMultiline("##OTPMessage", g_state.otpMessage.data(),
-                                        g_state.otpMessage.size(),
-                                        ImVec2(-1, 150))) {
+          if (ImGui::InputTextMultiline(
+                  "##OTPMessage", g_state.otpMessage.data(),
+                  g_state.otpMessage.size(), ImVec2(-1, 150))) {
             UpdateTargetEntropy();
             // SECURITY: DO NOT LOG MESSAGE CONTENT
             // SECURITY: DO NOT LOG MESSAGE CONTENT
@@ -365,9 +380,9 @@ void RenderOutputConfigSection() {
                       g_state.otpFilePath.size() - 1);
               g_state.otpFilePath[g_state.otpFilePath.size() - 1] = '\0';
 
-              HANDLE hFile = CreateFileA(g_state.otpFilePath.data(), GENERIC_READ,
-                                         FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                                         FILE_ATTRIBUTE_NORMAL, NULL);
+              HANDLE hFile = CreateFileA(
+                  g_state.otpFilePath.data(), GENERIC_READ, FILE_SHARE_READ,
+                  NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
               if (hFile != INVALID_HANDLE_VALUE) {
                 LARGE_INTEGER size;
                 if (GetFileSizeEx(hFile, &size)) {
@@ -428,6 +443,9 @@ void RenderOutputConfigSection() {
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
                        "(Minimum Base Security)");
   }
+
+  if (s_isGenerating.load())
+    ImGui::EndDisabled();
 }
 
 void RenderOutputSection() {
@@ -435,6 +453,26 @@ void RenderOutputSection() {
   ImGui::Text("Generated Output:");
   ImGui::SameLine();
   ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(Result is NOT logged)");
+
+  ImGui::SameLine();
+  // Align checkbox visually to the right side
+  float avail = ImGui::GetContentRegionAvail().x;
+  float textW = ImGui::CalcTextSize("Truncate display (Prevent UI Lag)").x;
+  float extraW =
+      ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + 15.0f;
+  float estimatedCheckboxWidth = textW + extraW;
+  if (avail > estimatedCheckboxWidth) {
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                         (avail - estimatedCheckboxWidth));
+  }
+  ImGui::Checkbox("Truncate display (Prevent UI Lag)",
+                  &g_state.truncateOutputView);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Limits visual rendering in the box below to the first 500 and last "
+        "500 characters to prevent UI freezing.\nCopy/Export will still "
+        "retrieve the FULL generated output intact.");
+  }
   ImGui::Separator();
 
   // Output text box (with text wrapping for long output)
@@ -444,8 +482,26 @@ void RenderOutputSection() {
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
   if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -160.0f), true)) {
     if (!g_state.generatedOutput.empty()) {
-       // Using TextWrapped for native wrapping behavior (non-selectable)
-      ImGui::TextWrapped("%s", g_state.generatedOutput.data());
+      size_t outSize = g_state.generatedOutput.size();
+      if (g_state.truncateOutputView && outSize > 1000) {
+        std::string firstPart(g_state.generatedOutput.data(), 500);
+        std::string lastPart(g_state.generatedOutput.data() + outSize - 500,
+                             500);
+
+        ImGui::TextWrapped("%s", firstPart.c_str());
+
+        // Note: Dear ImGui does not support inline italics natively without
+        // loading an italic font file. We will use a dimmer text color to
+        // simulate the effect.
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        ImGui::TextWrapped("\n ... truncated ... \n\n");
+        ImGui::PopStyleColor();
+
+        ImGui::TextWrapped("%s", lastPart.c_str());
+      } else {
+        // Using TextWrapped for native wrapping behavior (non-selectable)
+        ImGui::TextWrapped("%s", g_state.generatedOutput.data());
+      }
     }
   }
   ImGui::EndChild();
@@ -474,56 +530,107 @@ void RenderOutputSection() {
   }
 
   // Only disable if below 512 bits (minimum base security)
-  if (!hasMinimumEntropy)
-    ImGui::BeginDisabled();
-  if (ImGui::Button("Generate", ImVec2(100, 0))) {
+  if (s_isGenerating.load()) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                          ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                          ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+    if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+      g_state.cancelGeneration = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    // Progress Wheel
+    ImGui::SameLine();
+    if (g_state.cancelGeneration) {
+      ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                         "Cancelling generation, please wait... ");
+    } else {
+      ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
+                         "Generation in progress, please wait... ");
+    }
+    ImGui::SameLine();
+    static float timeOffset = 0.0f;
+    timeOffset += ImGui::GetIO().DeltaTime;
+    const char *spinners[] = {"|", "/", "-", "\\"};
+    int spinnerIdx = static_cast<int>(timeOffset * 10.0f) % 4;
+    ImGui::Text("%s", spinners[spinnerIdx]);
+
+    // Check completion
+    if (s_genFinished.load()) {
+      std::lock_guard<std::mutex> lock(s_genMutex);
+
+      if (s_genResult.success) {
+        g_state.generatedOutput = std::move(s_genResult.output);
+        g_state.entropyConsumed = s_genResult.entropyConsumed;
+
+        // Generate timestamp for output
+        time_t now = time(nullptr);
+        char timeStr[64];
+        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)",
+                 localtime(&now));
+        g_state.timestamp = timeStr;
+
+        const char *modeStr =
+            (s_genResult.mode == CSPRNG::GenerationMode::Consolidation)
+                ? "TRUE RANDOMNESS"
+                : "PSEUDO-RANDOM";
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Generated output using %s mode, consumed %.1f bits",
+                    modeStr, s_genResult.entropyConsumed);
+      } else {
+        std::string err = "[ERROR] " + s_genResult.errorMessage;
+        g_state.generatedOutput = std::vector<char>(err.begin(), err.end());
+        g_state.generatedOutput.push_back('\0');
+        g_state.entropyConsumed = 0.0f;
+        Logger::Log(Logger::Level::ERR, "GUI", "Generation failed: %s",
+                    s_genResult.errorMessage.c_str());
+      }
+
+      s_genFinished.store(false);
+      s_isGenerating.store(false);
+    }
+  } else {
+    if (!hasMinimumEntropy)
+      ImGui::BeginDisabled();
+
+    if (ImGui::Button("Generate", ImVec2(100, 0))) {
       // Check OTP mode consolidation requirement
       if (g_state.outputFormat == 6 && !hasFullEntropy) {
         // OTP requires TRUE RANDOMNESS (consolidation mode)
-        std::string err = "[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
-                          "Collect more entropy until the bar reaches 100%.";
+        std::string err =
+            "[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
+            "Collect more entropy until the bar reaches 100%.";
         g_state.generatedOutput = std::vector<char>(err.begin(), err.end());
         g_state.generatedOutput.push_back('\0');
         g_state.entropyConsumed = 0.0f;
       } else {
-        // Proceed with actual CSPRNG generation
-        CSPRNG::GenerationResult result = CSPRNG::GenerateOutput();
-        
-        if (result.success) {
-          g_state.generatedOutput = result.output;
-          g_state.entropyConsumed = result.entropyConsumed;
-          
-          // Generate timestamp for output
-          time_t now = time(nullptr);
-          char timeStr[64];
-          strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S (UTC%z)",
-                   localtime(&now));
-          g_state.timestamp = timeStr;
-          
-          // Add mode indicator to log
-          const char* modeStr = (result.mode == CSPRNG::GenerationMode::Consolidation)
-                                ? "TRUE RANDOMNESS" : "PSEUDO-RANDOM";
-          Logger::Log(Logger::Level::INFO, "GUI",
-                      "Generated output using %s mode, consumed %.1f bits",
-                      modeStr, result.entropyConsumed);
-        } else {
-          std::string err = "[ERROR] " + result.errorMessage;
-          g_state.generatedOutput = std::vector<char>(err.begin(), err.end());
-          g_state.generatedOutput.push_back('\0');
-          g_state.entropyConsumed = 0.0f;
-          Logger::Log(Logger::Level::ERR, "GUI",
-                      "Generation failed: %s", result.errorMessage.c_str());
-        }
-      }
+        // Proceed with actual CSPRNG generation in background thread
+        s_isGenerating.store(true);
+        s_genFinished.store(false);
+        g_state.cancelGeneration = false;
 
-      // LOCK-IN: Lock all currently used entropy
-      g_state.lockedDataTimestamp = Entropy::GetNanosecondTimestamp();
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Entropy locked at timestamp: %llu",
-                  g_state.lockedDataTimestamp);
+        // LOCK-IN: Lock all currently used entropy
+        g_state.lockedDataTimestamp = Entropy::GetNanosecondTimestamp();
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Entropy locked at timestamp: %llu",
+                    g_state.lockedDataTimestamp);
+
+        std::thread([]() {
+          CSPRNG::GenerationResult result = CSPRNG::GenerateOutput();
+          {
+            std::lock_guard<std::mutex> lock(s_genMutex);
+            s_genResult = std::move(result);
+          }
+          s_genFinished.store(true);
+        }).detach();
+      }
+    }
+
+    if (!hasMinimumEntropy)
+      ImGui::EndDisabled();
   }
-  if (!hasMinimumEntropy)
-    ImGui::EndDisabled();
 
   ImGui::SameLine();
 
@@ -543,12 +650,13 @@ void RenderOutputSection() {
   if (ImGui::Button("Clear", ImVec2(80, 0))) {
     // SECURITY: Securely wipe output data before clearing
     if (!g_state.generatedOutput.empty()) {
-      SecureZeroMemory(g_state.generatedOutput.data(), g_state.generatedOutput.size());
+      SecureZeroMemory(g_state.generatedOutput.data(),
+                       g_state.generatedOutput.size());
     }
     g_state.generatedOutput.clear();
     g_state.entropyConsumed = 0.0f;
     g_state.timestamp = "";
-    
+
     // SECURITY: Also wipe OTP message buffer on clear
     Crypto::SecureClearVector(g_state.otpMessage);
   }
@@ -556,8 +664,9 @@ void RenderOutputSection() {
     ImGui::EndDisabled();
 
   // Note about time-based uniqueness
-  ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                     "Note: The current time is mixed into the seed for uniqueness.");
+  ImGui::TextColored(
+      ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+      "Note: The current time is mixed into the seed for uniqueness.");
 
   // Info footer
   if (!g_state.timestamp.empty()) {
