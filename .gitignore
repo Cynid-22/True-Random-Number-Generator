@@ -6,6 +6,7 @@ audit.md
 *.ini
 *.exe
 recover_nist.py
+CalculateAvg.py
 
 # C++ Build Artifacts
 build/
