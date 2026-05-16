@@ -7,6 +7,8 @@ audit.md
 *.exe
 recover_nist.py
 CalculateAvg.py
+commands.txt
+TRNG_UI_Aesthetic_Guide.md
 
 # C++ Build Artifacts
 build/
