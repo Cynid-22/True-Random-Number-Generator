@@ -42,7 +42,7 @@ Pick a category, then a type within it:
 - **Numbers**
   - Decimal (0.0 - 1.0)
   - Integer Range (custom min/max)
-- **Raw Data** (amount in bits or bytes, optional space every N characters; single-case letters are lowercase unless Uppercase is ticked)
+- **Raw Data** (amount in bits or bytes, optional space every N characters; letter case follows each standard: uppercase for Hex, Base 32, Crockford Base 32 and Base 45; lowercase for Base 12 and Base 36, which no standard defines; either can be switched with Uppercase)
   - Base 2 (Binary), Base 8 (Octal), Base 32 Crockford: exact bits
   - Base 16 (Hexadecimal), Base 32 (RFC 4648), Base 45 (RFC 9285), Base 64, Base 64 URL, Base 85 (RFC 1924 alphabet): standard encodings of whole bytes
   - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits

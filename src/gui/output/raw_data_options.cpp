@@ -10,10 +10,15 @@ struct RawEncodingDescription {
   const char *usage;
   const char *characters;
   const char *uppercaseCharacters;
+  const char *uppercaseStandard;
+  const char *lowercaseWarning;
 };
 
 static const RawEncodingDescription RAW_ENCODING_DESCRIPTIONS[CSPRNG::RAW_ENCODING_COUNT] = {
-    {"Memory addresses and color codes.", "0-9, a-f", "0-9, A-F"},
+    {"Memory addresses and color codes.", "0-9, a-f", "0-9, A-F",
+     "RFC 4648 section 8",
+     "RFC 4648 section 8 uses uppercase; most hex decoders accept either "
+     "case."},
     {"Email attachments and embedded assets (RFC 4648).",
      "A-Z, a-z, 0-9, + and /, with = padding"},
     {"How computer hardware stores and processes data.", "0, 1"},
@@ -23,13 +28,21 @@ static const RawEncodingDescription RAW_ENCODING_DESCRIPTIONS[CSPRNG::RAW_ENCODI
      "0-9, a, b (a = ten, b = eleven)",
      "0-9, A, B (A = ten, B = eleven)"},
     {"2FA authenticator secrets (RFC 4648).",
-     "a-z, 2-7, with = padding", "A-Z, 2-7, with = padding"},
+     "a-z, 2-7, with = padding", "A-Z, 2-7, with = padding",
+     "RFC 4648 section 6",
+     "RFC 4648 section 6 uses uppercase; strict Base 32 decoders reject "
+     "lowercase."},
     {"Error-tolerant, human-readable codes typed by hand.",
-     "0-9, a-z without i, l, o, u", "0-9, A-Z without I, L, O, U"},
+     "0-9, a-z without i, l, o, u", "0-9, A-Z without I, L, O, U",
+     "Crockford Base 32",
+     "Crockford Base 32 encodes with uppercase letters only; its decoders "
+     "accept either case."},
     {"Short, case-insensitive IDs.", "0-9, a-z", "0-9, A-Z"},
     {"Data inside QR codes (RFC 9285).",
      "0-9, a-z, space and $ % * + - . / :",
-     "0-9, A-Z, space and $ % * + - . / :"},
+     "0-9, A-Z, space and $ % * + - . / :", "RFC 9285",
+     "RFC 9285 requires uppercase; standard Base 45 decoders will reject "
+     "lowercase."},
     {"Bitcoin and crypto wallet addresses; avoids look-alike "
      "characters.",
      "1-9, A-Z, a-z without 0, O, I, l"},
@@ -74,6 +87,17 @@ static void RenderEncodingDescription(int encoding) {
       (CSPRNG::RawEncodingHasSingleCaseLetters(encoding) && g_state.rawDataUppercase[encoding])
           ? RAW_ENCODING_DESCRIPTIONS[encoding].uppercaseCharacters
           : RAW_ENCODING_DESCRIPTIONS[encoding].characters);
+
+  if (CSPRNG::RawEncodingHasSingleCaseLetters(encoding)) {
+    const char *standard = RAW_ENCODING_DESCRIPTIONS[encoding].uppercaseStandard;
+    if (standard) {
+      ImGui::TextDisabled("Standard:");
+      ImGui::SameLine();
+      ImGui::Text("uppercase (%s)", standard);
+    } else {
+      ImGui::TextDisabled("No standard defines a case");
+    }
+  }
 }
 
 static void RenderGroupingOptions(int encoding) {
@@ -146,6 +170,13 @@ void RenderRawDataCaseToggle() {
       Logger::Log(Logger::Level::INFO, "GUI",
                   "Output Config [Raw Data]: Uppercase toggled %s",
                   g_state.rawDataUppercase[encoding] ? "ON" : "OFF");
+    }
+
+    const RawEncodingDescription &description = RAW_ENCODING_DESCRIPTIONS[encoding];
+    if (description.uppercaseStandard && !g_state.rawDataUppercase[encoding]) {
+      ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
+      ImGui::TextWrapped("%s", description.lowercaseWarning);
+      ImGui::PopStyleColor();
     }
   }
 }

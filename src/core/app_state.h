@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <string>
 #include <vector>
@@ -75,9 +76,12 @@ struct AppState {
     int rawDataEncoding = 0;
     // Indexed by CSPRNG::RawEncoding
     static constexpr int RAW_DATA_ENCODING_COUNT = 14;
-    bool rawDataGroupingEnabled[RAW_DATA_ENCODING_COUNT] = {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
-    int rawDataGroupSize[RAW_DATA_ENCODING_COUNT]        = {4,     4,     8,    4,     4,     4,     8,     4,     4,     3,     4,     4,     4,     5};
-    bool rawDataUppercase[RAW_DATA_ENCODING_COUNT] = {};
+    static constexpr std::array<bool, RAW_DATA_ENCODING_COUNT> DEFAULT_RAW_DATA_GROUPING_ENABLED = {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
+    static constexpr std::array<int, RAW_DATA_ENCODING_COUNT>  DEFAULT_RAW_DATA_GROUP_SIZE       = {4,     4,     8,    4,     4,     4,     8,     4,     4,     3,     4,     4,     4,     5};
+    static constexpr std::array<bool, RAW_DATA_ENCODING_COUNT> DEFAULT_RAW_DATA_UPPERCASE        = {true,  false, false, false, false, false, true,  true,  false, true,  false, false, false, false};
+    std::array<bool, RAW_DATA_ENCODING_COUNT> rawDataGroupingEnabled = DEFAULT_RAW_DATA_GROUPING_ENABLED;
+    std::array<int, RAW_DATA_ENCODING_COUNT> rawDataGroupSize = DEFAULT_RAW_DATA_GROUP_SIZE;
+    std::array<bool, RAW_DATA_ENCODING_COUNT> rawDataUppercase = DEFAULT_RAW_DATA_UPPERCASE;
 
     bool uuidUppercase = false;
     bool uuidHyphens = true;

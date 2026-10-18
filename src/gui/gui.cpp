@@ -159,6 +159,9 @@ static void ResetSettings() {
   g_state.cpuJitterEnabled = true;
   g_state.mouseMovementEnabled = true;
   g_state.decimalDigits = 16;
+  g_state.rawDataGroupingEnabled = AppState::DEFAULT_RAW_DATA_GROUPING_ENABLED;
+  g_state.rawDataGroupSize = AppState::DEFAULT_RAW_DATA_GROUP_SIZE;
+  g_state.rawDataUppercase = AppState::DEFAULT_RAW_DATA_UPPERCASE;
   SelectOutputType(0, 0);
 }
 
