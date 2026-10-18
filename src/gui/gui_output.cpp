@@ -9,6 +9,7 @@
 #include "../logic/logic.h"
 #include "gui.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <mutex>
@@ -45,9 +46,56 @@ static const OutputType s_numberTypes[] = {
     {"Integer Range", 1, -1},
 };
 static const OutputType s_rawDataTypes[] = {
-    {"Hexadecimal", 4, 0},
-    {"Base64", 4, 1},
-    {"Binary", 4, 2},
+    {"Base 2 - Binary", 4, CSPRNG::RAW_BINARY},
+    {"Base 8 - Octal", 4, CSPRNG::RAW_OCTAL},
+    {"Base 10 - Decimal", 4, CSPRNG::RAW_DECIMAL},
+    {"Base 12 - Duodecimal", 4, CSPRNG::RAW_DUODECIMAL},
+    {"Base 16 - Hexadecimal", 4, CSPRNG::RAW_HEX},
+    {"Base 32", 4, CSPRNG::RAW_BASE32},
+    {"Base 32 - Crockford", 4, CSPRNG::RAW_CROCKFORD32},
+    {"Base 36", 4, CSPRNG::RAW_BASE36},
+    {"Base 45", 4, CSPRNG::RAW_BASE45},
+    {"Base 58", 4, CSPRNG::RAW_BASE58},
+    {"Base 62", 4, CSPRNG::RAW_BASE62},
+    {"Base 64", 4, CSPRNG::RAW_BASE64},
+    {"Base 64 URL", 4, CSPRNG::RAW_BASE64URL},
+    {"Base 85", 4, CSPRNG::RAW_BASE85},
+};
+
+// What each Raw Data encoding is used for, and its characters
+// (indexed by CSPRNG::RawEncoding)
+struct RawEncodingAbout {
+  const char *use;
+  const char *alphabet;      // As printed by default (lowercase letters)
+  const char *alphabetUpper; // With Uppercase on (single-case bases only)
+};
+static const RawEncodingAbout s_rawAbout[CSPRNG::RAW_ENCODING_COUNT] = {
+    /* Hex */ {"Memory addresses and color codes.", "0-9, a-f", "0-9, A-F"},
+    /* B64 */ {"Email attachments and embedded assets (RFC 4648).",
+               "A-Z, a-z, 0-9, + and /, with = padding"},
+    /* Bin */ {"How computer hardware stores and processes data.", "0, 1"},
+    /* Oct */ {"File permissions on Unix systems.", "0-7"},
+    /* Dec */ {"Everyday counting and arithmetic.", "0-9"},
+    /* Duo */ {"Fractions (12 divides evenly by 2, 3, 4 and 6).",
+               "0-9, a, b (a = ten, b = eleven)",
+               "0-9, A, B (A = ten, B = eleven)"},
+    /* B32 */ {"2FA authenticator secrets (RFC 4648).",
+               "a-z, 2-7, with = padding", "A-Z, 2-7, with = padding"},
+    /* Crk */ {"Error-tolerant, human-readable codes typed by hand.",
+               "0-9, a-z without i, l, o, u", "0-9, A-Z without I, L, O, U"},
+    /* B36 */ {"Short, case-insensitive IDs.", "0-9, a-z", "0-9, A-Z"},
+    /* B45 */ {"Data inside QR codes (RFC 9285).",
+               "0-9, a-z, space and $ % * + - . / :",
+               "0-9, A-Z, space and $ % * + - . / :"},
+    /* B58 */ {"Bitcoin and crypto wallet addresses; avoids look-alike "
+               "characters.",
+               "1-9, A-Z, a-z without 0, O, I, l"},
+    /* B62 */ {"URL shorteners and database keys.", "0-9, A-Z, a-z"},
+    /* B64U */ {"Web tokens (JWTs) and other values inside links "
+                "(RFC 4648 Section 5).",
+                "A-Z, a-z, 0-9, - and _, no padding"},
+    /* B85 */ {"Compact binary data, as in Git (RFC 1924 alphabet).",
+               "0-9, A-Z, a-z and ! # $ % & ( ) * + - ; < = > ? @ ^ _ ` { | } ~"},
 };
 static const OutputType s_textTypes[] = {
     {"Random Characters", 3, -1},
@@ -55,6 +103,7 @@ static const OutputType s_textTypes[] = {
 };
 static const OutputType s_identifierTypes[] = {
     {"UUID v4", 7, -1},
+    {"UUID v7", 8, -1},
 };
 static const OutputType s_encryptionTypes[] = {
     {"One-Time Pad", 6, -1},
@@ -116,6 +165,220 @@ static void SelectOutputType(int category, int type) {
   UpdateTargetEntropy();
 }
 
+// Combo width that fits `textWidth` of text plus the arrow button, at any DPI
+static float ComboWidthForText(float textWidth) {
+  return textWidth + ImGui::GetFrameHeight() +
+         ImGui::GetStyle().FramePadding.x * 2.0f;
+}
+
+// "2^n" for large powers of two, the plain number otherwise
+static std::string PowerOfTwoText(int n) {
+  if (n <= 20)
+    return std::to_string(1ULL << n);
+  return "2^" + std::to_string(n);
+}
+
+// A highlighted value followed by its dimmed description, on one line
+static void StatText(const std::string &value, const char *label) {
+  ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "%s", value.c_str());
+  ImGui::SameLine(0.0f, 4.0f);
+  ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", label);
+}
+
+// Dimmed "(?)" after the previous item; shows `text` only when hovered
+static void HelpMarker(const char *text) {
+  ImGui::SameLine();
+  ImGui::TextDisabled("(?)");
+  ImGui::SetItemTooltip("%s", text);
+}
+
+static void StatDivider() {
+  ImGui::SameLine();
+  ImGui::TextDisabled("|");
+  ImGui::SameLine();
+}
+
+// UUIDv7 rows of the output config table: batch ordering and its settings,
+// key numbers for the current settings, and a "How it works" section
+static void RenderUUIDv7Options(bool &parametersChanged) {
+  // Batch ordering, with the chosen method's settings on the same line
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::AlignTextToFramePadding();
+  ImGui::Text("Batch ordering:");
+  ImGui::TableSetColumnIndex(1);
+  const char *v7Methods[] = {"Method 1: Dedicated counter",
+                             "Method 2: Monotonic random",
+                             "None: Fully random"};
+  // Wide enough for the longest entry at any DPI
+  ImGui::SetNextItemWidth(ComboWidthForText(ImGui::CalcTextSize(v7Methods[1]).x));
+  if (ImGui::Combo("##V7Method", &g_state.uuidV7Method, v7Methods,
+                   IM_ARRAYSIZE(v7Methods))) {
+    parametersChanged = true;
+    Logger::Log(Logger::Level::INFO, "GUI",
+                "Output Config [UUIDv7]: Ordering set to %s",
+                v7Methods[g_state.uuidV7Method]);
+  }
+
+  if (g_state.uuidV7Method == 0) { // Method 1
+    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Counter bits:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    if (ImGui::InputInt("##V7CounterBits", &g_state.uuidV7CounterBits)) {
+      Logger::Log(Logger::Level::INFO, "GUI",
+                  "Output Config [UUIDv7]: Counter bits set to %d",
+                  g_state.uuidV7CounterBits);
+    }
+    if (g_state.uuidV7CounterBits < AppConfig::UUIDV7_MIN_COUNTER_BITS)
+      g_state.uuidV7CounterBits = AppConfig::UUIDV7_MIN_COUNTER_BITS;
+    if (g_state.uuidV7CounterBits > AppConfig::UUIDV7_MAX_COUNTER_BITS)
+      g_state.uuidV7CounterBits = AppConfig::UUIDV7_MAX_COUNTER_BITS;
+    char help[128];
+    snprintf(help, sizeof(help),
+             "%d-%d bits. 12 uses all of rand_a; more borrows the leftmost "
+             "bits of rand_b.",
+             AppConfig::UUIDV7_MIN_COUNTER_BITS,
+             AppConfig::UUIDV7_MAX_COUNTER_BITS);
+    HelpMarker(help);
+  } else if (g_state.uuidV7Method == 1) { // Method 2
+    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Increment:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(130);
+    if (ImGui::InputInt("random bits", &g_state.uuidV7IncrementBits)) {
+      Logger::Log(Logger::Level::INFO, "GUI",
+                  "Output Config [UUIDv7]: Increment bits set to %d",
+                  g_state.uuidV7IncrementBits);
+    }
+    if (g_state.uuidV7IncrementBits < AppConfig::UUIDV7_MIN_INCREMENT_BITS)
+      g_state.uuidV7IncrementBits = AppConfig::UUIDV7_MIN_INCREMENT_BITS;
+    if (g_state.uuidV7IncrementBits > AppConfig::UUIDV7_MAX_INCREMENT_BITS)
+      g_state.uuidV7IncrementBits = AppConfig::UUIDV7_MAX_INCREMENT_BITS;
+    char help[128];
+    snprintf(help, sizeof(help),
+             "Each UUID adds a random amount from 1 to 2^bits (%d-%d).",
+             AppConfig::UUIDV7_MIN_INCREMENT_BITS,
+             AppConfig::UUIDV7_MAX_INCREMENT_BITS);
+    HelpMarker(help);
+  }
+
+  // Key numbers for the current settings
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::Text("Per UUID:");
+  ImGui::TableSetColumnIndex(1);
+  switch (g_state.uuidV7Method) {
+  case 0: {
+    int n = g_state.uuidV7CounterBits;
+    StatText(std::to_string(74 - n), "random bits");
+    StatDivider();
+    // Counter starts with its top bit clear: at least 2^(n-1) increments
+    StatText(PowerOfTwoText(n - 1) + "+",
+             "UUIDs per millisecond before the timestamp moves forward");
+    break;
+  }
+  case 1: {
+    int k = g_state.uuidV7IncrementBits;
+    StatText(std::to_string(k), "random bits per step (73 for the first UUID "
+                                "of each millisecond)");
+    StatDivider();
+    // Starts with its top bit clear: at least 2^73 of room, steps up to 2^k
+    StatText(PowerOfTwoText(73 - k) + "+",
+             "UUIDs per millisecond before the timestamp moves forward");
+    break;
+  }
+  default:
+    StatText("74", "random bits");
+    StatDivider();
+    StatText("No", "ordering within a millisecond");
+    break;
+  }
+
+  // Warnings
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(1);
+  if (g_state.uuidV7Method == 0 &&
+      g_state.uuidV7CounterBits >= AppConfig::UUIDV7_WARN_COUNTER_BITS) {
+    // Long counter: only 74 - n bits are random in each UUID
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.0f, 1.0f));
+    ImGui::TextWrapped(
+        "Fewer random bits: with a %d-bit counter, only %d bits of each UUID "
+        "are random, so UUIDs from the same millisecond are easier to guess. "
+        "Use fewer than %d bits unless that does not matter.",
+        g_state.uuidV7CounterBits, 74 - g_state.uuidV7CounterBits,
+        AppConfig::UUIDV7_WARN_COUNTER_BITS);
+    ImGui::PopStyleColor();
+  }
+  if (g_state.uuidV7Method == 1 &&
+      g_state.uuidV7IncrementBits <= AppConfig::UUIDV7_WARN_INCREMENT_BITS) {
+    // Small steps: the next UUID is the previous one plus 1..2^k
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.0f, 1.0f));
+    ImGui::TextWrapped(
+        "Easy to guess: with %d-bit increments, anyone who sees one UUID can "
+        "find the next one from the same millisecond in at most %s tries. "
+        "Use more than %d bits unless that does not matter.",
+        g_state.uuidV7IncrementBits,
+        PowerOfTwoText(g_state.uuidV7IncrementBits).c_str(),
+        AppConfig::UUIDV7_WARN_INCREMENT_BITS);
+    ImGui::PopStyleColor();
+  }
+  // v7 embeds when it was made; worth knowing before sharing one
+  ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f),
+                     "Note: each UUID reveals its creation time (to the "
+                     "millisecond).");
+
+  // Explanation, collapsed by default (same style as the input sources)
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(1);
+  if (ImGui::CollapsingHeader("How it works##uuidv7")) {
+    ImGui::TextWrapped(
+        "A UUID v7 starts with the current time in milliseconds, so sorting "
+        "UUIDs puts them in the order they were created. After the version "
+        "and variant markers, 74 bits remain. Batch ordering decides how "
+        "they are filled, which matters when many UUIDs are made in the same "
+        "millisecond:");
+    ImGui::Spacing();
+    ImGui::Bullet();
+    ImGui::TextWrapped(
+        "Method 1: Dedicated counter. A counter right after the timestamp "
+        "counts the UUIDs made in each millisecond, starting from a random "
+        "value. The bits after it are random for every UUID. A longer "
+        "counter fits more UUIDs per millisecond but leaves fewer random "
+        "bits.");
+    ImGui::Bullet();
+    ImGui::TextWrapped(
+        "Method 2: Monotonic random. All 74 bits work as one counter that "
+        "starts from a random value each millisecond. Each UUID adds a "
+        "random amount, so it stays in order but the next UUID cannot be "
+        "guessed. Small increments (12 bits or fewer) make the next UUID easy "
+        "to guess.");
+    ImGui::Bullet();
+    ImGui::TextWrapped(
+        "None: Fully random. All 74 bits are random for every UUID. UUIDs "
+        "made in the same millisecond can come out in any order.");
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "If a counter runs out within one millisecond, the timestamp is "
+        "moved forward by 1 ms, so a batch always stays in order.");
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Further info");
+    ImGui::TextLinkOpenURL(
+        "RFC 9562 Section 5.7: UUID Version 7",
+        "https://www.rfc-editor.org/rfc/rfc9562.html#section-5.7");
+    ImGui::SameLine();
+    ImGui::TextDisabled("- the bit layout of a v7 UUID");
+    ImGui::TextLinkOpenURL(
+        "RFC 9562 Section 6.2: Monotonicity and Counters",
+        "https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2");
+    ImGui::SameLine();
+    ImGui::TextDisabled("- Methods 1 and 2 in detail");
+  }
+}
+
 void RenderOutputConfigSection() {
   if (s_isGenerating.load())
     ImGui::BeginDisabled();
@@ -129,7 +392,18 @@ void RenderOutputConfigSection() {
   s_lastTypeInCategory[curCategory] = curType;
 
   // Category selector
-  ImGui::SetNextItemWidth(180);
+  // Size both combos to their longest entry (across all categories for the
+  // type combo, so it doesn't jump in width) so no text is cut off
+  float categoryTextW = 0.0f, typeTextW = 0.0f;
+  for (int c = 0; c < kCategoryCount; c++) {
+    categoryTextW = std::max(categoryTextW,
+                             ImGui::CalcTextSize(s_categories[c].name).x);
+    for (int t = 0; t < s_categories[c].typeCount; t++)
+      typeTextW = std::max(typeTextW,
+                           ImGui::CalcTextSize(s_categories[c].types[t].name).x);
+  }
+
+  ImGui::SetNextItemWidth(ComboWidthForText(categoryTextW));
   if (ImGui::BeginCombo("##Category", s_categories[curCategory].name)) {
     for (int c = 0; c < kCategoryCount; c++) {
       bool selected = (c == curCategory);
@@ -146,7 +420,7 @@ void RenderOutputConfigSection() {
   FindCurrentOutputType(curCategory, curType);
   const OutputCategory &cat = s_categories[curCategory];
   ImGui::SameLine();
-  ImGui::SetNextItemWidth(220);
+  ImGui::SetNextItemWidth(ComboWidthForText(typeTextW));
   if (ImGui::BeginCombo("##Type", cat.types[curType].name)) {
     for (int t = 0; t < cat.typeCount; t++) {
       bool selected = (t == curType);
@@ -297,13 +571,10 @@ void RenderOutputConfigSection() {
       if (g_state.bitByteAmount > AppConfig::BITBYTE_MAX_AMOUNT)
         g_state.bitByteAmount = AppConfig::BITBYTE_MAX_AMOUNT;
 
-      ImGui::TableNextRow();
-      ImGui::TableSetColumnIndex(0);
-      ImGui::AlignTextToFramePadding();
-      ImGui::Text("Unit:");
-      ImGui::TableSetColumnIndex(1);
-      ImGui::SetNextItemWidth(150);
+      // Unit on the same line as the amount
+      ImGui::SameLine();
       const char *units[] = {"Bits", "Bytes"};
+      ImGui::SetNextItemWidth(ComboWidthForText(ImGui::CalcTextSize(units[1]).x));
       if (ImGui::Combo("##Unit", &g_state.bitByteUnit, units, 2)) {
         parametersChanged = true;
         Logger::Log(Logger::Level::INFO, "GUI",
@@ -311,33 +582,70 @@ void RenderOutputConfigSection() {
                     units[g_state.bitByteUnit]);
       }
 
-      // Hex/Base64 encode whole bytes, so a bit count is rounded up
-      if (g_state.bitByteFormat != 2 && g_state.bitByteUnit == 0 &&
-          g_state.bitByteAmount % 8 != 0) {
+      // What one item comes out as for the current settings
+      {
+        const uint64_t requested =
+            (g_state.bitByteUnit == 0)
+                ? static_cast<uint64_t>(g_state.bitByteAmount)
+                : static_cast<uint64_t>(g_state.bitByteAmount) * 8;
+        const CSPRNG::RawLayout layout =
+            CSPRNG::GetRawLayout(g_state.bitByteFormat, requested);
         ImGui::SameLine();
-        ImGui::TextDisabled("(rounded up to %lld bits)",
-                            ((g_state.bitByteAmount + 7LL) / 8) * 8);
+        if (layout.digits)
+          ImGui::TextDisabled("(%llu digits, %.1f bits)",
+                              (unsigned long long)layout.chars,
+                              layout.bitsCarried);
+        else if (layout.bitsCarried > static_cast<double>(requested))
+          ImGui::TextDisabled("(%llu characters, rounded up to %.0f bits)",
+                              (unsigned long long)layout.chars,
+                              layout.bitsCarried);
+        else
+          ImGui::TextDisabled("(%llu characters)",
+                              (unsigned long long)layout.chars);
       }
 
-      // Binary Separator Config
-      if (g_state.bitByteFormat == 2) { // Binary only
+      const int enc = g_state.bitByteFormat;
+      if (enc >= 0 && enc < CSPRNG::RAW_ENCODING_COUNT) {
+        // What the encoding is for and which characters it uses
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("About:");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextUnformatted(s_rawAbout[enc].use);
+        StatDivider();
+        ImGui::TextDisabled("Characters:");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(
+            (CSPRNG::RawHasSingleCaseLetters(enc) && g_state.rawUppercase[enc])
+                ? s_rawAbout[enc].alphabetUpper
+                : s_rawAbout[enc].alphabet);
+
+        // Grouping: a space every N characters
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::AlignTextToFramePadding();
         ImGui::Text("Grouping:");
         ImGui::TableSetColumnIndex(1);
-        if (ImGui::Checkbox("Separator", &g_state.binarySeparatorEnabled)) {
+        if (ImGui::Checkbox("Separator", &g_state.rawGroupEnabled[enc])) {
           Logger::Log(Logger::Level::INFO, "GUI",
-                      "Output Config [Binary]: Separator toggled %s",
-                      g_state.binarySeparatorEnabled ? "ON" : "OFF");
+                      "Output Config [Raw Data]: Separator toggled %s",
+                      g_state.rawGroupEnabled[enc] ? "ON" : "OFF");
         }
-        if (g_state.binarySeparatorEnabled) {
+        if (g_state.rawGroupEnabled[enc]) {
           ImGui::SameLine();
           ImGui::SetNextItemWidth(150);
-          if (ImGui::InputInt("bits", &g_state.binarySeparatorInterval)) {
-            if (g_state.binarySeparatorInterval < 1)
-              g_state.binarySeparatorInterval = 1;
-          }
+          ImGui::InputInt(enc == CSPRNG::RAW_BINARY ? "bits##GroupSize"
+                                                    : "characters##GroupSize",
+                          &g_state.rawGroupSize[enc]);
+          if (g_state.rawGroupSize[enc] < 1)
+            g_state.rawGroupSize[enc] = 1;
+        }
+
+        if (enc == CSPRNG::RAW_BASE45 && g_state.rawGroupEnabled[enc]) {
+          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.6f, 0.2f, 1.0f));
+          ImGui::TextWrapped("Base 45 uses space as one of its characters, "
+                             "so grouped output can't be decoded.");
+          ImGui::PopStyleColor();
         }
       }
       break;
@@ -390,23 +698,7 @@ void RenderOutputConfigSection() {
     }
 
     case 7: // UUIDv4
-      ImGui::TableNextRow();
-      ImGui::TableSetColumnIndex(0);
-      ImGui::AlignTextToFramePadding();
-      ImGui::Text("Count:");
-      ImGui::TableSetColumnIndex(1);
-      ImGui::SetNextItemWidth(230);
-      if (ImGui::InputInt("##UuidCount", &g_state.uuidCount)) {
-        parametersChanged = true;
-        Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [UUID]: Count set to %d",
-                    g_state.uuidCount);
-      }
-      if (g_state.uuidCount < AppConfig::UUID_MIN_COUNT)
-        g_state.uuidCount = AppConfig::UUID_MIN_COUNT;
-      if (g_state.uuidCount > AppConfig::UUID_MAX_COUNT)
-        g_state.uuidCount = AppConfig::UUID_MAX_COUNT;
-
+    case 8: // UUIDv7 (same options)
       ImGui::TableNextRow();
       ImGui::TableSetColumnIndex(0);
       ImGui::AlignTextToFramePadding();
@@ -424,12 +716,12 @@ void RenderOutputConfigSection() {
                     g_state.uuidHyphens ? "ON" : "OFF");
       }
 
-      ImGui::TableNextRow();
-      ImGui::TableSetColumnIndex(0);
-      ImGui::TableSetColumnIndex(1);
-      ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                         "(RFC 9562 version 4, 122 random bits each, one per "
-                         "line)");
+      if (g_state.outputFormat == 7) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(RFC 9562 version 4, 122 random bits each)");
+      } else {
+        RenderUUIDv7Options(parametersChanged);
+      }
       break;
 
     case 6: // One-Time Pad
@@ -540,6 +832,54 @@ void RenderOutputConfigSection() {
       ImGui::PopStyleColor();
       break;
     }
+    }
+
+    // Quantity and list layout (every format except One-Time Pad)
+    if (g_state.outputFormat != 6) {
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::AlignTextToFramePadding();
+      ImGui::Text("Quantity:");
+      ImGui::TableSetColumnIndex(1);
+      ImGui::SetNextItemWidth(230);
+      if (ImGui::InputInt("##Quantity", &g_state.outputQuantity)) {
+        parametersChanged = true;
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config: Quantity set to %d",
+                    g_state.outputQuantity);
+      }
+      if (g_state.outputQuantity < AppConfig::OUTPUT_MIN_QUANTITY)
+        g_state.outputQuantity = AppConfig::OUTPUT_MIN_QUANTITY;
+      if (g_state.outputQuantity > AppConfig::OUTPUT_MAX_QUANTITY)
+        g_state.outputQuantity = AppConfig::OUTPUT_MAX_QUANTITY;
+
+      // List options on the same line as the quantity
+      ImGui::SameLine(0.0f, 24.0f);
+      if (ImGui::Checkbox("Blank line between items",
+                          &g_state.listBlankLine)) {
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config: Blank line between items toggled %s",
+                    g_state.listBlankLine ? "ON" : "OFF");
+      }
+      ImGui::SameLine();
+      if (ImGui::Checkbox("Number items (1. 2. 3.)", &g_state.listNumbered)) {
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config: Number items toggled %s",
+                    g_state.listNumbered ? "ON" : "OFF");
+      }
+
+      // Raw Data bases whose letters have one case: lowercase unless ticked
+      const int enc = g_state.bitByteFormat;
+      if (g_state.outputFormat == 4 && enc >= 0 &&
+          enc < CSPRNG::RAW_ENCODING_COUNT &&
+          CSPRNG::RawHasSingleCaseLetters(enc)) {
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Uppercase", &g_state.rawUppercase[enc])) {
+          Logger::Log(Logger::Level::INFO, "GUI",
+                      "Output Config [Raw Data]: Uppercase toggled %s",
+                      g_state.rawUppercase[enc] ? "ON" : "OFF");
+        }
+      }
     }
 
     ImGui::EndTable();

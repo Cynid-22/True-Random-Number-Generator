@@ -1,4 +1,5 @@
 #include "logic.h"
+#include "csprng.h"
 #include "../logging/logger.h"
 #include "../core/app_state.h"
 #include <cmath>
@@ -154,12 +155,14 @@ float CalculateRequiredEntropy() {
             break;
         }
             
-        case 4: // Bit/Byte
-            if (g_state.bitByteUnit == 0) // Bits
-                bits = (float)g_state.bitByteAmount;
-            else // Bytes
-                bits = g_state.bitByteAmount * 8.0f;
+        case 4: // Raw Data: the random bits the output actually holds
+        {       // (rounded up to whole characters or bytes)
+            const uint64_t requested = (g_state.bitByteUnit == 0)
+                ? (uint64_t)g_state.bitByteAmount
+                : (uint64_t)g_state.bitByteAmount * 8;
+            bits = (float)CSPRNG::GetRawLayout(g_state.bitByteFormat, requested).bitsCarried;
             break;
+        }
             
         case 5: // Passphrase
         {
@@ -179,11 +182,23 @@ float CalculateRequiredEntropy() {
         }
 
         case 7: // UUIDv4
-            // 122 random bits per UUID (6 bits are fixed version/variant)
-            bits = g_state.uuidCount * 122.0f;
+            // 122 random bits (6 bits are fixed version/variant)
+            bits = 122.0f;
+            break;
+
+        case 8: // UUIDv7
+            // 74 bits follow the timestamp/version/variant. Fully random
+            // ordering uses all 74; Methods 1 and 2 use at most 73 per UUID
+            // (random field + counter seed or increment, top seed bit clear).
+            bits = (g_state.uuidV7Method == 2) ? 74.0f : 73.0f;
             break;
     }
     
+    // Every format except One-Time Pad generates outputQuantity items,
+    // each needing its own entropy
+    if (g_state.outputFormat != 6 && g_state.outputQuantity > 1)
+        bits *= (float)g_state.outputQuantity;
+
     // Enforce minimum of 512 bits
     return (bits < 512.0f) ? 512.0f : bits;
 }

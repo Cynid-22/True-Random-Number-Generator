@@ -74,9 +74,14 @@ struct AppState {
     float targetBits = 512.0f;
     
     // Output configuration
-    // 0=Decimal, 1=Integer, 3=Custom, 4=BitByte, 5=Passphrase, 6=OTP, 7=UUIDv4
+    // 0=Decimal, 1=Integer, 3=Custom, 4=BitByte, 5=Passphrase, 6=OTP, 7=UUIDv4, 8=UUIDv7
     // (2 was the old Binary String format, now merged into BitByte's Binary output)
     int outputFormat = 0;
+
+    // Quantity / list params (all formats except One-Time Pad)
+    int outputQuantity = 1;       // How many items to generate
+    bool listBlankLine = false;   // Blank line between items (else one per line)
+    bool listNumbered = false;    // Prefix each item with "1. ", "2. ", ...
     
     // Format params
     int decimalDigits = 16;
@@ -89,14 +94,22 @@ struct AppState {
     bool includeSpecial = false;
     int bitByteAmount = 256;
     int bitByteUnit = 0;   // 0=Bits, 1=Bytes
-    int bitByteFormat = 0; // 0=Hex, 1=Base64, 2=Binary
-    bool binarySeparatorEnabled = true; // Use space separator for binary output
-    int binarySeparatorInterval = 8;    // Number of bits between spaces
+    int bitByteFormat = 0; // Raw Data encoding, CSPRNG::RawEncoding (0=Hex, 1=Base64, 2=Binary, ...)
+    // Grouping (a space every N characters), per encoding, indexed by bitByteFormat:
+    //                          Hex    B64    Bin   Oct    Dec    Duo    B32    Crock  B36    B45    B58    B62    B64URL B85
+    static constexpr int kRawEncodingCount = 14;
+    bool rawGroupEnabled[kRawEncodingCount] = {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
+    int rawGroupSize[kRawEncodingCount]     = {4,     4,     8,    4,     4,     4,     8,     4,     4,     3,     4,     4,     4,     5};
+    // Uppercase letters, for encodings whose letters have one case (Hex, Duo, B32, Crock, B36, B45); lowercase by default
+    bool rawUppercase[kRawEncodingCount] = {};
 
-    // UUID params
-    int uuidCount = 1;
+    // UUID params (shared by v4 and v7)
     bool uuidUppercase = false;
     bool uuidHyphens = true;
+    // UUIDv7 batch ordering (RFC 9562 Section 6.2)
+    int uuidV7Method = 0;            // 0=Method 1 (dedicated counter), 1=Method 2 (monotonic random), 2=None
+    int uuidV7CounterBits = 12;      // Method 1: counter length (12 = all of rand_a; more borrows from rand_b)
+    int uuidV7IncrementBits = 32;    // Method 2: random increment drawn from [1, 2^bits]
     
     // Passphrase params
     int passphraseWordCount = 6;

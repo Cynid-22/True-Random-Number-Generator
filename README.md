@@ -42,17 +42,20 @@ Pick a category, then a type within it:
 - **Numbers**
   - Decimal (0.0 - 1.0)
   - Integer Range (custom min/max)
-- **Raw Data** (amount in bits or bytes)
-  - Hexadecimal
-  - Base64
-  - Binary (optional grouping separator)
+- **Raw Data** (amount in bits or bytes, optional space every N characters; single-case letters are lowercase unless Uppercase is ticked)
+  - Base 2 (Binary), Base 8 (Octal), Base 32 Crockford: exact bits
+  - Base 16 (Hexadecimal), Base 32 (RFC 4648), Base 45 (RFC 9285), Base 64, Base 64 URL, Base 85 (RFC 1924 alphabet): standard encodings of whole bytes
+  - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
 - **Text & Passwords**
   - Random Characters (configurable character set)
   - Passphrase (123,565 word dictionary, ~16.5 bits/word)
 - **Identifiers**
   - UUID v4 (RFC 9562, batch count, optional uppercase/no hyphens)
+  - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
   - One-Time Pad (text or file encryption)
+
+Every type except One-Time Pad can generate many items at once (**Quantity**), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...).
 
 ---
 

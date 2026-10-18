@@ -8,6 +8,9 @@
 #include "../crypto/sha512.h"
 #include "../logging/logger.h"
 #include "logic.h"
+#include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -18,6 +21,9 @@
 
 
 namespace CSPRNG {
+
+static_assert(RAW_ENCODING_COUNT == AppState::kRawEncodingCount,
+              "AppState Raw Data grouping arrays must cover every encoding");
 
 //=============================================================================
 // ENTROPY SERIALIZATION
@@ -90,7 +96,8 @@ GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
     infoStream << "C:" << g_state.customLength;
     break;
   case 4:
-    infoStream << "U:" << g_state.bitByteUnit << "A:" << g_state.bitByteAmount;
+    infoStream << "U:" << g_state.bitByteUnit << "A:" << g_state.bitByteAmount
+               << "E:" << g_state.bitByteFormat;
     break;
   case 5:
     infoStream << "W:" << g_state.passphraseWordCount;
@@ -98,10 +105,9 @@ GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
   case 6:
     infoStream << "O:" << g_state.otpInputMode;
     break;
-  case 7:
-    infoStream << "G:" << g_state.uuidCount;
-    break;
   }
+  if (g_state.outputFormat != 6)
+    infoStream << "|Q:" << g_state.outputQuantity;
   infoStream << "|T:" << Entropy::GetNanosecondTimestamp();
   // Retries must not depend on the clock having ticked: the attempt number
   // guarantees a distinct key/nonce. Omitted on the first attempt so the
@@ -370,95 +376,263 @@ std::vector<char> GenerateCustomString(const std::vector<uint8_t> &randomBytes,
   return result;
 }
 
+//-----------------------------------------------------------------------------
+// Raw Data encodings
+//-----------------------------------------------------------------------------
+
+// Alphabet of each RawEncoding
+static const char *RawAlphabet(int encoding) {
+  switch (encoding) {
+  case RAW_BINARY:
+    return "01";
+  case RAW_OCTAL:
+    return "01234567";
+  case RAW_DECIMAL:
+    return "0123456789";
+  case RAW_DUODECIMAL:
+    return "0123456789AB";
+  case RAW_BASE32:
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  case RAW_CROCKFORD32:
+    return "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  case RAW_BASE36:
+    return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  case RAW_BASE45:
+    return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+  case RAW_BASE58:
+    return "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  case RAW_BASE62:
+    return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  case RAW_BASE64:
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  case RAW_BASE64URL:
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  case RAW_BASE85:
+    return "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+           "!#$%&()*+-;<=>?@^_`{|}~";
+  default: // RAW_HEX
+    return "0123456789abcdef";
+  }
+}
+
+// Bits per character for power-of-two bases (read as a bit stream), else 0
+static int RawPackedBits(int encoding) {
+  switch (encoding) {
+  case RAW_BINARY:
+    return 1;
+  case RAW_OCTAL:
+    return 3;
+  case RAW_HEX:
+    return 4;
+  case RAW_BASE32:
+  case RAW_CROCKFORD32:
+    return 5;
+  case RAW_BASE64:
+  case RAW_BASE64URL:
+    return 6;
+  default:
+    return 0;
+  }
+}
+
+bool RawHasSingleCaseLetters(int encoding) {
+  switch (encoding) {
+  case RAW_HEX:
+  case RAW_DUODECIMAL:
+  case RAW_BASE32:
+  case RAW_CROCKFORD32:
+  case RAW_BASE36:
+  case RAW_BASE45:
+    return true;
+  default:
+    return false;
+  }
+}
+
+RawLayout GetRawLayout(int encoding, uint64_t bits) {
+  RawLayout layout{0, 0, 0.0, false};
+  const uint64_t wholeBytes = (bits + 7) / 8;
+
+  switch (encoding) {
+  case RAW_BINARY:
+  case RAW_OCTAL:
+  case RAW_CROCKFORD32: { // Exact bits: just enough characters, all random
+    const uint64_t k = static_cast<uint64_t>(RawPackedBits(encoding));
+    layout.chars = (bits + k - 1) / k;
+    layout.bytes = (layout.chars * k + 7) / 8;
+    layout.bitsCarried = static_cast<double>(layout.chars * k);
+    return layout;
+  }
+
+  case RAW_DECIMAL:
+  case RAW_DUODECIMAL:
+  case RAW_BASE36:
+  case RAW_BASE58:
+  case RAW_BASE62: { // Uniform random digits holding at least `bits`
+    const double bitsPerDigit =
+        std::log2(static_cast<double>(strlen(RawAlphabet(encoding))));
+    layout.digits = true;
+    layout.chars =
+        static_cast<uint64_t>(std::ceil(static_cast<double>(bits) / bitsPerDigit));
+    layout.bitsCarried = static_cast<double>(layout.chars) * bitsPerDigit;
+    // One byte per draw, plus headroom for rejected draws (at most 24 of
+    // every 256 values, for Base 58)
+    layout.bytes = layout.chars + layout.chars / 4 +
+                   AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
+    return layout;
+  }
+
+  // Byte encodings: whole bytes, standard output length
+  case RAW_BASE32: // 5 bytes -> 8 chars, '=' padded
+    layout.chars = (wholeBytes + 4) / 5 * 8;
+    break;
+  case RAW_BASE45: // 2 bytes -> 3 chars, a final byte -> 2 chars
+    layout.chars = wholeBytes / 2 * 3 + (wholeBytes % 2) * 2;
+    break;
+  case RAW_BASE64: // 3 bytes -> 4 chars, '=' padded
+    layout.chars = (wholeBytes + 2) / 3 * 4;
+    break;
+  case RAW_BASE64URL: // Unpadded
+    layout.chars = (wholeBytes * 8 + 5) / 6;
+    break;
+  case RAW_BASE85: // 4 bytes -> 5 chars, a final m bytes -> m + 1 chars
+    layout.chars = wholeBytes / 4 * 5 + (wholeBytes % 4 ? wholeBytes % 4 + 1 : 0);
+    break;
+  default: // RAW_HEX
+    layout.chars = wholeBytes * 2;
+    break;
+  }
+  layout.bytes = wholeBytes;
+  layout.bitsCarried = static_cast<double>(wholeBytes * 8);
+  return layout;
+}
+
 std::vector<char> GenerateBitByte(const std::vector<uint8_t> &randomBytes,
-                                  int amount, int unit, int format) {
+                                  int amount, int unit, int encoding,
+                                  int groupSize, bool uppercase) {
+  if (encoding < 0 || encoding >= RAW_ENCODING_COUNT)
+    encoding = RAW_HEX;
 
-  // Calculate bytes needed
-  size_t bytesNeeded = (unit == 0) ? (static_cast<size_t>(amount) + 7) / 8
-                                   : static_cast<size_t>(amount);
+  const uint64_t bits = (unit == 0) ? static_cast<uint64_t>(amount)
+                                    : static_cast<uint64_t>(amount) * 8;
+  const RawLayout layout = GetRawLayout(encoding, bits);
+  if (randomBytes.size() < layout.bytes)
+    throw std::runtime_error("Raw Data: not enough random bytes.");
 
-  if (randomBytes.size() < bytesNeeded) {
-    bytesNeeded = randomBytes.size();
-  }
-
-  std::ostringstream oss;
-
-  switch (format) {
-  case 0: // Hexadecimal
-    for (size_t i = 0; i < bytesNeeded; i++) {
-      if ((i & 0x3FFF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-      oss << std::hex << std::setw(2) << std::setfill('0')
-          << static_cast<int>(randomBytes[i]);
-    }
-    break;
-
-  case 1: { // Base64
-    static const char *b64 =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    size_t i = 0;
-    while (i < bytesNeeded) {
-      if ((i & 0x3FFF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-      uint32_t octet_a = i < bytesNeeded ? randomBytes[i++] : 0;
-      uint32_t octet_b = i < bytesNeeded ? randomBytes[i++] : 0;
-      uint32_t octet_c = i < bytesNeeded ? randomBytes[i++] : 0;
-
-      uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
-
-      oss << b64[(triple >> 18) & 0x3F];
-      oss << b64[(triple >> 12) & 0x3F];
-      oss << b64[(triple >> 6) & 0x3F];
-      oss << b64[triple & 0x3F];
-    }
-
-    // Add padding if needed
-    size_t mod = bytesNeeded % 3;
-    if (mod == 1) {
-      std::string s = oss.str();
-      s.replace(s.length() - 2, 2, "==");
-      std::vector<char> res(s.begin(), s.end());
-      SecureZeroMemory(s.data(), s.size());
-      return res;
-    } else if (mod == 2) {
-      std::string s = oss.str();
-      s.replace(s.length() - 1, 1, "=");
-      std::vector<char> res(s.begin(), s.end());
-      SecureZeroMemory(s.data(), s.size());
-      return res;
-    }
-    break;
-  }
-
-  case 2: // Binary
+  // Alphabet, with single-case letters set to the chosen case
+  char alphabet[96] = {};
   {
-    size_t bitsPrinted = 0;
-    // Print exactly the requested number of bits (not rounded up to bytes)
-    size_t totalBits = (unit == 0) ? static_cast<size_t>(amount)
-                                   : static_cast<size_t>(amount) * 8;
-    if (totalBits > bytesNeeded * 8)
-      totalBits = bytesNeeded * 8;
-    for (size_t i = 0; i < bytesNeeded; i++) {
-      if ((i & 0x3FFF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-      for (int bit = 7; bit >= 0 && bitsPrinted < totalBits; bit--) {
-        oss << ((randomBytes[i] >> bit) & 1);
-        bitsPrinted++;
+    const char *src = RawAlphabet(encoding);
+    const bool setCase = RawHasSingleCaseLetters(encoding);
+    for (size_t i = 0; src[i] != '\0' && i + 1 < sizeof(alphabet); i++) {
+      const unsigned char c = static_cast<unsigned char>(src[i]);
+      alphabet[i] = setCase ? static_cast<char>(uppercase ? toupper(c)
+                                                          : tolower(c))
+                            : src[i];
+    }
+  }
+  const uint64_t group = groupSize > 0 ? static_cast<uint64_t>(groupSize) : 0;
 
-        // Add separator if enabled, interval reached, and not the very last bit
-        if (g_state.binarySeparatorEnabled &&
-            g_state.binarySeparatorInterval > 0 &&
-            bitsPrinted % static_cast<size_t>(g_state.binarySeparatorInterval) == 0 &&
-            bitsPrinted < totalBits) {
-          oss << ' ';
+  // Reserved up front (characters + separators) so the output never
+  // reallocates and leaves unwiped copies behind
+  std::vector<char> out;
+  out.reserve(layout.chars + (group ? layout.chars / group : 0));
+  uint64_t emitted = 0;
+  auto emit = [&](char c) {
+    if (group && emitted > 0 && emitted % group == 0)
+      out.push_back(' ');
+    out.push_back(c);
+    if ((++emitted & 0xFFFF) == 0 && g_state.cancelGeneration)
+      throw std::runtime_error("Generation cancelled by user.");
+  };
+
+  try {
+    const int k = RawPackedBits(encoding);
+    if (k > 0) {
+      // Power-of-two base: read the bytes as a bit stream, k bits per
+      // character. Byte encodings fill the last character with zero bits
+      // (RFC 4648); exact-bit encodings have random bits for all of it.
+      const uint64_t dataChars =
+          (encoding == RAW_BASE32 || encoding == RAW_BASE64)
+              ? (layout.bytes * 8 + k - 1) / k // Before '=' padding
+              : layout.chars;
+      const uint32_t mask = (1u << k) - 1;
+      uint32_t acc = 0;
+      int accBits = 0;
+      uint64_t byteIdx = 0;
+      for (uint64_t c = 0; c < dataChars; c++) {
+        while (accBits < k) {
+          acc = (acc << 8) |
+                (byteIdx < layout.bytes ? randomBytes[byteIdx] : 0u);
+          byteIdx++;
+          accBits += 8;
         }
+        accBits -= k;
+        emit(alphabet[(acc >> accBits) & mask]);
+        acc &= (1u << accBits) - 1;
+      }
+      acc = 0;
+      for (uint64_t c = dataChars; c < layout.chars; c++)
+        emit('=');
+
+    } else if (encoding == RAW_BASE45) {
+      // RFC 9285: each byte pair n = a*256 + b is written as c d e with
+      // n = c + d*45 + e*45^2 (least significant first)
+      uint64_t i = 0;
+      for (; i + 1 < layout.bytes; i += 2) {
+        uint32_t n = randomBytes[i] * 256u + randomBytes[i + 1];
+        emit(alphabet[n % 45]);
+        emit(alphabet[(n / 45) % 45]);
+        emit(alphabet[n / 2025]);
+      }
+      if (i < layout.bytes) {
+        uint32_t n = randomBytes[i];
+        emit(alphabet[n % 45]);
+        emit(alphabet[n / 45]);
+      }
+
+    } else if (encoding == RAW_BASE85) {
+      // Each 4-byte big-endian block becomes 5 digits, most significant
+      // first. A final m-byte block is zero-filled and keeps m + 1 digits.
+      char block[5];
+      for (uint64_t i = 0; i < layout.bytes; i += 4) {
+        const uint64_t m = std::min<uint64_t>(4, layout.bytes - i);
+        uint32_t v = 0;
+        for (uint64_t b = 0; b < 4; b++)
+          v = (v << 8) | (b < m ? randomBytes[i + b] : 0u);
+        for (int d = 4; d >= 0; d--) {
+          block[d] = alphabet[v % 85];
+          v /= 85;
+        }
+        for (uint64_t d = 0; d <= m; d++)
+          emit(block[d]);
+      }
+      SecureZeroMemory(block, sizeof(block));
+
+    } else {
+      // Uniform random digits: rejection sampling on single bytes, so every
+      // digit is equally likely. A rejected byte is never used.
+      const unsigned radix = static_cast<unsigned>(strlen(alphabet));
+      const unsigned limit = 256 - 256 % radix; // Accept bytes below this
+      uint64_t byteIdx = 0;
+      for (uint64_t c = 0; c < layout.chars; c++) {
+        unsigned v;
+        do {
+          if (byteIdx >= layout.bytes)
+            throw std::runtime_error(
+                "Raw Data: too many random draws were rejected. Please try "
+                "again.");
+          v = randomBytes[byteIdx++];
+        } while (v >= limit);
+        emit(alphabet[v % radix]);
       }
     }
-  } break;
+  } catch (...) {
+    Crypto::SecureClearVector(out);
+    throw;
   }
 
-  std::string s = oss.str();
-  std::vector<char> res(s.begin(), s.end());
-  SecureZeroMemory(s.data(), s.size());
-  return res;
+  return out;
 }
 
 std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
@@ -558,46 +732,205 @@ std::vector<uint8_t> GenerateOTPFile(const std::vector<uint8_t> &randomBytes,
   return result;
 }
 
+// Format 16 UUID bytes as text (8-4-4-4-12 grouping when hyphenated)
+static std::vector<char> FormatUUID(const uint8_t u[16], bool uppercase,
+                                    bool hyphens) {
+  const char *hex = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+  std::vector<char> result;
+  result.reserve(36);
+  for (int i = 0; i < 16; i++) {
+    if (hyphens && (i == 4 || i == 6 || i == 8 || i == 10))
+      result.push_back('-');
+    result.push_back(hex[u[i] >> 4]);
+    result.push_back(hex[u[i] & 0x0F]);
+  }
+  return result;
+}
+
 std::vector<char> GenerateUUIDv4(const std::vector<uint8_t> &randomBytes,
-                                 int count, bool uppercase, bool hyphens) {
-  if (count <= 0 || randomBytes.size() < static_cast<size_t>(count) * 16)
+                                 bool uppercase, bool hyphens) {
+  if (randomBytes.size() < 16)
     return {};
 
-  const char *hex = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
-  const size_t charsPerUuid = hyphens ? 36 : 32;
+  uint8_t u[16];
+  std::copy(randomBytes.begin(), randomBytes.begin() + 16, u);
 
-  std::vector<char> result;
-  // One newline between UUIDs
-  result.reserve(static_cast<size_t>(count) * (charsPerUuid + 1));
+  // RFC 9562: version 4 in the high nibble of byte 6, variant 10xx in byte 8
+  u[6] = static_cast<uint8_t>((u[6] & 0x0F) | 0x40);
+  u[8] = static_cast<uint8_t>((u[8] & 0x3F) | 0x80);
 
-  for (int n = 0; n < count; n++) {
-    if ((n & 0x3FF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-    uint8_t u[16];
-    std::copy(randomBytes.begin() + static_cast<size_t>(n) * 16,
-              randomBytes.begin() + static_cast<size_t>(n) * 16 + 16, u);
+  std::vector<char> result = FormatUUID(u, uppercase, hyphens);
+  SecureZeroMemory(u, sizeof(u));
+  return result;
+}
 
-    // RFC 9562: version 4 in the high nibble of byte 6, variant 10xx in byte 8
-    u[6] = static_cast<uint8_t>((u[6] & 0x0F) | 0x40);
-    u[8] = static_cast<uint8_t>((u[8] & 0x3F) | 0x80);
+std::vector<char> GenerateUUIDv7(const std::vector<uint8_t> &randomBytes,
+                                 bool uppercase, bool hyphens,
+                                 const UUIDv7Options &options,
+                                 UUIDv7State &state) {
+  if (randomBytes.size() < 16)
+    return {};
 
-    if (n > 0)
-      result.push_back('\n');
-    for (int i = 0; i < 16; i++) {
-      // 8-4-4-4-12 grouping
-      if (hyphens && (i == 4 || i == 6 || i == 8 || i == 10))
-        result.push_back('-');
-      result.push_back(hex[u[i] >> 4]);
-      result.push_back(hex[u[i] & 0x0F]);
-    }
-    SecureZeroMemory(u, sizeof(u));
+  // The 74 bits after the version/variant bits: rand_a (12) and rand_b (62)
+  const uint64_t HI_MASK = 0xFFF;
+  const uint64_t LO_MASK = (1ULL << 62) - 1;
+
+  // 16 bytes: [0..9] a fresh random 74-bit field, [10..15] 48 bits for the
+  // counter seed (Method 1) or the increment (Method 2)
+  const uint8_t *r = randomBytes.data();
+  uint64_t freshLo = 0;
+  for (int i = 0; i < 8; i++)
+    freshLo = (freshLo << 8) | r[i];
+  freshLo &= LO_MASK;
+  uint64_t freshHi = ((static_cast<uint64_t>(r[8]) << 8) | r[9]) & HI_MASK;
+  uint64_t extra = 0;
+  for (int i = 10; i < 16; i++)
+    extra = (extra << 8) | r[i];
+
+  uint64_t nowMs = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+
+  // A new tick starts when the clock moves past the last timestamp used. If
+  // it stays on (or steps back before) that millisecond, the timestamp is
+  // kept so the batch never goes backwards.
+  bool newTick = !state.haveLast || nowMs > state.lastMs;
+  if (newTick) {
+    state.lastMs = nowMs;
+    state.haveLast = true;
   }
 
+  uint64_t hi = freshHi;
+  uint64_t lo = freshLo;
+
+  switch (options.method) {
+  case 0: { // Method 1: fixed bit-length dedicated counter
+    // The counter takes the leftmost n bits of rand_a, continuing into
+    // rand_b when n > 12; the bits after it stay fresh random per UUID.
+    int n = std::min(std::max(options.counterBits,
+                              AppConfig::UUIDV7_MIN_COUNTER_BITS),
+                     AppConfig::UUIDV7_MAX_COUNTER_BITS);
+    uint64_t counterMax = (1ULL << n) - 1;
+    // Random seed with the top bit clear: room for at least 2^(n-1) UUIDs
+    uint64_t seed = extra & (counterMax >> 1);
+
+    if (newTick) {
+      state.counter = seed;
+    } else if (++state.counter > counterMax) {
+      // Counter exhausted within this tick: move the timestamp forward
+      state.lastMs++;
+      state.counter = seed;
+    }
+
+    if (n <= 12) {
+      int hiRandomBits = 12 - n;
+      hi = (state.counter << hiRandomBits) |
+           (freshHi & ((1ULL << hiRandomBits) - 1));
+    } else {
+      int loCounterBits = n - 12;
+      int loRandomBits = 74 - n; // >= 32
+      hi = state.counter >> loCounterBits;
+      lo = ((state.counter & ((1ULL << loCounterBits) - 1)) << loRandomBits) |
+           (freshLo & ((1ULL << loRandomBits) - 1));
+    }
+    break;
+  }
+
+  case 1: { // Method 2: monotonic random
+    // All 74 bits are a randomly seeded counter, incremented in the least
+    // significant position (rand_b) by a random amount in [1, 2^k].
+    int k = std::min(std::max(options.incrementBits,
+                              AppConfig::UUIDV7_MIN_INCREMENT_BITS),
+                     AppConfig::UUIDV7_MAX_INCREMENT_BITS);
+    uint64_t increment = (extra & ((1ULL << k) - 1)) + 1; // k <= 48 bits
+
+    bool reseed = newTick;
+    if (!newTick) {
+      state.valueLo += increment; // < 2^63, cannot wrap
+      if (state.valueLo > LO_MASK) {
+        state.valueLo &= LO_MASK; // carry into rand_a
+        state.valueHi++;
+      }
+      if (state.valueHi > HI_MASK) {
+        // 74-bit value exhausted within this tick: move the timestamp forward
+        state.lastMs++;
+        reseed = true;
+      }
+    }
+    if (reseed) {
+      // Random seed with the top bit clear: at least 2^73 of headroom
+      state.valueHi = freshHi & (HI_MASK >> 1);
+      state.valueLo = freshLo;
+    }
+    hi = state.valueHi;
+    lo = state.valueLo;
+    break;
+  }
+
+  default: // None: all 74 bits fresh random; no order within a millisecond
+    break;
+  }
+
+  uint8_t u[16];
+  // unix_ts_ms: 48-bit big-endian
+  for (int i = 0; i < 6; i++)
+    u[i] = static_cast<uint8_t>(state.lastMs >> (40 - 8 * i));
+  // version 7 + rand_a
+  u[6] = static_cast<uint8_t>(0x70 | ((hi >> 8) & 0x0F));
+  u[7] = static_cast<uint8_t>(hi & 0xFF);
+  // variant 10xx + rand_b
+  u[8] = static_cast<uint8_t>(0x80 | ((lo >> 56) & 0x3F));
+  for (int i = 9; i < 16; i++)
+    u[i] = static_cast<uint8_t>(lo >> (8 * (15 - i)));
+
+  std::vector<char> result = FormatUUID(u, uppercase, hyphens);
+  SecureZeroMemory(u, sizeof(u));
   return result;
 }
 
 //=============================================================================
 // MAIN GENERATION FUNCTION
 //=============================================================================
+
+// Grow `out` to hold `extra` more bytes without leaving copies of its contents
+// in freed heap memory (a plain vector reallocation would).
+static void ReserveSecure(std::vector<char> &out, size_t extra) {
+  size_t needed = out.size() + extra;
+  if (needed <= out.capacity())
+    return;
+  std::vector<char> bigger;
+  bigger.reserve(std::max(needed, out.capacity() * 2));
+  bigger.insert(bigger.end(), out.begin(), out.end());
+  Crypto::SecureClearVector(out);
+  out.swap(bigger);
+}
+
+// Append one item to a list output: one item per line, optionally separated
+// by a blank line and/or numbered "1. ", "2. ", ...
+static void AppendListItem(std::vector<char> &out, size_t index,
+                           size_t quantity, const std::vector<char> &item,
+                           bool numbered, bool blankLine) {
+  std::string prefix = numbered ? std::to_string(index + 1) + ". " : "";
+  size_t separatorLen = (index == 0) ? 0 : (blankLine ? 2 : 1);
+
+  if (index == 0) {
+    // Size the buffer once from the first item so most lists never regrow
+    size_t estimate = item.size() + 2 +
+                      (numbered ? std::to_string(quantity).size() + 2 : 0);
+    if (quantity <= (SIZE_MAX - 1) / estimate)
+      ReserveSecure(out, estimate * quantity + 1);
+  }
+
+  ReserveSecure(out, separatorLen + prefix.size() + item.size());
+  if (index > 0) {
+    out.push_back('\n');
+    if (blankLine)
+      out.push_back('\n');
+  }
+  out.insert(out.end(), prefix.begin(), prefix.end());
+  out.insert(out.end(), item.begin(), item.end());
+}
 
 GenerationResult GenerateOutput(GenerationMode mode) {
   GenerationResult result;
@@ -637,45 +970,71 @@ GenerationResult GenerateOutput(GenerationMode mode) {
     return result;
   }
 
-  // Calculate required bytes based on output format
-  // IMPORTANT: Must match what the format generators actually consume!
-  size_t bytesNeeded = 0;
+  const int format = g_state.outputFormat;
+  // Every format except One-Time Pad generates a list of items
+  const bool isList = (format != 6);
+  const size_t quantity =
+      isList ? static_cast<size_t>(std::max(g_state.outputQuantity, 1)) : 1;
 
-  switch (g_state.outputFormat) {
+  // Calculate required bytes per item based on output format
+  // IMPORTANT: Must match what the format generators actually consume!
+  size_t bytesPerItem = 0;
+
+  switch (format) {
   case 0: // Decimal - uses 2 bytes per digit. Request 4x for rejection safety
           // buffer.
-    bytesNeeded = static_cast<size_t>(g_state.decimalDigits) * 4;
+    bytesPerItem = static_cast<size_t>(g_state.decimalDigits) * 4;
     break;
-  case 1: // Integer - needs up to 8 bytes. Request configured size for multiple
-          // retries.
-    bytesNeeded = AppConfig::INTEGER_ENTROPY_BLOCK_BYTES;
+  case 1: // Integer - one 8-byte draw; raised below for rejection retries
+    bytesPerItem = 8;
     break;
   case 3: // Custom - uses 2 bytes per character. Request 4x for rejection
           // safety buffer.
-    bytesNeeded = static_cast<size_t>(g_state.customLength) * 4;
+    bytesPerItem = static_cast<size_t>(g_state.customLength) * 4;
     break;
-  case 4: // Bit/Byte - exact amount requested
-    bytesNeeded = (g_state.bitByteUnit == 0)
-                      ? (static_cast<size_t>(g_state.bitByteAmount) + 7) / 8
-                      : static_cast<size_t>(g_state.bitByteAmount);
+  case 4: { // Raw Data - what the chosen encoding consumes (see GetRawLayout)
+    const uint64_t bits =
+        (g_state.bitByteUnit == 0)
+            ? static_cast<uint64_t>(g_state.bitByteAmount)
+            : static_cast<uint64_t>(g_state.bitByteAmount) * 8;
+    bytesPerItem = static_cast<size_t>(
+        GetRawLayout(g_state.bitByteFormat, bits).bytes);
     break;
+  }
   case 5: // Passphrase - 3 bytes per word
-    bytesNeeded = static_cast<size_t>(g_state.passphraseWordCount) * 3;
+    bytesPerItem = static_cast<size_t>(g_state.passphraseWordCount) * 3;
     break;
   case 6: // OTP - 1 byte per input (Text Mode needs 2x for Rejection)
     if (g_state.otpInputMode == 0) {
       // Text mode: ASCII safe Modulo-95.
       // We request 2x bytes to ensure Rejection Sampling < 190 succeeds.
-      bytesNeeded = strlen(g_state.otpMessage.data()) * 2;
+      bytesPerItem = strlen(g_state.otpMessage.data()) * 2;
     } else {
       // File mode: Raw XOR, 1:1 ratio
-      bytesNeeded = static_cast<size_t>(g_state.otpFileSize);
+      bytesPerItem = static_cast<size_t>(g_state.otpFileSize);
     }
     break;
   case 7: // UUIDv4 - 16 bytes per UUID (version/variant bits overwritten)
-    bytesNeeded = static_cast<size_t>(g_state.uuidCount) * 16;
+    bytesPerItem = 16;
+    break;
+  case 8: // UUIDv7 - 10 bytes random field + 6 bytes counter seed/increment
+    bytesPerItem = 16;
     break;
   }
+
+  // Rejection-sampling formats keep the same retry headroom per item
+  // whatever the quantity (e.g. 8 draws per integer)
+  if ((format == 0 || format == 1 || format == 3) &&
+      bytesPerItem < AppConfig::REJECTION_MIN_BYTES_PER_ITEM)
+    bytesPerItem = AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
+
+  if (bytesPerItem > 0 && quantity > SIZE_MAX / bytesPerItem) {
+    result.errorMessage =
+        "Requested output is too large. Reduce the quantity or item size.";
+    Crypto::SecureClearVector(pooledData);
+    return result;
+  }
+  size_t bytesNeeded = bytesPerItem * quantity;
 
   // Ensure minimum security (512 bits = 64 bytes minimum)
   if (bytesNeeded < 64)
@@ -690,70 +1049,18 @@ GenerationResult GenerateOutput(GenerationMode mode) {
 
   // Generate random bytes
   std::vector<uint8_t> randomBytes;
+  std::vector<uint8_t> itemBytes; // One item's slice of randomBytes
+  auto wipeAll = [&]() {
+    Crypto::SecureClearVector(randomBytes);
+    Crypto::SecureClearVector(itemBytes);
+    Crypto::SecureClearVector(pooledData);
+    Crypto::SecureClearVector(result.output);
+  };
   try {
       randomBytes = GenerateRandomBytes(pooledData, bytesNeeded);
   result.rawBytesGenerated = randomBytes.size();
 
-  // Format output based on selected format
-  switch (g_state.outputFormat) {
-  case 0: // Decimal
-    result.output = GenerateDecimal(randomBytes, g_state.decimalDigits);
-    break;
-
-  case 1: { // Integer
-    bool exhausted = false;
-    result.output = GenerateInteger(randomBytes, g_state.integerMin,
-                                    g_state.integerMax, exhausted);
-
-    // Every draw rejected (only plausible for ranges just over 2^63, ~1 in
-    // 256): retry with fresh bytes rather than use a biased value.
-    for (uint32_t attempt = 1;
-         exhausted && attempt <= AppConfig::INTEGER_MAX_RETRIES; attempt++) {
-      Logger::Log(Logger::Level::INFO, "CSPRNG",
-                  "Integer: all draws rejected, retrying (attempt %u)",
-                  attempt);
-      Crypto::SecureClearVector(randomBytes);
-      randomBytes = GenerateRandomBytes(pooledData, bytesNeeded, attempt);
-      result.output = GenerateInteger(randomBytes, g_state.integerMin,
-                                      g_state.integerMax, exhausted);
-    }
-
-    if (exhausted) {
-      result.errorMessage = "Integer generation failed: every random draw was "
-                            "rejected after retries. Please try again.";
-      Crypto::SecureClearVector(randomBytes);
-      Crypto::SecureClearVector(pooledData);
-      return result;
-    }
-    break;
-  }
-
-  case 3: // Custom
-    result.output =
-        GenerateCustomString(randomBytes, g_state.customLength,
-                             g_state.includeNumbers, g_state.includeUppercase,
-                             g_state.includeLowercase, g_state.includeSpecial);
-    break;
-
-  case 4: // Bit/Byte
-    result.output = GenerateBitByte(randomBytes, g_state.bitByteAmount,
-                                    g_state.bitByteUnit, g_state.bitByteFormat);
-    break;
-
-  case 5: // Passphrase
-    // Load wordlist if needed
-    if (!LoadWordListForGeneration()) {
-      result.errorMessage = "Failed to load wordlist";
-      SecureZeroMemory(randomBytes.data(), randomBytes.size());
-      return result;
-    }
-    result.output =
-        GeneratePassphrase(randomBytes, g_state.passphraseWordCount,
-                           std::string(g_state.passphraseSeparator.data()),
-                           g_state.cachedWordList);
-    break;
-
-  case 6: // OTP
+  if (format == 6) { // OTP
     if (g_state.otpInputMode == 0) {
       // Text input
       result.output =
@@ -763,7 +1070,7 @@ GenerationResult GenerateOutput(GenerationMode mode) {
       std::ifstream file(g_state.otpFilePath.data(), std::ios::binary);
       if (!file.is_open()) {
         result.errorMessage = "Failed to open input file";
-        SecureZeroMemory(randomBytes.data(), randomBytes.size());
+        wipeAll();
         return result;
       }
 
@@ -787,15 +1094,111 @@ GenerationResult GenerateOutput(GenerationMode mode) {
       SecureZeroMemory(fileData.data(), fileData.size());
       SecureZeroMemory(encrypted.data(), encrypted.size());
     }
-    break;
+  } else {
+    // Load wordlist if needed
+    if (format == 5 && !LoadWordListForGeneration()) {
+      result.errorMessage = "Failed to load wordlist";
+      wipeAll();
+      return result;
+    }
+    const std::string separator =
+        (format == 5) ? std::string(g_state.passphraseSeparator.data())
+                      : std::string();
 
-  case 7: // UUIDv4
-    result.output = GenerateUUIDv4(randomBytes, g_state.uuidCount,
-                                   g_state.uuidUppercase, g_state.uuidHyphens);
-    break;
+    UUIDv7State v7State;  // Keeps UUIDv7s of this batch in creation order
+    UUIDv7Options v7Options;
+    v7Options.method = g_state.uuidV7Method;
+    v7Options.counterBits = g_state.uuidV7CounterBits;
+    v7Options.incrementBits = g_state.uuidV7IncrementBits;
+    uint32_t attempt = 0; // Unique per retry so each gets fresh bytes
+
+    for (size_t i = 0; i < quantity; i++) {
+      if ((i & 0x3FF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
+
+      // Each item gets its own, non-overlapping slice of the random bytes
+      itemBytes.assign(randomBytes.begin() + i * bytesPerItem,
+                       randomBytes.begin() + (i + 1) * bytesPerItem);
+      std::vector<char> item;
+
+      switch (format) {
+      case 0: // Decimal
+        item = GenerateDecimal(itemBytes, g_state.decimalDigits);
+        break;
+
+      case 1: { // Integer
+        bool exhausted = false;
+        item = GenerateInteger(itemBytes, g_state.integerMin,
+                               g_state.integerMax, exhausted);
+
+        // Every draw rejected (only plausible for ranges just over 2^63, ~1
+        // in 256): retry with fresh bytes rather than use a biased value.
+        for (unsigned retry = 1;
+             exhausted && retry <= AppConfig::INTEGER_MAX_RETRIES; retry++) {
+          ++attempt;
+          Logger::Log(Logger::Level::INFO, "CSPRNG",
+                      "Integer item %zu: all draws rejected, retrying "
+                      "(attempt %u)",
+                      i + 1, attempt);
+          Crypto::SecureClearVector(itemBytes);
+          itemBytes = GenerateRandomBytes(pooledData, bytesPerItem, attempt);
+          item = GenerateInteger(itemBytes, g_state.integerMin,
+                                 g_state.integerMax, exhausted);
+        }
+
+        if (exhausted) {
+          result.errorMessage = "Integer generation failed: every random "
+                                "draw was rejected after retries. Please try "
+                                "again.";
+          wipeAll();
+          return result;
+        }
+        break;
+      }
+
+      case 3: // Custom
+        item = GenerateCustomString(itemBytes, g_state.customLength,
+                                    g_state.includeNumbers,
+                                    g_state.includeUppercase,
+                                    g_state.includeLowercase,
+                                    g_state.includeSpecial);
+        break;
+
+      case 4: { // Raw Data
+        const int enc = g_state.bitByteFormat;
+        const bool grouped = enc >= 0 && enc < RAW_ENCODING_COUNT &&
+                             g_state.rawGroupEnabled[enc];
+        item = GenerateBitByte(itemBytes, g_state.bitByteAmount,
+                               g_state.bitByteUnit, enc,
+                               grouped ? g_state.rawGroupSize[enc] : 0,
+                               enc >= 0 && enc < RAW_ENCODING_COUNT &&
+                                   g_state.rawUppercase[enc]);
+        break;
+      }
+
+      case 5: // Passphrase
+        item = GeneratePassphrase(itemBytes, g_state.passphraseWordCount,
+                                  separator, g_state.cachedWordList);
+        break;
+
+      case 7: // UUIDv4
+        item = GenerateUUIDv4(itemBytes, g_state.uuidUppercase,
+                              g_state.uuidHyphens);
+        break;
+
+      case 8: // UUIDv7
+        item = GenerateUUIDv7(itemBytes, g_state.uuidUppercase,
+                              g_state.uuidHyphens, v7Options, v7State);
+        break;
+      }
+
+      AppendListItem(result.output, i, quantity, item, g_state.listNumbered,
+                     g_state.listBlankLine);
+      Crypto::SecureClearVector(item);
+    }
   }
 
   // Ensure null termination for C-string compatibility
+  ReserveSecure(result.output, 1);
   result.output.push_back('\0');
 
   // Calculate entropy consumed
@@ -808,25 +1211,25 @@ GenerationResult GenerateOutput(GenerationMode mode) {
 
   // Secure cleanup
   Crypto::SecureClearVector(randomBytes);
+  Crypto::SecureClearVector(itemBytes);
   Crypto::SecureClearVector(pooledData);
 
   result.success = true;
   Logger::Log(Logger::Level::INFO, "CSPRNG",
-              "Output generated successfully. Format: %d, Mode: %s, Bytes: %zu",
-              g_state.outputFormat,
+              "Output generated successfully. Format: %d, Items: %zu, Mode: "
+              "%s, Bytes: %zu",
+              format, quantity,
               mode == GenerationMode::Consolidation ? "CONSOLIDATION"
                                                     : "EXPANSION",
               result.rawBytesGenerated);
 
   } catch (const std::bad_alloc&) {
-      Crypto::SecureClearVector(randomBytes);
-      Crypto::SecureClearVector(pooledData);
+      wipeAll();
       result.errorMessage = "Memory allocation failed! The requested amount is too large for the system's available RAM/Paging file. Reduce the generation size bounds.";
       result.success = false;
       Logger::Log(Logger::Level::ERR, "CSPRNG", "std::bad_alloc caught! Generation request exceeded available memory.");
   } catch (const std::exception& e) {
-      Crypto::SecureClearVector(randomBytes);
-      Crypto::SecureClearVector(pooledData);
+      wipeAll();
       result.errorMessage = std::string("Unexpected generation error: ") + e.what();
       result.success = false;
       Logger::Log(Logger::Level::ERR, "CSPRNG", "std::exception caught during generation.");

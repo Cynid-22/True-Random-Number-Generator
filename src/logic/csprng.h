@@ -78,13 +78,53 @@ std::vector<char> GenerateCustomString(
     bool includeLowercase,
     bool includeSpecial);
 
-// Format 4: Bit/Byte output (hex, base64, or binary)
-// Binary output prints exactly `amount` bits; hex/base64 round up to whole bytes.
+// Raw Data encodings (AppState::bitByteFormat). Ids 0-2 keep their original
+// meaning; the GUI lists them in base order.
+enum RawEncoding : int {
+    RAW_HEX = 0,          // Base 16, 0-9 a-f, whole bytes
+    RAW_BASE64 = 1,       // RFC 4648, '=' padded, whole bytes
+    RAW_BINARY = 2,       // Base 2, exact bits
+    RAW_OCTAL = 3,        // Base 8, 3 bits per digit
+    RAW_DECIMAL = 4,      // Base 10, uniform random digits
+    RAW_DUODECIMAL = 5,   // Base 12 (0-9 A B), uniform random digits
+    RAW_BASE32 = 6,       // RFC 4648, '=' padded, whole bytes
+    RAW_CROCKFORD32 = 7,  // Crockford Base32, 5 bits per character
+    RAW_BASE36 = 8,       // 0-9 A-Z, uniform random digits
+    RAW_BASE45 = 9,       // RFC 9285, whole bytes
+    RAW_BASE58 = 10,      // Bitcoin alphabet, uniform random digits
+    RAW_BASE62 = 11,      // 0-9 A-Z a-z, uniform random digits
+    RAW_BASE64URL = 12,   // RFC 4648 Section 5, unpadded, whole bytes
+    RAW_BASE85 = 13,      // RFC 1924 / Git alphabet, 4 bytes -> 5 chars
+    RAW_ENCODING_COUNT = 14
+};
+
+// Size of one Raw Data item for `bits` of requested data
+struct RawLayout {
+    uint64_t chars;       // Output characters, padding included, before grouping
+    uint64_t bytes;       // Random bytes the item consumes
+    double bitsCarried;   // Random bits the output actually holds (>= bits)
+    bool digits;          // Uniform random digits (non power-of-two base)
+};
+RawLayout GetRawLayout(int encoding, uint64_t bits);
+
+// True when the encoding's letters come in one case only (Hex, Base 12,
+// Base 32, Crockford, Base 36, Base 45), so it can print them either way
+bool RawHasSingleCaseLetters(int encoding);
+
+// Format 4: Raw Data in the given encoding (see RawEncoding)
+// Exact-bit encodings (Binary, Octal, Crockford) print just enough
+// characters for `amount`; byte encodings round up to whole bytes; digit
+// bases print enough uniform digits to hold at least `amount` bits.
+// groupSize > 0 puts a space every groupSize characters. For single-case
+// encodings (see RawHasSingleCaseLetters), letters are lowercase unless
+// `uppercase`; other encodings ignore it.
 std::vector<char> GenerateBitByte(
     const std::vector<uint8_t>& randomBytes,
     int amount,
-    int unit,    // 0=Bits, 1=Bytes
-    int format); // 0=Hex, 1=Base64, 2=Binary
+    int unit,        // 0=Bits, 1=Bytes
+    int encoding,    // RawEncoding
+    int groupSize,   // 0 = no grouping
+    bool uppercase);
 
 // Format 5: Passphrase from wordlist
 std::vector<char> GeneratePassphrase(
@@ -103,19 +143,49 @@ std::vector<uint8_t> GenerateOTPFile(
     const std::vector<uint8_t>& randomBytes,
     const std::vector<uint8_t>& fileData);
 
-// Format 7: UUID version 4 (RFC 9562), one per line
-// Uses 16 bytes per UUID: 122 random bits + 4 version bits + 2 variant bits
+// Format 7: one UUID version 4 (RFC 9562)
+// Uses 16 bytes: 122 random bits + 4 version bits + 2 variant bits
 std::vector<char> GenerateUUIDv4(
     const std::vector<uint8_t>& randomBytes,
-    int count,
     bool uppercase,
     bool hyphens);
+
+// How UUIDv7s created in the same millisecond are ordered
+// (RFC 9562 Section 6.2)
+struct UUIDv7Options {
+    int method = 0;            // 0=Method 1 (dedicated counter), 1=Method 2 (monotonic random), 2=None
+    int counterBits = 12;      // Method 1: counter length, leftmost bits of rand_a then rand_b
+    int incrementBits = 32;    // Method 2: random increment drawn from [1, 2^bits]
+};
+
+// Timestamp/counter carried between UUIDv7s of one batch so they sort in
+// creation order
+struct UUIDv7State {
+    uint64_t lastMs = 0;
+    bool haveLast = false;
+    uint64_t counter = 0;      // Method 1
+    uint64_t valueHi = 0;      // Method 2: 74-bit value, top 12 bits (rand_a)
+    uint64_t valueLo = 0;      // Method 2: low 62 bits (rand_b)
+};
+
+// Format 8: one UUID version 7 (RFC 9562)
+// 48-bit Unix millisecond timestamp + 74 bits (rand_a, rand_b) filled per
+// options. Uses 16 random bytes. Pass the same state for every UUID in a
+// batch.
+std::vector<char> GenerateUUIDv7(
+    const std::vector<uint8_t>& randomBytes,
+    bool uppercase,
+    bool hyphens,
+    const UUIDv7Options& options,
+    UUIDv7State& state);
 
 //=============================================================================
 // MAIN GENERATION FUNCTION
 //=============================================================================
 
 // Main entry point: Generate output based on current app state
+// For every format except One-Time Pad, generates outputQuantity items, one
+// per line (optionally blank-line separated and/or numbered "1. ", "2. ").
 // `mode` is the TRUE RANDOMNESS / PSEUDO-RANDOM decision the UI made when
 // Generate was clicked; it is reported as-is.
 // Returns a GenerationResult with the formatted output
