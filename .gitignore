@@ -9,6 +9,7 @@ recover_nist.py
 CalculateAvg.py
 commands.txt
 TRNG_UI_Aesthetic_Guide.md
+internal_update_notes
 
 # C++ Build Artifacts
 build/

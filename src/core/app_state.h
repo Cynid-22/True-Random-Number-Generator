@@ -74,13 +74,14 @@ struct AppState {
     float targetBits = 512.0f;
     
     // Output configuration
-    int outputFormat = 0;  // 0=Decimal, 1=Integer, 2=Binary, 3=Custom, 4=BitByte, 5=Passphrase, 6=OTP
+    // 0=Decimal, 1=Integer, 3=Custom, 4=BitByte, 5=Passphrase, 6=OTP, 7=UUIDv4
+    // (2 was the old Binary String format, now merged into BitByte's Binary output)
+    int outputFormat = 0;
     
     // Format params
     int decimalDigits = 16;
     long long integerMin = 0;
     long long integerMax = 100;
-    int binaryLength = 64;
     int customLength = 16;
     bool includeNumbers = true;
     bool includeUppercase = true;
@@ -91,6 +92,11 @@ struct AppState {
     int bitByteFormat = 0; // 0=Hex, 1=Base64, 2=Binary
     bool binarySeparatorEnabled = true; // Use space separator for binary output
     int binarySeparatorInterval = 8;    // Number of bits between spaces
+
+    // UUID params
+    int uuidCount = 1;
+    bool uuidUppercase = false;
+    bool uuidHyphens = true;
     
     // Passphrase params
     int passphraseWordCount = 6;

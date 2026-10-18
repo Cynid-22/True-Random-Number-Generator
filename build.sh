@@ -56,8 +56,9 @@ echo "Compiling..."
 BUILD_VERSION="${VERSION:-dev}"
 
 # Compile all source files
-g++ -std=c++17 -O2 -mwindows \
+g++ -std=c++17 -O2 -s -mwindows \
     -DAPP_VERSION="\"${BUILD_VERSION}\"" \
+    -D_WIN32_WINNT=0x0A00 \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \

@@ -130,15 +130,16 @@ float CalculateRequiredEntropy() {
             
         case 1: // Integer Range
         {
-            long long range = (long long)g_state.integerMax - (long long)g_state.integerMin + 1;
-            if (range <= 1) bits = 1.0f;
+            bool swapped = g_state.integerMin > g_state.integerMax;
+            long long lo = swapped ? g_state.integerMax : g_state.integerMin;
+            long long hi = swapped ? g_state.integerMin : g_state.integerMax;
+            // Unsigned span avoids signed overflow; wraps to 0 for the full 64-bit range.
+            unsigned long long range = (unsigned long long)hi - (unsigned long long)lo + 1;
+            if (range == 0) bits = 64.0f;
+            else if (range <= 1) bits = 1.0f;
             else bits = std::ceil(std::log2((double)range));
             break;
         }
-            
-        case 2: // Binary
-            bits = (float)g_state.binaryLength;
-            break;
             
         case 3: // Custom String
         {
@@ -176,6 +177,11 @@ float CalculateRequiredEntropy() {
             }
             break;
         }
+
+        case 7: // UUIDv4
+            // 122 random bits per UUID (6 bits are fixed version/variant)
+            bits = g_state.uuidCount * 122.0f;
+            break;
     }
     
     // Enforce minimum of 512 bits

@@ -26,6 +26,96 @@ static std::atomic<bool> s_genFinished{false};
 // OUTPUT CONFIGURATION
 //=============================================================================
 
+// Output types are grouped into categories. Each type maps onto an
+// outputFormat id (see AppState); Raw Data types also pick bitByteFormat.
+struct OutputType {
+  const char *name;
+  int format;
+  int bitByteFormat; // -1 = not applicable
+};
+
+struct OutputCategory {
+  const char *name;
+  const OutputType *types;
+  int typeCount;
+};
+
+static const OutputType s_numberTypes[] = {
+    {"Decimal (0.0 - 1.0)", 0, -1},
+    {"Integer Range", 1, -1},
+};
+static const OutputType s_rawDataTypes[] = {
+    {"Hexadecimal", 4, 0},
+    {"Base64", 4, 1},
+    {"Binary", 4, 2},
+};
+static const OutputType s_textTypes[] = {
+    {"Random Characters", 3, -1},
+    {"Passphrase", 5, -1},
+};
+static const OutputType s_identifierTypes[] = {
+    {"UUID v4", 7, -1},
+};
+static const OutputType s_encryptionTypes[] = {
+    {"One-Time Pad", 6, -1},
+};
+
+static const OutputCategory s_categories[] = {
+    {"Numbers", s_numberTypes, IM_ARRAYSIZE(s_numberTypes)},
+    {"Raw Data", s_rawDataTypes, IM_ARRAYSIZE(s_rawDataTypes)},
+    {"Text & Passwords", s_textTypes, IM_ARRAYSIZE(s_textTypes)},
+    {"Identifiers", s_identifierTypes, IM_ARRAYSIZE(s_identifierTypes)},
+    {"Encryption", s_encryptionTypes, IM_ARRAYSIZE(s_encryptionTypes)},
+};
+static constexpr int kCategoryCount = IM_ARRAYSIZE(s_categories);
+
+// Last type picked in each category, restored when switching back to it
+static int s_lastTypeInCategory[kCategoryCount] = {};
+
+// Locate the category/type matching the current state (first entry if none).
+static void FindCurrentOutputType(int &category, int &type) {
+  for (int c = 0; c < kCategoryCount; c++) {
+    for (int t = 0; t < s_categories[c].typeCount; t++) {
+      const OutputType &ot = s_categories[c].types[t];
+      if (ot.format == g_state.outputFormat &&
+          (ot.bitByteFormat < 0 || ot.bitByteFormat == g_state.bitByteFormat)) {
+        category = c;
+        type = t;
+        return;
+      }
+    }
+  }
+  category = 0;
+  type = 0;
+}
+
+static void SelectOutputType(int category, int type) {
+  int prevCategory, prevType;
+  FindCurrentOutputType(prevCategory, prevType);
+  const OutputType &prev = s_categories[prevCategory].types[prevType];
+  const OutputType &next = s_categories[category].types[type];
+
+  int prevFormat = g_state.outputFormat;
+  g_state.outputFormat = next.format;
+  if (next.bitByteFormat >= 0)
+    g_state.bitByteFormat = next.bitByteFormat;
+  s_lastTypeInCategory[category] = type;
+
+  Logger::Log(Logger::Level::INFO, "GUI",
+              "Output Format changed from '%s > %s' to '%s > %s'",
+              s_categories[prevCategory].name, prev.name,
+              s_categories[category].name, next.name);
+
+  // SECURITY: Wipe OTP message buffer when switching away from OTP mode
+  if (prevFormat == 6 && g_state.outputFormat != 6) {
+    Crypto::SecureClearVector(g_state.otpMessage);
+    Crypto::SecureClearVector(g_state.otpFilePath);
+    g_state.otpFileSize = 0;
+  }
+
+  UpdateTargetEntropy();
+}
+
 void RenderOutputConfigSection() {
   if (s_isGenerating.load())
     ImGui::BeginDisabled();
@@ -33,30 +123,40 @@ void RenderOutputConfigSection() {
   ImGui::Separator();
   ImGui::Spacing();
 
-  const char *formats[] = {"Decimal Number (0.0 - 1.0)",
-                           "Integer Range",
-                           "Binary String",
-                           "Custom String",
-                           "Bit/Byte Output",
-                           "Passphrase",
-                           "One-Time Pad"};
+  int curCategory, curType;
+  FindCurrentOutputType(curCategory, curType);
+  // Track external changes too (e.g. Options > Reset Settings)
+  s_lastTypeInCategory[curCategory] = curType;
 
-  ImGui::SetNextItemWidth(300);
-  int prevFormat = g_state.outputFormat;
-  if (ImGui::Combo("##Format", &g_state.outputFormat, formats,
-                   IM_ARRAYSIZE(formats))) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Format changed from '%s' to '%s'", formats[prevFormat],
-                formats[g_state.outputFormat]);
-
-    // SECURITY: Wipe OTP message buffer when switching away from OTP mode
-    if (prevFormat == 6 && g_state.outputFormat != 6) {
-      Crypto::SecureClearVector(g_state.otpMessage);
-      Crypto::SecureClearVector(g_state.otpFilePath);
-      g_state.otpFileSize = 0;
+  // Category selector
+  ImGui::SetNextItemWidth(180);
+  if (ImGui::BeginCombo("##Category", s_categories[curCategory].name)) {
+    for (int c = 0; c < kCategoryCount; c++) {
+      bool selected = (c == curCategory);
+      if (ImGui::Selectable(s_categories[c].name, selected) && !selected) {
+        SelectOutputType(c, s_lastTypeInCategory[c]);
+      }
+      if (selected)
+        ImGui::SetItemDefaultFocus();
     }
+    ImGui::EndCombo();
+  }
 
-    UpdateTargetEntropy();
+  // Type selector (within the chosen category)
+  FindCurrentOutputType(curCategory, curType);
+  const OutputCategory &cat = s_categories[curCategory];
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(220);
+  if (ImGui::BeginCombo("##Type", cat.types[curType].name)) {
+    for (int t = 0; t < cat.typeCount; t++) {
+      bool selected = (t == curType);
+      if (ImGui::Selectable(cat.types[t].name, selected) && !selected) {
+        SelectOutputType(curCategory, t);
+      }
+      if (selected)
+        ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
   }
 
   ImGui::Spacing();
@@ -123,25 +223,6 @@ void RenderOutputConfigSection() {
         g_state.integerMax = AppConfig::INTEGER_RANGE_MIN;
       if (g_state.integerMax > AppConfig::INTEGER_RANGE_MAX)
         g_state.integerMax = AppConfig::INTEGER_RANGE_MAX;
-      break;
-
-    case 2: // Binary
-      ImGui::TableNextRow();
-      ImGui::TableSetColumnIndex(0);
-      ImGui::AlignTextToFramePadding();
-      ImGui::Text("Length:");
-      ImGui::TableSetColumnIndex(1);
-      ImGui::SetNextItemWidth(230);
-      if (ImGui::InputInt("##BinLen", &g_state.binaryLength)) {
-        parametersChanged = true;
-        Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [Binary]: Length set to %d",
-                    g_state.binaryLength);
-      }
-      if (g_state.binaryLength < AppConfig::BINARY_MIN_LENGTH)
-        g_state.binaryLength = AppConfig::BINARY_MIN_LENGTH;
-      if (g_state.binaryLength > AppConfig::BINARY_MAX_LENGTH)
-        g_state.binaryLength = AppConfig::BINARY_MAX_LENGTH;
       break;
 
     case 3: // Custom
@@ -230,25 +311,21 @@ void RenderOutputConfigSection() {
                     units[g_state.bitByteUnit]);
       }
 
-      ImGui::TableNextRow();
-      ImGui::TableSetColumnIndex(0);
-      ImGui::AlignTextToFramePadding();
-      ImGui::Text("Format:");
-      ImGui::TableSetColumnIndex(1);
-      ImGui::SetNextItemWidth(180);
-      const char *outFmts[] = {"Hexadecimal", "Base64", "Binary"};
-      if (ImGui::Combo("##OutFmt", &g_state.bitByteFormat, outFmts, 3)) {
-        // Note: bitByteFormat logic might need update in core if used elsewhere
-        Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [Bit/Byte]: Format set to %s",
-                    outFmts[g_state.bitByteFormat]);
+      // Hex/Base64 encode whole bytes, so a bit count is rounded up
+      if (g_state.bitByteFormat != 2 && g_state.bitByteUnit == 0 &&
+          g_state.bitByteAmount % 8 != 0) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(rounded up to %lld bits)",
+                            ((g_state.bitByteAmount + 7LL) / 8) * 8);
       }
 
-      // Inline Binary Separator Config
+      // Binary Separator Config
       if (g_state.bitByteFormat == 2) { // Binary only
-        ImGui::SameLine();
-        ImGui::Text("|");
-        ImGui::SameLine();
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Grouping:");
+        ImGui::TableSetColumnIndex(1);
         if (ImGui::Checkbox("Separator", &g_state.binarySeparatorEnabled)) {
           Logger::Log(Logger::Level::INFO, "GUI",
                       "Output Config [Binary]: Separator toggled %s",
@@ -311,6 +388,49 @@ void RenderOutputConfigSection() {
           "(Using built-in wordlist: 123,565 words, ~16.5 bits/word)");
       break;
     }
+
+    case 7: // UUIDv4
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::AlignTextToFramePadding();
+      ImGui::Text("Count:");
+      ImGui::TableSetColumnIndex(1);
+      ImGui::SetNextItemWidth(230);
+      if (ImGui::InputInt("##UuidCount", &g_state.uuidCount)) {
+        parametersChanged = true;
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config [UUID]: Count set to %d",
+                    g_state.uuidCount);
+      }
+      if (g_state.uuidCount < AppConfig::UUID_MIN_COUNT)
+        g_state.uuidCount = AppConfig::UUID_MIN_COUNT;
+      if (g_state.uuidCount > AppConfig::UUID_MAX_COUNT)
+        g_state.uuidCount = AppConfig::UUID_MAX_COUNT;
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::AlignTextToFramePadding();
+      ImGui::Text("Style:");
+      ImGui::TableSetColumnIndex(1);
+      if (ImGui::Checkbox("Uppercase", &g_state.uuidUppercase)) {
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config [UUID]: Uppercase toggled %s",
+                    g_state.uuidUppercase ? "ON" : "OFF");
+      }
+      ImGui::SameLine();
+      if (ImGui::Checkbox("Hyphens", &g_state.uuidHyphens)) {
+        Logger::Log(Logger::Level::INFO, "GUI",
+                    "Output Config [UUID]: Hyphens toggled %s",
+                    g_state.uuidHyphens ? "ON" : "OFF");
+      }
+
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::TableSetColumnIndex(1);
+      ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                         "(RFC 9562 version 4, 122 random bits each, one per "
+                         "line)");
+      break;
 
     case 6: // One-Time Pad
     {
@@ -617,8 +737,13 @@ void RenderOutputSection() {
                     "Entropy locked at timestamp: %llu",
                     g_state.lockedDataTimestamp);
 
-        std::thread([]() {
-          CSPRNG::GenerationResult result = CSPRNG::GenerateOutput();
+        // Report the same mode the warning above showed the user
+        CSPRNG::GenerationMode mode =
+            hasFullEntropy ? CSPRNG::GenerationMode::Consolidation
+                           : CSPRNG::GenerationMode::Expansion;
+
+        std::thread([mode]() {
+          CSPRNG::GenerationResult result = CSPRNG::GenerateOutput(mode);
           {
             std::lock_guard<std::mutex> lock(s_genMutex);
             s_genResult = std::move(result);

@@ -12,10 +12,6 @@ namespace AppConfig {
     constexpr int DECIMAL_MIN_DIGITS = 1;
     constexpr int DECIMAL_MAX_DIGITS = INT_MAX;
 
-    // Binary Generator Limits
-    constexpr int BINARY_MIN_LENGTH = 1;
-    constexpr int BINARY_MAX_LENGTH = INT_MAX;
-
     // Custom String Generator Limits
     constexpr int CUSTOM_MIN_LENGTH = 1;
     constexpr int CUSTOM_MAX_LENGTH = INT_MAX;
@@ -23,6 +19,10 @@ namespace AppConfig {
     // Bit/Byte Generator Limits
     constexpr int BITBYTE_MIN_AMOUNT = 1;
     constexpr int BITBYTE_MAX_AMOUNT = INT_MAX;
+
+    // UUID Generator Limits (number of UUIDs per generation)
+    constexpr int UUID_MIN_COUNT = 1;
+    constexpr int UUID_MAX_COUNT = INT_MAX;
 
     // Passphrase Generator Limits
     constexpr int PASSPHRASE_MIN_WORDS = 1;
@@ -38,6 +38,11 @@ namespace AppConfig {
 
     // Integer Entropy Pool Sampling Request Size Block
     constexpr size_t INTEGER_ENTROPY_BLOCK_BYTES = 32;
+
+    // Integer rejection sampling: fresh-byte retries when every draw in a
+    // block is rejected. Worst case (range just over 2^63) fails all retries
+    // with probability ~2^-40.
+    constexpr unsigned INTEGER_MAX_RETRIES = 4;
 
     // ---------------------------------------------------------
     // Dynamic Buffer Allocations

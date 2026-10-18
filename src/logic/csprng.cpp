@@ -50,38 +50,20 @@ SerializeEntropyData(const std::vector<Entropy::EntropyDataPoint> &data) {
 
 std::vector<uint8_t>
 GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
-                    size_t numBytes, GenerationMode &modeUsed) {
+                    size_t numBytes, uint32_t attempt) {
 
   // 1. Serialize ENTIRE entropy pool
   std::vector<uint8_t> entropyBytes = SerializeEntropyData(entropyData);
 
   // Log entropy pool state
-  // Log entropy pool state
+  // (The TRUE RANDOMNESS / PSEUDO-RANDOM mode is decided by the caller, see
+  // GenerateOutput, using the same rule as the UI.)
   Logger::Log(Logger::Level::INFO, "CSPRNG",
               "GenerateRandomBytes: %zu data points, %zu entropy bytes, "
-              "requesting %zu output bytes",
-              entropyData.size(), entropyBytes.size(), numBytes);
+              "requesting %zu output bytes (attempt %u)",
+              entropyData.size(), entropyBytes.size(), numBytes, attempt);
 
-  // 2. Calculate input entropy bits
-  float inputBits = static_cast<float>(entropyData.size()) * 2.0f;
-  float outputBits = static_cast<float>(numBytes) * 8.0f;
-
-  // 3. Determine Mode (for reporting purposes)
-  if (inputBits >= outputBits) {
-    modeUsed = GenerationMode::Consolidation;
-    Logger::Log(Logger::Level::INFO, "CSPRNG",
-                "Mode: CONSOLIDATION (TRUE RANDOMNESS) - Pool has %.0f bits "
-                "for %.0f output bits",
-                inputBits, outputBits);
-  } else {
-    modeUsed = GenerationMode::Expansion;
-    Logger::Log(Logger::Level::INFO, "CSPRNG",
-                "Mode: EXPANSION (PSEUDO-RANDOM) - Pool has %.0f bits for %.0f "
-                "output bits",
-                inputBits, outputBits);
-  }
-
-  // 4. QUAD-LAYER ARCHITECTURE (Maximum Security)
+  // 2. QUAD-LAYER ARCHITECTURE (Maximum Security)
   // Layer 1: ChaCha20 Masking (Stream Cipher)
   // Layer 2: Entropy Injection (Information Theoretic XOR)
   // Layer 3: AES-256 Transformation (Block Cipher)
@@ -104,9 +86,6 @@ GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
   case 1:
     infoStream << "I:" << g_state.integerMin << ":" << g_state.integerMax;
     break;
-  case 2:
-    infoStream << "B:" << g_state.binaryLength;
-    break;
   case 3:
     infoStream << "C:" << g_state.customLength;
     break;
@@ -119,8 +98,16 @@ GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
   case 6:
     infoStream << "O:" << g_state.otpInputMode;
     break;
+  case 7:
+    infoStream << "G:" << g_state.uuidCount;
+    break;
   }
   infoStream << "|T:" << Entropy::GetNanosecondTimestamp();
+  // Retries must not depend on the clock having ticked: the attempt number
+  // guarantees a distinct key/nonce. Omitted on the first attempt so the
+  // normal path is unchanged.
+  if (attempt > 0)
+    infoStream << "|R:" << attempt;
   std::string infoStr = infoStream.str();
   std::vector<uint8_t> info(infoStr.begin(), infoStr.end());
 
@@ -277,88 +264,54 @@ std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
 }
 
 std::vector<char> GenerateInteger(const std::vector<uint8_t> &randomBytes,
-                                  int min, int max) {
+                                  int64_t min, int64_t max, bool &exhausted) {
+  exhausted = false;
   if (min > max)
     std::swap(min, max);
-  if (randomBytes.empty()) {
-    std::string s = std::to_string(min);
-    return std::vector<char>(s.begin(), s.end());
-  }
 
+  // Unsigned arithmetic: max - min can exceed INT64_MAX. A range of 0 means
+  // the full 2^64 span [INT64_MIN, INT64_MAX] (max - min + 1 wrapped).
   uint64_t range = static_cast<uint64_t>(max) - static_cast<uint64_t>(min) + 1;
-  if (range == 0)
-    range = 1; // Overflow case or single value
+  bool fullRange = (range == 0);
 
-  // Determine bytes needed
-  size_t bytesNeeded = (range <= 0xFF)         ? 1
-                       : (range <= 0xFFFF)     ? 2
-                       : (range <= 0xFFFFFFFF) ? 4
-                                               : 8;
-
-  // Calculate Rejection Limit
-  // We strictly assume Little Endian for internal logic simplicity,
-  // but the byte compositing works regardless.
-  uint64_t maxVal;
-  if (bytesNeeded == 8)
-    maxVal = 0xFFFFFFFFFFFFFFFFULL;
-  else
-    maxVal = (1ULL << (bytesNeeded * 8)) - 1;
-
-  // limit is exclusive upper bound of valid range [0, limit)
-  // where range divides limit evenly.
-  uint64_t limit = maxVal - (maxVal % range);
+  // Rejection threshold: 2^64 mod range. Draws below it are rejected so the
+  // accepted values [threshold, 2^64) number an exact multiple of range,
+  // making randVal % range uniform. Draws are always 64-bit so this formula
+  // holds for every range; for ranges up to 2^32 rejection is < 2^-32.
+  uint64_t threshold = fullRange ? 0 : (0 - range) % range;
 
   uint64_t randVal = 0;
   bool found = false;
   size_t byteIdx = 0;
 
-  // Rejection Sampling Loop
-  while (byteIdx + bytesNeeded <= randomBytes.size()) {
+  // Rejection Sampling Loop (8 bytes per draw)
+  while (byteIdx + 8 <= randomBytes.size()) {
     randVal = 0;
-    for (size_t i = 0; i < bytesNeeded; i++) {
+    for (size_t i = 0; i < 8; i++) {
       randVal = (randVal << 8) | randomBytes[byteIdx++];
     }
 
-    if (randVal < limit) {
+    if (randVal >= threshold) {
       found = true;
       break;
     }
   }
 
   if (!found) {
-    // Fallback or use last generated (biased) if we run out
-    // With 32 bytes provided for max 8 bytes needed, this is rare.
-    // We'll proceed with randVal (it's random, just slightly biased)
+    // Never fall back to a rejected draw (it would be biased toward the low
+    // end). The caller retries with fresh bytes.
+    exhausted = true;
+    return {};
   }
 
-  int64_t resultVal = min + static_cast<int64_t>(randVal % range);
+  // Offset in unsigned space to avoid signed overflow, then convert back.
+  uint64_t offset = fullRange ? randVal : randVal % range;
+  int64_t resultVal =
+      static_cast<int64_t>(static_cast<uint64_t>(min) + offset);
 
   std::string s = std::to_string(resultVal);
   std::vector<char> result(s.begin(), s.end());
   SecureZeroMemory(s.data(), s.size());
-  return result;
-}
-
-std::vector<char> GenerateBinary(const std::vector<uint8_t> &randomBytes,
-                                 int length) {
-  if (randomBytes.empty() || length <= 0)
-    return {};
-
-  std::vector<char> result;
-  result.reserve(length);
-
-  for (int i = 0; i < length; i++) {
-    if ((i & 0x3FFF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-    size_t byteIdx = i / 8;
-    int bitIdx = i % 8;
-
-    if (byteIdx < randomBytes.size()) {
-      result.push_back(((randomBytes[byteIdx] >> bitIdx) & 1) ? '1' : '0');
-    } else {
-      result.push_back('0');
-    }
-  }
-
   return result;
 }
 
@@ -421,7 +374,8 @@ std::vector<char> GenerateBitByte(const std::vector<uint8_t> &randomBytes,
                                   int amount, int unit, int format) {
 
   // Calculate bytes needed
-  size_t bytesNeeded = (unit == 0) ? (amount + 7) / 8 : amount;
+  size_t bytesNeeded = (unit == 0) ? (static_cast<size_t>(amount) + 7) / 8
+                                   : static_cast<size_t>(amount);
 
   if (randomBytes.size() < bytesNeeded) {
     bytesNeeded = randomBytes.size();
@@ -477,18 +431,22 @@ std::vector<char> GenerateBitByte(const std::vector<uint8_t> &randomBytes,
 
   case 2: // Binary
   {
-    int bitsPrinted = 0;
-    size_t totalBits = bytesNeeded * 8;
+    size_t bitsPrinted = 0;
+    // Print exactly the requested number of bits (not rounded up to bytes)
+    size_t totalBits = (unit == 0) ? static_cast<size_t>(amount)
+                                   : static_cast<size_t>(amount) * 8;
+    if (totalBits > bytesNeeded * 8)
+      totalBits = bytesNeeded * 8;
     for (size_t i = 0; i < bytesNeeded; i++) {
       if ((i & 0x3FFF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
-      for (int bit = 7; bit >= 0; bit--) {
+      for (int bit = 7; bit >= 0 && bitsPrinted < totalBits; bit--) {
         oss << ((randomBytes[i] >> bit) & 1);
         bitsPrinted++;
 
         // Add separator if enabled, interval reached, and not the very last bit
         if (g_state.binarySeparatorEnabled &&
             g_state.binarySeparatorInterval > 0 &&
-            bitsPrinted % g_state.binarySeparatorInterval == 0 &&
+            bitsPrinted % static_cast<size_t>(g_state.binarySeparatorInterval) == 0 &&
             bitsPrinted < totalBits) {
           oss << ' ';
         }
@@ -600,14 +558,51 @@ std::vector<uint8_t> GenerateOTPFile(const std::vector<uint8_t> &randomBytes,
   return result;
 }
 
+std::vector<char> GenerateUUIDv4(const std::vector<uint8_t> &randomBytes,
+                                 int count, bool uppercase, bool hyphens) {
+  if (count <= 0 || randomBytes.size() < static_cast<size_t>(count) * 16)
+    return {};
+
+  const char *hex = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+  const size_t charsPerUuid = hyphens ? 36 : 32;
+
+  std::vector<char> result;
+  // One newline between UUIDs
+  result.reserve(static_cast<size_t>(count) * (charsPerUuid + 1));
+
+  for (int n = 0; n < count; n++) {
+    if ((n & 0x3FF) == 0 && g_state.cancelGeneration) throw std::runtime_error("Generation cancelled by user.");
+    uint8_t u[16];
+    std::copy(randomBytes.begin() + static_cast<size_t>(n) * 16,
+              randomBytes.begin() + static_cast<size_t>(n) * 16 + 16, u);
+
+    // RFC 9562: version 4 in the high nibble of byte 6, variant 10xx in byte 8
+    u[6] = static_cast<uint8_t>((u[6] & 0x0F) | 0x40);
+    u[8] = static_cast<uint8_t>((u[8] & 0x3F) | 0x80);
+
+    if (n > 0)
+      result.push_back('\n');
+    for (int i = 0; i < 16; i++) {
+      // 8-4-4-4-12 grouping
+      if (hyphens && (i == 4 || i == 6 || i == 8 || i == 10))
+        result.push_back('-');
+      result.push_back(hex[u[i] >> 4]);
+      result.push_back(hex[u[i] & 0x0F]);
+    }
+    SecureZeroMemory(u, sizeof(u));
+  }
+
+  return result;
+}
+
 //=============================================================================
 // MAIN GENERATION FUNCTION
 //=============================================================================
 
-GenerationResult GenerateOutput() {
+GenerationResult GenerateOutput(GenerationMode mode) {
   GenerationResult result;
   result.success = false;
-  result.mode = GenerationMode::Expansion;
+  result.mode = mode;
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
 
@@ -655,9 +650,6 @@ GenerationResult GenerateOutput() {
           // retries.
     bytesNeeded = AppConfig::INTEGER_ENTROPY_BLOCK_BYTES;
     break;
-  case 2: // Binary - 1 bit per output bit, so ceil(length/8)
-    bytesNeeded = (static_cast<size_t>(g_state.binaryLength) + 7) / 8;
-    break;
   case 3: // Custom - uses 2 bytes per character. Request 4x for rejection
           // safety buffer.
     bytesNeeded = static_cast<size_t>(g_state.customLength) * 4;
@@ -680,19 +672,26 @@ GenerationResult GenerateOutput() {
       bytesNeeded = static_cast<size_t>(g_state.otpFileSize);
     }
     break;
+  case 7: // UUIDv4 - 16 bytes per UUID (version/variant bits overwritten)
+    bytesNeeded = static_cast<size_t>(g_state.uuidCount) * 16;
+    break;
   }
 
   // Ensure minimum security (512 bits = 64 bytes minimum)
   if (bytesNeeded < 64)
     bytesNeeded = 64;
 
+  Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
+              mode == GenerationMode::Consolidation
+                  ? "CONSOLIDATION (TRUE RANDOMNESS) - collected entropy met "
+                    "the target"
+                  : "EXPANSION (PSEUDO-RANDOM) - collected entropy below the "
+                    "target");
+
   // Generate random bytes
-  GenerationMode mode;
   std::vector<uint8_t> randomBytes;
   try {
-      randomBytes =
-          GenerateRandomBytes(pooledData, bytesNeeded, mode);
-      result.mode = mode;
+      randomBytes = GenerateRandomBytes(pooledData, bytesNeeded);
   result.rawBytesGenerated = randomBytes.size();
 
   // Format output based on selected format
@@ -701,14 +700,33 @@ GenerationResult GenerateOutput() {
     result.output = GenerateDecimal(randomBytes, g_state.decimalDigits);
     break;
 
-  case 1: // Integer
-    result.output =
-        GenerateInteger(randomBytes, g_state.integerMin, g_state.integerMax);
-    break;
+  case 1: { // Integer
+    bool exhausted = false;
+    result.output = GenerateInteger(randomBytes, g_state.integerMin,
+                                    g_state.integerMax, exhausted);
 
-  case 2: // Binary
-    result.output = GenerateBinary(randomBytes, g_state.binaryLength);
+    // Every draw rejected (only plausible for ranges just over 2^63, ~1 in
+    // 256): retry with fresh bytes rather than use a biased value.
+    for (uint32_t attempt = 1;
+         exhausted && attempt <= AppConfig::INTEGER_MAX_RETRIES; attempt++) {
+      Logger::Log(Logger::Level::INFO, "CSPRNG",
+                  "Integer: all draws rejected, retrying (attempt %u)",
+                  attempt);
+      Crypto::SecureClearVector(randomBytes);
+      randomBytes = GenerateRandomBytes(pooledData, bytesNeeded, attempt);
+      result.output = GenerateInteger(randomBytes, g_state.integerMin,
+                                      g_state.integerMax, exhausted);
+    }
+
+    if (exhausted) {
+      result.errorMessage = "Integer generation failed: every random draw was "
+                            "rejected after retries. Please try again.";
+      Crypto::SecureClearVector(randomBytes);
+      Crypto::SecureClearVector(pooledData);
+      return result;
+    }
     break;
+  }
 
   case 3: // Custom
     result.output =
@@ -769,6 +787,11 @@ GenerationResult GenerateOutput() {
       SecureZeroMemory(fileData.data(), fileData.size());
       SecureZeroMemory(encrypted.data(), encrypted.size());
     }
+    break;
+
+  case 7: // UUIDv4
+    result.output = GenerateUUIDv4(randomBytes, g_state.uuidCount,
+                                   g_state.uuidUppercase, g_state.uuidHyphens);
     break;
   }
 
@@ -848,8 +871,6 @@ void GenerateNistData(const std::string &filepath, size_t totalBytes) {
   std::vector<uint8_t> buffer;
   buffer.reserve(CHUNK_SIZE);
 
-  GenerationMode mode; // Dummy
-
   while (remaining > 0 &&
          g_state.isExportingNist) { // Check flag to allow cancellation
     size_t currentChunk = std::min(remaining, CHUNK_SIZE);
@@ -893,7 +914,7 @@ void GenerateNistData(const std::string &filepath, size_t totalBytes) {
 
     // Generate chunk
     std::vector<uint8_t> chunk =
-        GenerateRandomBytes(pooledData, currentChunk, mode);
+        GenerateRandomBytes(pooledData, currentChunk);
 
     // Write to file
     file.write(reinterpret_cast<const char *>(chunk.data()), chunk.size());

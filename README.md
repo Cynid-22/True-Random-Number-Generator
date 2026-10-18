@@ -37,13 +37,22 @@ The application supports two security modes:
 
 ## Output Formats
 
-- **Decimal Number** (0.0 - 1.0)
-- **Integer Range** (custom min/max)
-- **Binary String**
-- **Custom String** (configurable character set)
-- **Bit/Byte Output** (hex, base64, binary)
-- **Passphrase** (123,565 word dictionary, ~16.5 bits/word)
-- **One-Time Pad** (text or file encryption)
+Pick a category, then a type within it:
+
+- **Numbers**
+  - Decimal (0.0 - 1.0)
+  - Integer Range (custom min/max)
+- **Raw Data** (amount in bits or bytes)
+  - Hexadecimal
+  - Base64
+  - Binary (optional grouping separator)
+- **Text & Passwords**
+  - Random Characters (configurable character set)
+  - Passphrase (123,565 word dictionary, ~16.5 bits/word)
+- **Identifiers**
+  - UUID v4 (RFC 9562, batch count, optional uppercase/no hyphens)
+- **Encryption**
+  - One-Time Pad (text or file encryption)
 
 ---
 
