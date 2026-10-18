@@ -23,6 +23,7 @@ enum UuidV7Ordering : int {
 };
 
 enum OneTimePadInput : int {
+    ONE_TIME_PAD_NO_RESULT = -1,
     ONE_TIME_PAD_TEXT_INPUT = 0,
     ONE_TIME_PAD_FILE_INPUT = 1,
     ONE_TIME_PAD_MESSAGE_LENGTH_INPUT = 2

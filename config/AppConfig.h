@@ -37,5 +37,8 @@ namespace AppConfig {
 
     constexpr size_t PASSPHRASE_SEPARATOR_MAX_BYTES = 16;
     constexpr size_t ONE_TIME_PAD_MESSAGE_MAX_BYTES = 1024 * 1024;
-    constexpr size_t ONE_TIME_PAD_FILE_PATH_MAX_BYTES = 512;
+    constexpr size_t MAX_UTF8_BYTES_PER_UTF16_CHAR = 3;
+    constexpr size_t ONE_TIME_PAD_FILE_PATH_MAX_CHARS = 1024;
+    constexpr size_t ONE_TIME_PAD_FILE_PATH_MAX_BYTES =
+        ONE_TIME_PAD_FILE_PATH_MAX_CHARS * MAX_UTF8_BYTES_PER_UTF16_CHAR + 1;
 }

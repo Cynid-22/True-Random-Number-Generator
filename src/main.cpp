@@ -186,6 +186,7 @@ static void WipeSensitiveState() {
 
     Crypto::SecureClearVector(g_state.oneTimePadMessage);
     Crypto::SecureClearVector(g_state.oneTimePadFilePath);
+    g_state.wipeOneTimePadResult();
 
     WipeAndRelease(g_state.generatedOutput);
 
@@ -198,6 +199,29 @@ static void WipeSensitiveState() {
     }
     g_state.cachedWordList.clear();
     g_state.cachedWordList.shrink_to_fit();
+}
+
+static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
+    static const char* const CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS[] = {
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\YuGothM.ttc",
+        "C:\\Windows\\Fonts\\malgun.ttf",
+        "C:\\Windows\\Fonts\\Nirmala.ttc",
+        "C:\\Windows\\Fonts\\Nirmala.ttf",
+        "C:\\Windows\\Fonts\\seguisym.ttf",
+    };
+
+    ImFontConfig mergeConfig;
+    mergeConfig.MergeMode = true;
+    mergeConfig.OversampleH = 1;
+    mergeConfig.OversampleV = 1;
+    mergeConfig.PixelSnapH = true;
+    mergeConfig.Flags |= ImFontFlags_NoLoadError;
+
+    for (const char* path : CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS) {
+        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
+            io.Fonts->AddFontFromFileTTF(path, fontSize, &mergeConfig);
+    }
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -263,6 +287,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!font) {
         io.Fonts->AddFontDefault();
     }
+    MergeFallbackFontsIntoMainFont(io, fontSize);
 
     ImGui::GetStyle().ScaleAllSizes(dpiScale);
 

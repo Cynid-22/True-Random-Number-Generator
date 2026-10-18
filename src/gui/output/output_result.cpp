@@ -1,8 +1,11 @@
 #include "../../core/app_state.h"
+#include "../../logic/formats/one_time_pad_format.h"
 #include "../../logic/logic.h"
+#include "../../platform/unicode_path.h"
 #include "../gui.h"
 #include "../widgets.h"
 #include "generation_task.h"
+#include "one_time_pad_result.h"
 #include "imgui.h"
 #include <string>
 
@@ -33,33 +36,18 @@ static void RenderOutputHeader() {
   ImGui::Separator();
 }
 
-static void RenderWrappedText(const char *begin, const char *end) {
-  ImGui::PushTextWrapPos(0.0f);
-  ImGui::TextUnformatted(begin, end);
-  ImGui::PopTextWrapPos();
-}
-
 static void RenderOutputText() {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.00f));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
   if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -160.0f), true)) {
-    if (!g_state.generatedOutput.empty()) {
-      const char *text = g_state.generatedOutput.data();
+    if (g_state.hasOneTimePadResult()) {
+      RenderOneTimePadResult();
+    } else if (!g_state.generatedOutput.empty()) {
       size_t length = g_state.generatedOutput.size();
       if (g_state.generatedOutput.back() == '\0')
         length--;
-
-      if (g_state.truncateOutputView && length > 1000) {
-        RenderWrappedText(text, text + 500);
-
-        ImGui::PushStyleColor(ImGuiCol_Text, UiColor::DimText);
-        ImGui::TextWrapped("\n ... truncated ... \n\n");
-        ImGui::PopStyleColor();
-
-        RenderWrappedText(text + length - 500, text + length);
-      } else {
-        RenderWrappedText(text, text + length);
-      }
+      RenderTruncatableText(g_state.generatedOutput.data(), length,
+                            g_state.truncateOutputView);
     }
   }
   ImGui::EndChild();
@@ -105,21 +93,51 @@ static void RenderGenerationProgress() {
   ImGui::Text("%s", CurrentSpinnerFrame());
 }
 
+static const char *FindOneTimePadInputError() {
+  if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT &&
+      g_state.oneTimePadMessage[0] == '\0')
+    return "Enter a message first.";
+
+  if (g_state.oneTimePadInputMode != ONE_TIME_PAD_FILE_INPUT)
+    return nullptr;
+  const char *path = g_state.oneTimePadFilePath.data();
+  if (path[0] == '\0')
+    return "Browse for a file first.";
+  Platform::FileStamp currentStamp;
+  if (!Platform::FileStampOf(path, currentStamp))
+    return "Failed to open the input file.";
+  const Platform::FileStamp selectedStamp{g_state.oneTimePadFileSize,
+                                          g_state.oneTimePadFileLastWriteTime};
+  if (currentStamp != selectedStamp)
+    return CSPRNG::ONE_TIME_PAD_FILE_CHANGED_ERROR;
+  if (currentStamp.size == 0)
+    return "The selected file is empty.";
+  return nullptr;
+}
+
+static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
+  if (g_state.outputFormat == FORMAT_RANDOM_CHARACTERS &&
+      !g_state.includeNumbers && !g_state.includeUppercase &&
+      !g_state.includeLowercase && !g_state.includeSpecial)
+    return "Select at least one character set (0-9, A-Z, a-z or Special).";
+
+  if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)
+    return nullptr;
+  if (const char *inputError = FindOneTimePadInputError())
+    return inputError;
+  if (!hasTargetEntropy)
+    return "One-Time Pad requires TRUE RANDOMNESS mode.\n"
+           "Collect more entropy until the bar reaches 100%.";
+  return nullptr;
+}
+
 static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) {
   if (!hasMinimumEntropy)
     ImGui::BeginDisabled();
 
   if (ImGui::Button("Generate", ImVec2(100, 0))) {
-    const bool noCharacterSet =
-        g_state.outputFormat == FORMAT_RANDOM_CHARACTERS &&
-        !g_state.includeNumbers && !g_state.includeUppercase &&
-        !g_state.includeLowercase && !g_state.includeSpecial;
-    if (g_state.outputFormat == FORMAT_ONE_TIME_PAD && !hasTargetEntropy) {
-      ShowOutputText("[ERROR] One-Time Pad requires TRUE RANDOMNESS mode.\n"
-                     "Collect more entropy until the bar reaches 100%.");
-    } else if (noCharacterSet) {
-      ShowOutputText("[ERROR] Select at least one character set "
-                     "(0-9, A-Z, a-z or Special).");
+    if (const char *error = FindErrorPreventingGeneration(hasTargetEntropy)) {
+      ShowOutputText(std::string("[ERROR] ") + error);
     } else {
       StartGeneration(hasTargetEntropy ? CSPRNG::GenerationMode::Consolidation
                                        : CSPRNG::GenerationMode::Expansion);
@@ -131,22 +149,28 @@ static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) 
 }
 
 static void RenderCopyAndClearButtons() {
-  bool hasOutput = !g_state.generatedOutput.empty();
-  if (!hasOutput)
+  const bool hasOutput = !g_state.generatedOutput.empty();
+  const bool isOneTimePadFileInput =
+      g_state.outputFormat == FORMAT_ONE_TIME_PAD &&
+      g_state.oneTimePadInputMode == ONE_TIME_PAD_FILE_INPUT;
+  const bool canCopy = hasOutput && !isOneTimePadFileInput;
+  if (!canCopy)
     ImGui::BeginDisabled();
   if (ImGui::Button("Copy", ImVec2(80, 0))) {
     ImGui::SetClipboardText(g_state.generatedOutput.data());
   }
-  if (!hasOutput)
+  if (!canCopy)
     ImGui::EndDisabled();
 
   ImGui::SameLine();
 
-  const bool canClear = hasOutput && !IsGenerationRunning();
+  const bool canClear = (hasOutput || g_state.hasOneTimePadResult()) &&
+                        !IsGenerationRunning();
   if (!canClear)
     ImGui::BeginDisabled();
   if (ImGui::Button("Clear", ImVec2(80, 0))) {
     Crypto::SecureClearVector(g_state.generatedOutput);
+    g_state.wipeOneTimePadResult();
     g_state.generatedAtText = "";
     g_state.generationTimeText = "";
 

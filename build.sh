@@ -41,6 +41,7 @@ BUILD_VERSION="${VERSION:-dev}"
 g++ -std=c++17 -O2 -s -mwindows \
     -DAPP_VERSION="\"${BUILD_VERSION}\"" \
     -D_WIN32_WINNT=0x0A00 \
+    -DIMGUI_USE_WCHAR32 \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
@@ -61,6 +62,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/gui/output/one_time_pad_options.cpp \
     src/gui/output/generation_task.cpp \
     src/gui/output/output_result.cpp \
+    src/gui/output/one_time_pad_result.cpp \
     src/logic/logic.cpp \
     src/logic/csprng.cpp \
     src/logic/output_generator.cpp \
@@ -70,6 +72,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/logic/formats/uuid_formats.cpp \
     src/logic/formats/one_time_pad_format.cpp \
     src/platform/dx11.cpp \
+    src/platform/unicode_path.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \

@@ -95,8 +95,14 @@ struct AppState {
     std::vector<char> oneTimePadMessage;
     std::vector<char> oneTimePadFilePath;
     long long oneTimePadFileSize = 0;
+    uint64_t oneTimePadFileLastWriteTime = 0;
     int oneTimePadMessageLength = 16;
     int oneTimePadInputMode = ONE_TIME_PAD_TEXT_INPUT;
+
+    int oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
+    std::vector<char> oneTimePadKey;
+    std::vector<char> oneTimePadCiphertext;
+    std::string oneTimePadResultFileName;
 
     std::vector<char> generatedOutput;
     std::string generatedAtText = "";
@@ -119,12 +125,24 @@ struct AppState {
         return collectedEntropyBits >= targetEntropyBits;
     }
 
+    bool hasOneTimePadResult() const {
+        return oneTimePadResultMode != ONE_TIME_PAD_NO_RESULT;
+    }
+
+    void wipeOneTimePadResult() {
+        Crypto::SecureClearVector(oneTimePadKey);
+        Crypto::SecureClearVector(oneTimePadCiphertext);
+        oneTimePadResultFileName.clear();
+        oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
+    }
+
     ~AppState() {
         if (!generatedOutput.empty()) {
             Crypto::SecureClearVector(generatedOutput);
         }
         Crypto::SecureClearVector(oneTimePadMessage);
         Crypto::SecureClearVector(passphraseSeparator);
+        wipeOneTimePadResult();
     }
 };
 

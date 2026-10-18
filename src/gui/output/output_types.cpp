@@ -96,6 +96,8 @@ void SelectOutputType(int category, int type) {
     SecureZeroMemory(g_state.oneTimePadFilePath.data(),
                      g_state.oneTimePadFilePath.size());
     g_state.oneTimePadFileSize = 0;
+    g_state.oneTimePadFileLastWriteTime = 0;
+    g_state.wipeOneTimePadResult();
   }
 
   UpdateTargetEntropy();

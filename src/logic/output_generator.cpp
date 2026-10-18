@@ -3,6 +3,7 @@
 #include "../core/app_state.h"
 #include "../crypto/secure_mem.h"
 #include "../logging/logger.h"
+#include "../platform/unicode_path.h"
 #include "csprng.h"
 #include "formats/cancellation.h"
 #include "formats/number_formats.h"
@@ -14,11 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
-#include <iomanip>
-#include <iterator>
 #include <new>
-#include <sstream>
 #include <windows.h>
 
 namespace CSPRNG {
@@ -109,44 +106,75 @@ static size_t CalculateBytesPerItem(int format) {
   return bytesPerItem;
 }
 
+static const char *FileNameOfPath(const char *path) {
+  const char *name = path;
+  for (const char *c = path; *c != '\0'; c++) {
+    if (*c == '\\' || *c == '/')
+      name = c + 1;
+  }
+  return name;
+}
+
+static bool WriteOneTimePadFileOutput(const std::vector<uint8_t> &randomBytes,
+                                      GenerationResult &result) {
+  const char *path = g_state.oneTimePadFilePath.data();
+  std::vector<uint8_t> fileData;
+  const Platform::FileStamp selectedStamp{g_state.oneTimePadFileSize,
+                                          g_state.oneTimePadFileLastWriteTime};
+  switch (Platform::ReadWholeFileIfUnchanged(path, selectedStamp, fileData)) {
+  case Platform::FileReadStatus::Ok:
+    break;
+  case Platform::FileReadStatus::Changed:
+    result.errorMessage = ONE_TIME_PAD_FILE_CHANGED_ERROR;
+    return false;
+  case Platform::FileReadStatus::OpenFailed:
+    result.errorMessage = "Failed to open the input file.";
+    return false;
+  case Platform::FileReadStatus::ReadFailed:
+    result.errorMessage = "Failed to read the input file.";
+    return false;
+  }
+
+  const bool encrypted =
+      GenerateOneTimePadFile(randomBytes, fileData, result.oneTimePadKey,
+                             result.oneTimePadCiphertext);
+  Crypto::SecureClearVector(fileData);
+  if (!encrypted) {
+    result.errorMessage = "Not enough random data for the file. Please retry.";
+    return false;
+  }
+
+  result.oneTimePadResultMode = ONE_TIME_PAD_FILE_INPUT;
+  result.oneTimePadFileName = FileNameOfPath(path);
+  return true;
+}
+
 static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
                                   GenerationResult &result) {
   if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
-    result.output = GenerateOneTimePadText(
-        randomBytes, std::string(g_state.oneTimePadMessage.data()));
+    const char *message = g_state.oneTimePadMessage.data();
+    if (!GenerateOneTimePadText(randomBytes, message, strlen(message),
+                                result.oneTimePadKey,
+                                result.oneTimePadCiphertext,
+                                result.errorMessage))
+      return false;
+    result.oneTimePadResultMode = ONE_TIME_PAD_TEXT_INPUT;
     return true;
   }
 
   if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
-    result.output =
-        GenerateOneTimePadKey(randomBytes, g_state.oneTimePadMessageLength);
+    if (!GenerateOneTimePadKey(
+            randomBytes,
+            static_cast<size_t>(g_state.oneTimePadMessageLength),
+            result.output)) {
+      result.errorMessage = "Insufficient entropy (rejection sampling "
+                            "exhausted). Please retry.";
+      return false;
+    }
     return true;
   }
 
-  std::ifstream file(g_state.oneTimePadFilePath.data(), std::ios::binary);
-  if (!file.is_open()) {
-    result.errorMessage = "Failed to open input file";
-    return false;
-  }
-
-  std::vector<uint8_t> fileData((std::istreambuf_iterator<char>(file)),
-                                std::istreambuf_iterator<char>());
-  file.close();
-
-  std::vector<uint8_t> encrypted = GenerateOneTimePadFile(randomBytes, fileData);
-
-  std::ostringstream hexStream;
-  for (uint8_t byte : encrypted) {
-    hexStream << std::hex << std::setw(2) << std::setfill('0')
-              << static_cast<int>(byte);
-  }
-  std::string hexText = hexStream.str();
-  result.output = std::vector<char>(hexText.begin(), hexText.end());
-  SecureZeroMemory(hexText.data(), hexText.size());
-
-  SecureZeroMemory(fileData.data(), fileData.size());
-  SecureZeroMemory(encrypted.data(), encrypted.size());
-  return true;
+  return WriteOneTimePadFileOutput(randomBytes, result);
 }
 
 static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
@@ -259,6 +287,7 @@ GenerationResult GenerateOutput(GenerationMode mode) {
   result.mode = mode;
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
+  result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
 
   std::vector<Entropy::EntropyDataPoint> pooledData =
       g_state.entropyPool.GetPooledData();
@@ -309,6 +338,9 @@ GenerationResult GenerateOutput(GenerationMode mode) {
     Crypto::SecureClearVector(itemBytes);
     Crypto::SecureClearVector(pooledData);
     Crypto::SecureClearVector(result.output);
+    Crypto::SecureClearVector(result.oneTimePadKey);
+    Crypto::SecureClearVector(result.oneTimePadCiphertext);
+    result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
   };
   try {
     randomBytes = GenerateRandomBytes(pooledData, bytesNeeded);
@@ -324,8 +356,10 @@ GenerationResult GenerateOutput(GenerationMode mode) {
       return result;
     }
 
-    ReserveWithoutLeavingCopies(result.output, 1);
-    result.output.push_back('\0');
+    if (result.oneTimePadResultMode == ONE_TIME_PAD_NO_RESULT) {
+      ReserveWithoutLeavingCopies(result.output, 1);
+      result.output.push_back('\0');
+    }
 
     result.entropyConsumed = static_cast<float>(randomBytes.size()) * 8.0f;
     if (mode == GenerationMode::Consolidation) {

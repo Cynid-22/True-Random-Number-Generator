@@ -3,14 +3,17 @@
 #include "../logging/logger.h"
 #include "../logic/logic.h"
 #include "widgets.h"
+#include "../platform/unicode_path.h"
 #include "output/generation_task.h"
+#include "output/one_time_pad_result.h"
 #include "output/output_types.h"
 #include "imgui.h"
 #include <cstdio>
+#include <cwchar>
 #include <set>
+#include <sstream>
 #include <windows.h>
 #include <commdlg.h>
-#include <fstream>
 
 void SetupNativeStyle() {
   ImGuiStyle &style = ImGui::GetStyle();
@@ -98,58 +101,72 @@ void SetupNativeStyle() {
   colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.10f, 0.10f, 0.10f, 0.50f);
 }
 
-static bool ShowSaveFileDialog(char *filePath, const char *filter) {
-  OPENFILENAMEA dialog;
+static constexpr DWORD SAVE_PATH_MAX_CHARS = 1024;
+
+static bool ShowSaveFileDialog(wchar_t *filePath, const wchar_t *filter,
+                               const wchar_t *defaultExtension) {
+  OPENFILENAMEW dialog;
   ZeroMemory(&dialog, sizeof(dialog));
   dialog.lStructSize = sizeof(dialog);
   dialog.lpstrFilter = filter;
   dialog.lpstrFile = filePath;
-  dialog.nMaxFile = MAX_PATH;
+  dialog.nMaxFile = SAVE_PATH_MAX_CHARS;
   dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT;
-  dialog.lpstrDefExt = "txt";
-  return GetSaveFileNameA(&dialog);
+  dialog.lpstrDefExt = defaultExtension;
+  return GetSaveFileNameW(&dialog);
 }
 
-static void ExportSettings() {
-  char filePath[MAX_PATH] = "trng_settings.txt";
-  if (!ShowSaveFileDialog(filePath, "Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0"))
+void ExportWithSaveDialog(const std::wstring &defaultName,
+                          const wchar_t *filter,
+                          const wchar_t *defaultExtension, const char *data,
+                          size_t size, const char *exportName) {
+  wchar_t filePath[SAVE_PATH_MAX_CHARS] = {0};
+  wcsncpy(filePath, defaultName.c_str(), SAVE_PATH_MAX_CHARS - 1);
+  if (!ShowSaveFileDialog(filePath, filter, defaultExtension))
     return;
 
-  std::ofstream out(filePath);
-  if (out.is_open()) {
-    out << "TRNG Configuration Export" << std::endl;
-    out << "--------------------------" << std::endl;
-    out << "Microphone: " << (g_state.microphoneEnabled ? "ON" : "OFF") << std::endl;
-    out << "Keystroke: " << (g_state.keystrokeEnabled ? "ON" : "OFF") << std::endl;
-    out << "Clock Drift: " << (g_state.clockDriftEnabled ? "ON" : "OFF") << std::endl;
-    out << "CPU Jitter: " << (g_state.cpuJitterEnabled ? "ON" : "OFF") << std::endl;
-    out << "Mouse Movement: " << (g_state.mouseMovementEnabled ? "ON" : "OFF") << std::endl;
-    out << "Target Bits: " << g_state.targetEntropyBits << std::endl;
-    out << "Output Format: " << g_state.outputFormat << std::endl;
-    out.close();
-    Logger::Log(Logger::Level::INFO, "GUI", "Settings exported to %s", filePath);
+  std::string logPath = Platform::WideToUtf8(filePath);
+  if (Platform::WriteWholeFile(filePath, data, size)) {
+    Logger::Log(Logger::Level::INFO, "GUI", "%s exported to %s", exportName,
+                logPath.c_str());
+  } else {
+    Logger::Log(Logger::Level::ERR, "GUI",
+                "Failed to export %s to %s. Error code: %lu", exportName,
+                logPath.c_str(), GetLastError());
   }
 }
 
+static void ExportSettings() {
+  std::ostringstream out;
+  out << "TRNG Configuration Export" << std::endl;
+  out << "--------------------------" << std::endl;
+  out << "Microphone: " << (g_state.microphoneEnabled ? "ON" : "OFF") << std::endl;
+  out << "Keystroke: " << (g_state.keystrokeEnabled ? "ON" : "OFF") << std::endl;
+  out << "Clock Drift: " << (g_state.clockDriftEnabled ? "ON" : "OFF") << std::endl;
+  out << "CPU Jitter: " << (g_state.cpuJitterEnabled ? "ON" : "OFF") << std::endl;
+  out << "Mouse Movement: " << (g_state.mouseMovementEnabled ? "ON" : "OFF") << std::endl;
+  out << "Target Bits: " << g_state.targetEntropyBits << std::endl;
+  out << "Output Format: " << g_state.outputFormat << std::endl;
+  const std::string text = out.str();
+  ExportWithSaveDialog(L"trng_settings.txt", TEXT_FILE_FILTER, L"txt",
+                       text.data(), text.size(), "Settings");
+}
+
 static void ExportOutput() {
+  if (g_state.hasOneTimePadResult()) {
+    ExportOneTimePadKeyAndCiphertext();
+    return;
+  }
   if (g_state.generatedOutput.empty()) {
     return;
   }
 
-  char filePath[MAX_PATH] = "output.txt";
-  if (!ShowSaveFileDialog(filePath, "Text Files (*.txt)\0*.txt\0Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0"))
-    return;
-
-  std::ofstream out(filePath, std::ios::binary);
-  if (out.is_open()) {
-    size_t size = g_state.generatedOutput.size();
-    if (size > 0 && g_state.generatedOutput.back() == '\0') {
-      size--;
-    }
-    out.write(g_state.generatedOutput.data(), size);
-    out.close();
-    Logger::Log(Logger::Level::INFO, "GUI", "Output exported to %s", filePath);
+  size_t size = g_state.generatedOutput.size();
+  if (size > 0 && g_state.generatedOutput.back() == '\0') {
+    size--;
   }
+  ExportWithSaveDialog(L"output.txt", OUTPUT_FILE_FILTER, L"txt",
+                       g_state.generatedOutput.data(), size, "Output");
 }
 
 static void ResetSettings() {
@@ -166,8 +183,11 @@ static void ResetSettings() {
 }
 
 void RenderMenuBar() {
-  if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_S)) {
+  static ULONGLONG s_shortcutExportEndTick = 0;
+  if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) &&
+      GetTickCount64() - s_shortcutExportEndTick >= 500) {
     ExportOutput();
+    s_shortcutExportEndTick = GetTickCount64();
   }
 
   if (ImGui::BeginMenuBar()) {

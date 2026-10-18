@@ -53,7 +53,11 @@ Pick a category, then a type within it:
   - UUID v4 (RFC 9562, batch count, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
-  - One-Time Pad (text encryption of letters, numbers and spaces; a pad of a given message length; or file encryption)
+  - One-Time Pad (Vernam cipher)
+    - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
+    - Message Length: a pad (key) of a given number of characters, without typing the message
+    - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
+    - Export Output (Ctrl+S) saves the key and the ciphertext together in one .txt file (hex for files). Save the key: without it the ciphertext can't be decrypted
 
 Every type except One-Time Pad can generate many items at once (**Quantity**), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...).
 
@@ -109,7 +113,8 @@ TRNG/
 │   ├── logging/              # Logger
 │   └── platform/
 │       ├── dx11.h            # DirectX declarations
-│       └── dx11.cpp          # DirectX implementation
+│       ├── dx11.cpp          # DirectX implementation
+│       └── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
 ├── assets/
 │   └── default_wordlist.txt  # Passphrase dictionary
 ├── external/

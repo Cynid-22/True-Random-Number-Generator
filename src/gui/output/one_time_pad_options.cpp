@@ -6,48 +6,68 @@
 #include "../../logging/logger.h"
 #include "../../logic/formats/one_time_pad_format.h"
 #include "../../logic/logic.h"
+#include "../../platform/unicode_path.h"
 #include "../widgets.h"
 #include "imgui.h"
 #include <algorithm>
 #include <cstring>
+#include <string>
+
+static void ClearSelectedOneTimePadFile() {
+  SecureZeroMemory(g_state.oneTimePadFilePath.data(),
+                   g_state.oneTimePadFilePath.size());
+  g_state.oneTimePadFileSize = 0;
+  g_state.oneTimePadFileLastWriteTime = 0;
+}
 
 static void BrowseForOneTimePadFile() {
-  OPENFILENAMEA dialog;
-  char selectedPath[512] = {0};
+  OPENFILENAMEW dialog;
+  wchar_t selectedPath[AppConfig::ONE_TIME_PAD_FILE_PATH_MAX_CHARS] = {0};
   ZeroMemory(&dialog, sizeof(dialog));
   dialog.lStructSize = sizeof(dialog);
   dialog.lpstrFile = selectedPath;
-  dialog.nMaxFile = sizeof(selectedPath);
-  dialog.lpstrFilter = "All Files\0*.*\0";
+  dialog.nMaxFile = AppConfig::ONE_TIME_PAD_FILE_PATH_MAX_CHARS;
+  dialog.lpstrFilter = L"All Files\0*.*\0";
   dialog.nFilterIndex = 1;
   dialog.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
-  if (GetOpenFileNameA(&dialog) == TRUE) {
-    strncpy(g_state.oneTimePadFilePath.data(), dialog.lpstrFile,
-            g_state.oneTimePadFilePath.size() - 1);
-    g_state.oneTimePadFilePath[g_state.oneTimePadFilePath.size() - 1] = '\0';
-
-    HANDLE fileHandle = CreateFileA(
-        g_state.oneTimePadFilePath.data(), GENERIC_READ, FILE_SHARE_READ,
-        NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (fileHandle != INVALID_HANDLE_VALUE) {
-      LARGE_INTEGER fileSize;
-      if (GetFileSizeEx(fileHandle, &fileSize)) {
-        g_state.oneTimePadFileSize = fileSize.QuadPart;
-        Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [OTP]: File loaded successfully. "
-                    "Size: %lld bytes",
-                    g_state.oneTimePadFileSize);
-      }
-      CloseHandle(fileHandle);
-    } else {
-      Logger::Log(
-          Logger::Level::ERR, "GUI",
-          "Output Config [OTP]: Failed to load file. Error code: %d",
-          GetLastError());
+  if (GetOpenFileNameW(&dialog) != TRUE) {
+    DWORD dialogError = CommDlgExtendedError();
+    if (dialogError != 0) {
+      Logger::Log(Logger::Level::ERR, "GUI",
+                  "Output Config [OTP]: File dialog failed. Error code: %lu",
+                  dialogError);
+      ClearSelectedOneTimePadFile();
+      UpdateTargetEntropy();
     }
-    UpdateTargetEntropy();
+    return;
   }
+
+  std::string utf8Path = Platform::WideToUtf8(selectedPath);
+  Platform::FileStamp stamp;
+  ClearSelectedOneTimePadFile();
+  if (utf8Path.empty() || utf8Path.size() >= g_state.oneTimePadFilePath.size()) {
+    Logger::Log(Logger::Level::ERR, "GUI",
+                "Output Config [OTP]: Failed to load file. The path could not "
+                "be converted.");
+  } else {
+    memcpy(g_state.oneTimePadFilePath.data(), utf8Path.c_str(),
+           utf8Path.size() + 1);
+    if (Platform::FileStampOf(g_state.oneTimePadFilePath.data(), stamp)) {
+      g_state.oneTimePadFileSize = stamp.size;
+      g_state.oneTimePadFileLastWriteTime = stamp.lastWriteTime;
+      Logger::Log(Logger::Level::INFO, "GUI",
+                  "Output Config [OTP]: File loaded successfully. "
+                  "Size: %lld bytes",
+                  g_state.oneTimePadFileSize);
+    } else {
+      Logger::Log(Logger::Level::ERR, "GUI",
+                  "Output Config [OTP]: Failed to load file. Error code: %lu",
+                  GetLastError());
+      ClearSelectedOneTimePadFile();
+    }
+  }
+  UpdateTargetEntropy();
 }
 
 static void SelectOneTimePadInputMode(int inputMode, const char *tabName) {
@@ -121,6 +141,8 @@ static void RenderFileInputTab() {
     ImGui::Spacing();
 
     ImGui::Text("File to process:");
+    ImGui::TextColored(UiColor::DimText,
+                       "File names in any language are supported.");
     ImGui::SetNextItemWidth(-1);
     ImGui::InputText("##OTPFilePath", g_state.oneTimePadFilePath.data(),
                      g_state.oneTimePadFilePath.size(),

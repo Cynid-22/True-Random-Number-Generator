@@ -39,6 +39,7 @@ static std::string FormatElapsedTime(long long totalMilliseconds) {
 
 void ShowOutputText(const std::string &text) {
   Crypto::SecureClearVector(g_state.generatedOutput);
+  g_state.wipeOneTimePadResult();
   g_state.generatedOutput = std::vector<char>(text.begin(), text.end());
   g_state.generatedOutput.push_back('\0');
   g_state.generatedAtText = "";
@@ -82,7 +83,17 @@ void CollectFinishedGeneration() {
 
   if (s_finishedResult.success) {
     Crypto::SecureClearVector(g_state.generatedOutput);
-    g_state.generatedOutput = std::move(s_finishedResult.output);
+    g_state.wipeOneTimePadResult();
+    if (s_finishedResult.oneTimePadResultMode != ONE_TIME_PAD_NO_RESULT) {
+      g_state.oneTimePadResultMode = s_finishedResult.oneTimePadResultMode;
+      g_state.oneTimePadKey = std::move(s_finishedResult.oneTimePadKey);
+      g_state.oneTimePadCiphertext =
+          std::move(s_finishedResult.oneTimePadCiphertext);
+      g_state.oneTimePadResultFileName =
+          std::move(s_finishedResult.oneTimePadFileName);
+    } else {
+      g_state.generatedOutput = std::move(s_finishedResult.output);
+    }
 
     char generatedAt[64];
     strftime(generatedAt, sizeof(generatedAt), "%Y-%m-%d %H:%M:%S (UTC%z)",

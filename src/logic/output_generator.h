@@ -18,6 +18,11 @@ struct GenerationResult {
     GenerationMode mode;
     float entropyConsumed;
     size_t rawBytesGenerated;
+
+    int oneTimePadResultMode;
+    std::vector<char> oneTimePadKey;
+    std::vector<char> oneTimePadCiphertext;
+    std::string oneTimePadFileName;
 };
 
 GenerationResult GenerateOutput(GenerationMode mode);

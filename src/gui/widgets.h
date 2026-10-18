@@ -21,3 +21,6 @@ void InlineDivider();
 void HelpMarker(const char *text);
 
 const char *CurrentSpinnerFrame();
+
+void RenderTruncatableText(const char *text, size_t length,
+                           bool truncateLongText);
