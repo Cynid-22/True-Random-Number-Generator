@@ -95,6 +95,7 @@ struct AppState {
 
     std::vector<char> generatedOutput;
     std::string generatedAtText = "";
+    std::string generationTimeText = "";
 
     std::vector<std::string> cachedWordList;
 

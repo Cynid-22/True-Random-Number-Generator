@@ -139,6 +139,7 @@ static void RenderCopyAndClearButtons() {
   if (ImGui::Button("Clear", ImVec2(80, 0))) {
     Crypto::SecureClearVector(g_state.generatedOutput);
     g_state.generatedAtText = "";
+    g_state.generationTimeText = "";
 
     // Zero in place: ImGui needs the buffer size
     SecureZeroMemory(g_state.oneTimePadMessage.data(),
@@ -146,6 +147,12 @@ static void RenderCopyAndClearButtons() {
   }
   if (!hasOutput)
     ImGui::EndDisabled();
+
+  if (!g_state.generationTimeText.empty()) {
+    ImGui::SameLine();
+    ImGui::TextColored(UiColor::DimText, "Took %s",
+                       g_state.generationTimeText.c_str());
+  }
 }
 
 static void RenderOutputFooter() {
