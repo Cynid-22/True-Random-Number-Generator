@@ -1,12 +1,11 @@
 #include "aes.h"
+#include <algorithm>
 #include <cstring>
-#include <windows.h> // For SecureZeroMemory
+#include <windows.h>
 
 namespace Crypto {
 
-// S-box transformation table
-static const uint8_t sbox[256] = {
-    // 0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F
+static const uint8_t SBOX[256] = {
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
     0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
@@ -25,199 +24,163 @@ static const uint8_t sbox[256] = {
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 };
 
-// Round constant word array
-static const uint8_t rcon[15] = {
-    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a // Extended range
+static const uint8_t ROUND_CONSTANTS[15] = {
+    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a
 };
 
-// RotWord: Rotate a 4-byte word
-static inline uint32_t RotWord(uint32_t word) {
+static inline uint32_t RotateWord(uint32_t word) {
     return (word << 8) | (word >> 24);
 }
 
-// SubWord: Apply S-box to 4-byte word
-static inline uint32_t SubWord(uint32_t word) {
+static inline uint32_t SubstituteWord(uint32_t word) {
     uint32_t result = 0;
-    result |= (uint32_t)sbox[(word >> 24) & 0xFF] << 24;
-    result |= (uint32_t)sbox[(word >> 16) & 0xFF] << 16;
-    result |= (uint32_t)sbox[(word >> 8) & 0xFF] << 8;
-    result |= (uint32_t)sbox[word & 0xFF];
+    result |= (uint32_t)SBOX[(word >> 24) & 0xFF] << 24;
+    result |= (uint32_t)SBOX[(word >> 16) & 0xFF] << 16;
+    result |= (uint32_t)SBOX[(word >> 8) & 0xFF] << 8;
+    result |= (uint32_t)SBOX[word & 0xFF];
     return result;
 }
 
 void AES256::SubBytes(uint8_t* state) {
     for (int i = 0; i < 16; i++) {
-        state[i] = sbox[state[i]];
+        state[i] = SBOX[state[i]];
     }
 }
 
 void AES256::ShiftRows(uint8_t* state) {
-    uint8_t tmp;
-    
-    // Row 1: Shift left by 1
-    tmp = state[1];
+    uint8_t temp;
+
+    temp = state[1];
     state[1] = state[5];
     state[5] = state[9];
     state[9] = state[13];
-    state[13] = tmp;
-    
-    // Row 2: Shift left by 2
-    tmp = state[2];
+    state[13] = temp;
+
+    temp = state[2];
     state[2] = state[10];
-    state[10] = tmp;
-    tmp = state[6];
+    state[10] = temp;
+    temp = state[6];
     state[6] = state[14];
-    state[14] = tmp;
-    
-    // Row 3: Shift left by 3
-    tmp = state[15];
+    state[14] = temp;
+
+    temp = state[15];
     state[15] = state[11];
     state[11] = state[7];
     state[7] = state[3];
-    state[3] = tmp;
+    state[3] = temp;
 }
 
-// GF(2^8) Multiplication by 2
-static inline uint8_t xtime(uint8_t x) {
+static inline uint8_t MultiplyByTwo(uint8_t x) {
     return (x << 1) ^ ((x >> 7) * 0x1b);
 }
 
-// FIPS 197 §5.1.3 — MixColumns
-// State uses linear byte layout: state[i*4 + j] where i=column, j=row.
-// VERIFY: Run FIPS 197 Appendix B (AES-128) and Appendix C.3 (AES-256) test vectors
-// to confirm correctness of column ordering.
 void AES256::MixColumns(uint8_t* state) {
-    uint8_t tmp[16];
-    for (int i = 0; i < 4; i++) {
-        int idx = i * 4;
-        uint8_t a = state[idx];
-        uint8_t b = state[idx+1];
-        uint8_t c = state[idx+2];
-        uint8_t d = state[idx+3];
-        
-        // FIPS 197 MixColumns formula:
-        // s'[0] = 2*a + 3*b + c + d
-        // s'[1] = a + 2*b + 3*c + d
-        // s'[2] = a + b + 2*c + 3*d
-        // s'[3] = 3*a + b + c + 2*d
-        // Note: 3*x = xtime(x) ^ x
-        tmp[idx]   = xtime(a) ^ (xtime(b) ^ b) ^ c ^ d;
-        tmp[idx+1] = a ^ xtime(b) ^ (xtime(c) ^ c) ^ d;
-        tmp[idx+2] = a ^ b ^ xtime(c) ^ (xtime(d) ^ d);
-        tmp[idx+3] = (xtime(a) ^ a) ^ b ^ c ^ xtime(d);
+    uint8_t mixed[16];
+    for (int column = 0; column < 4; column++) {
+        int offset = column * 4;
+        uint8_t a = state[offset];
+        uint8_t b = state[offset + 1];
+        uint8_t c = state[offset + 2];
+        uint8_t d = state[offset + 3];
+
+        mixed[offset]     = MultiplyByTwo(a) ^ (MultiplyByTwo(b) ^ b) ^ c ^ d;
+        mixed[offset + 1] = a ^ MultiplyByTwo(b) ^ (MultiplyByTwo(c) ^ c) ^ d;
+        mixed[offset + 2] = a ^ b ^ MultiplyByTwo(c) ^ (MultiplyByTwo(d) ^ d);
+        mixed[offset + 3] = (MultiplyByTwo(a) ^ a) ^ b ^ c ^ MultiplyByTwo(d);
     }
-    memcpy(state, tmp, 16);
+    memcpy(state, mixed, 16);
 }
 
 void AES256::AddRoundKey(uint8_t* state, const uint32_t* roundKeys, int round) {
-    const uint8_t* rk = reinterpret_cast<const uint8_t*>(roundKeys + round * 4);
     for (int i = 0; i < 16; i++) {
-        // Round keys are generated as big-endian words, but system is likely little-endian.
-        // However, standard AES implementations usually treat state and keys as bytes.
-        // Let's rely on KeyExpansion to put bytes in correct order if we access as bytes,
-        // OR fix endianness here.
-        // FIPS 197 defines key expansion producing words.
-        // Let's access roundKeys via byte pointer assuming host endianness matches word construction.
-        // Actually, safer to extract bytes from the uint32_t words manually.
-        
-        int wordIdx = i / 4;
-        int byteIdx = 3 - (i % 4); // Big-endian word to byte
-        uint32_t word = roundKeys[round * 4 + wordIdx];
-        uint8_t k = (word >> (byteIdx * 8)) & 0xFF;
-        
-        state[i] ^= k;
+        int wordIndex = i / 4;
+        int byteShift = 3 - (i % 4);
+        uint32_t keyWord = roundKeys[round * 4 + wordIndex];
+        uint8_t keyByte = (keyWord >> (byteShift * 8)) & 0xFF;
+
+        state[i] ^= keyByte;
     }
 }
 
-void AES256::KeyExpansion(const uint8_t* key, uint32_t* roundKeys) {
-    // Nk=8 (256 bits), Nb=4 (128 bits), Nr=14
-    const int Nk = 8;
-    const int Nb = 4;
-    const int Nr = 14;
-    
-    // The first Nk words are the key itself
-    for (int i = 0; i < Nk; i++) {
+void AES256::ExpandKey(const uint8_t* key, uint32_t* roundKeys) {
+    const int KEY_WORDS = 8;
+    const int BLOCK_WORDS = 4;
+    const int ROUND_COUNT = 14;
+
+    for (int i = 0; i < KEY_WORDS; i++) {
         roundKeys[i] = (key[4*i] << 24) | (key[4*i+1] << 16) | (key[4*i+2] << 8) | key[4*i+3];
     }
-    
-    for (int i = Nk; i < Nb * (Nr + 1); i++) {
+
+    for (int i = KEY_WORDS; i < BLOCK_WORDS * (ROUND_COUNT + 1); i++) {
         uint32_t temp = roundKeys[i - 1];
-        if (i % Nk == 0) {
-            temp = SubWord(RotWord(temp)) ^ (static_cast<uint32_t>(rcon[(i/Nk)-1]) << 24);
-        } else if (i % Nk == 4) {
-            temp = SubWord(temp);
+        if (i % KEY_WORDS == 0) {
+            temp = SubstituteWord(RotateWord(temp)) ^ (static_cast<uint32_t>(ROUND_CONSTANTS[(i/KEY_WORDS)-1]) << 24);
+        } else if (i % KEY_WORDS == 4) {
+            temp = SubstituteWord(temp);
         }
-        roundKeys[i] = roundKeys[i - Nk] ^ temp;
+        roundKeys[i] = roundKeys[i - KEY_WORDS] ^ temp;
     }
 }
 
-void AES256::EncryptBlock(const uint8_t* in, uint8_t* out, const uint32_t* roundKeys) {
+void AES256::EncryptBlock(const uint8_t* input, uint8_t* output, const uint32_t* roundKeys) {
     uint8_t state[16];
-    // Copy input to state (column major order according to spec, but usually 1:1 mapping for array)
-    // FIPS 197: "State array... input bytes in0, in1... map to s00, s10, s20, s30..."
-    // which corresponds to state[0], state[1]... so direct copy is fine.
-    memcpy(state, in, 16);
-    
+    memcpy(state, input, 16);
+
     AddRoundKey(state, roundKeys, 0);
-    
+
     for (int round = 1; round < 14; round++) {
         SubBytes(state);
         ShiftRows(state);
         MixColumns(state);
         AddRoundKey(state, roundKeys, round);
     }
-    
+
     SubBytes(state);
     ShiftRows(state);
     AddRoundKey(state, roundKeys, 14);
-    
-    memcpy(out, state, 16);
+
+    memcpy(output, state, 16);
 }
 
 std::vector<uint8_t> AES256::EncryptCTR(
     const std::vector<uint8_t>& key,
     const std::vector<uint8_t>& iv,
     const std::vector<uint8_t>& input) {
-    
+
     if (key.size() != 32 || iv.size() != 16) {
-        return {}; // Error
+        return {};
     }
-    
-    // Key Expansion (60 words for 14 rounds + 1)
+
     uint32_t roundKeys[60];
-    KeyExpansion(key.data(), roundKeys);
-    
+    ExpandKey(key.data(), roundKeys);
+
     std::vector<uint8_t> output(input.size());
-    uint8_t counterBuf[16];
+    uint8_t counterBlock[16];
     uint8_t keystream[16];
-    memcpy(counterBuf, iv.data(), 16);
-    
-    size_t numBlocks = (input.size() + 15) / 16;
-    
-    for (size_t b = 0; b < numBlocks; b++) {
-        // Encrypt counter
-        EncryptBlock(counterBuf, keystream, roundKeys);
-        
-        // XOR with input
-        size_t blockOffset = b * 16;
-        size_t bytesToProc = std::min((size_t)16, input.size() - blockOffset);
-        
-        for (size_t i = 0; i < bytesToProc; i++) {
+    memcpy(counterBlock, iv.data(), 16);
+
+    size_t blockCount = (input.size() + 15) / 16;
+
+    for (size_t blockIndex = 0; blockIndex < blockCount; blockIndex++) {
+        EncryptBlock(counterBlock, keystream, roundKeys);
+
+        size_t blockOffset = blockIndex * 16;
+        size_t bytesInBlock = std::min((size_t)16, input.size() - blockOffset);
+
+        for (size_t i = 0; i < bytesInBlock; i++) {
             output[blockOffset + i] = input[blockOffset + i] ^ keystream[i];
         }
-        
-        // Increment counter (big-endian 128-bit integer)
+
         for (int i = 15; i >= 0; i--) {
-            if (++counterBuf[i] != 0) break;
+            if (++counterBlock[i] != 0) break;
         }
     }
-    
-    // Secure cleanup
+
     SecureZeroMemory(roundKeys, sizeof(roundKeys));
     SecureZeroMemory(keystream, sizeof(keystream));
-    SecureZeroMemory(counterBuf, sizeof(counterBuf));
-    
+    SecureZeroMemory(counterBlock, sizeof(counterBlock));
+
     return output;
 }
 
-} // namespace Crypto
+}

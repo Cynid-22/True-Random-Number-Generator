@@ -1,11 +1,10 @@
 #include "sha512.h"
 #include <cstring>
-#include <windows.h> // For SecureZeroMemory
+#include <windows.h>
 
 namespace Crypto {
 
-// SHA-512 round constants K[0..79] - cube roots of first 80 primes
-const uint64_t SHA512::K[80] = {
+const uint64_t SHA512::ROUND_CONSTANTS[80] = {
     0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL, 0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
     0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL, 0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
     0xd807aa98a3030242ULL, 0x12835b0145706fbeULL, 0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
@@ -28,101 +27,87 @@ const uint64_t SHA512::K[80] = {
     0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL, 0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL
 };
 
-// Initial hash values H0[0..7] - square roots of first 8 primes
-const uint64_t SHA512::H0[8] = {
+const uint64_t SHA512::INITIAL_STATE[8] = {
     0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
     0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL
 };
 
 void SHA512::Compress(uint64_t state[8], const uint8_t block[BLOCK_SIZE]) {
-    uint64_t W[80];
-    
-    // Prepare message schedule W[0..79]
+    uint64_t schedule[80];
+
     for (int t = 0; t < 16; t++) {
-        W[t] = ((uint64_t)block[t * 8 + 0] << 56) |
-               ((uint64_t)block[t * 8 + 1] << 48) |
-               ((uint64_t)block[t * 8 + 2] << 40) |
-               ((uint64_t)block[t * 8 + 3] << 32) |
-               ((uint64_t)block[t * 8 + 4] << 24) |
-               ((uint64_t)block[t * 8 + 5] << 16) |
-               ((uint64_t)block[t * 8 + 6] << 8) |
-               ((uint64_t)block[t * 8 + 7]);
+        schedule[t] = ((uint64_t)block[t * 8 + 0] << 56) |
+                      ((uint64_t)block[t * 8 + 1] << 48) |
+                      ((uint64_t)block[t * 8 + 2] << 40) |
+                      ((uint64_t)block[t * 8 + 3] << 32) |
+                      ((uint64_t)block[t * 8 + 4] << 24) |
+                      ((uint64_t)block[t * 8 + 5] << 16) |
+                      ((uint64_t)block[t * 8 + 6] << 8) |
+                      ((uint64_t)block[t * 8 + 7]);
     }
-    
+
     for (int t = 16; t < 80; t++) {
-        W[t] = sigma1(W[t - 2]) + W[t - 7] + sigma0(W[t - 15]) + W[t - 16];
+        schedule[t] = LowerSigma1(schedule[t - 2]) + schedule[t - 7] + LowerSigma0(schedule[t - 15]) + schedule[t - 16];
     }
-    
-    // Initialize working variables
+
     uint64_t a = state[0], b = state[1], c = state[2], d = state[3];
     uint64_t e = state[4], f = state[5], g = state[6], h = state[7];
-    
-    // 80 rounds
+
     for (int t = 0; t < 80; t++) {
-        uint64_t T1 = h + Sigma1(e) + Ch(e, f, g) + K[t] + W[t];
-        uint64_t T2 = Sigma0(a) + Maj(a, b, c);
+        uint64_t temp1 = h + UpperSigma1(e) + Choose(e, f, g) + ROUND_CONSTANTS[t] + schedule[t];
+        uint64_t temp2 = UpperSigma0(a) + Majority(a, b, c);
         h = g;
         g = f;
         f = e;
-        e = d + T1;
+        e = d + temp1;
         d = c;
         c = b;
         b = a;
-        a = T1 + T2;
+        a = temp1 + temp2;
     }
-    
-    // Add compressed chunk to current hash value
+
     state[0] += a; state[1] += b; state[2] += c; state[3] += d;
     state[4] += e; state[5] += f; state[6] += g; state[7] += h;
-    
-    // Secure cleanup of working variables
-    SecureZeroMemory(W, sizeof(W));
+
+    SecureZeroMemory(schedule, sizeof(schedule));
 }
 
 SHA512::Hash SHA512::Compute(const uint8_t* data, size_t length) {
-    // Initialize state
     uint64_t state[8];
-    memcpy(state, H0, sizeof(state));
-    
-    // Process complete blocks
-    size_t numBlocks = length / BLOCK_SIZE;
-    for (size_t i = 0; i < numBlocks; i++) {
+    memcpy(state, INITIAL_STATE, sizeof(state));
+
+    size_t fullBlockCount = length / BLOCK_SIZE;
+    for (size_t i = 0; i < fullBlockCount; i++) {
         Compress(state, data + i * BLOCK_SIZE);
     }
-    
-    // Prepare final block(s) with padding
+
     size_t remaining = length % BLOCK_SIZE;
-    uint8_t finalBlock[BLOCK_SIZE * 2]; // May need 2 blocks for padding
-    memset(finalBlock, 0, sizeof(finalBlock));
-    memcpy(finalBlock, data + numBlocks * BLOCK_SIZE, remaining);
-    
-    // Append bit '1' (0x80)
-    finalBlock[remaining] = 0x80;
-    
-    // Determine if we need 1 or 2 final blocks
-    size_t padBlocks = 1;
-    if (remaining >= 112) { // Not enough room for length (128 - 16 = 112)
-        padBlocks = 2;
+    uint8_t finalBlocks[BLOCK_SIZE * 2];
+    memset(finalBlocks, 0, sizeof(finalBlocks));
+    memcpy(finalBlocks, data + fullBlockCount * BLOCK_SIZE, remaining);
+
+    finalBlocks[remaining] = 0x80;
+
+    size_t paddingBlockCount = 1;
+    if (remaining >= 112) {
+        paddingBlockCount = 2;
     }
-    
-    // Append length in bits as 128-bit big-endian (we only use lower 64 bits)
+
     uint64_t bitLength = length * 8;
-    size_t lenOffset = padBlocks * BLOCK_SIZE - 8;
-    finalBlock[lenOffset + 0] = (uint8_t)(bitLength >> 56);
-    finalBlock[lenOffset + 1] = (uint8_t)(bitLength >> 48);
-    finalBlock[lenOffset + 2] = (uint8_t)(bitLength >> 40);
-    finalBlock[lenOffset + 3] = (uint8_t)(bitLength >> 32);
-    finalBlock[lenOffset + 4] = (uint8_t)(bitLength >> 24);
-    finalBlock[lenOffset + 5] = (uint8_t)(bitLength >> 16);
-    finalBlock[lenOffset + 6] = (uint8_t)(bitLength >> 8);
-    finalBlock[lenOffset + 7] = (uint8_t)(bitLength);
-    
-    // Process final block(s)
-    for (size_t i = 0; i < padBlocks; i++) {
-        Compress(state, finalBlock + i * BLOCK_SIZE);
+    size_t lengthOffset = paddingBlockCount * BLOCK_SIZE - 8;
+    finalBlocks[lengthOffset + 0] = (uint8_t)(bitLength >> 56);
+    finalBlocks[lengthOffset + 1] = (uint8_t)(bitLength >> 48);
+    finalBlocks[lengthOffset + 2] = (uint8_t)(bitLength >> 40);
+    finalBlocks[lengthOffset + 3] = (uint8_t)(bitLength >> 32);
+    finalBlocks[lengthOffset + 4] = (uint8_t)(bitLength >> 24);
+    finalBlocks[lengthOffset + 5] = (uint8_t)(bitLength >> 16);
+    finalBlocks[lengthOffset + 6] = (uint8_t)(bitLength >> 8);
+    finalBlocks[lengthOffset + 7] = (uint8_t)(bitLength);
+
+    for (size_t i = 0; i < paddingBlockCount; i++) {
+        Compress(state, finalBlocks + i * BLOCK_SIZE);
     }
-    
-    // Produce hash output (big-endian)
+
     Hash hash;
     for (int i = 0; i < 8; i++) {
         hash[i * 8 + 0] = (uint8_t)(state[i] >> 56);
@@ -134,11 +119,10 @@ SHA512::Hash SHA512::Compute(const uint8_t* data, size_t length) {
         hash[i * 8 + 6] = (uint8_t)(state[i] >> 8);
         hash[i * 8 + 7] = (uint8_t)(state[i]);
     }
-    
-    // Secure cleanup
+
     SecureZeroMemory(state, sizeof(state));
-    SecureZeroMemory(finalBlock, sizeof(finalBlock));
-    
+    SecureZeroMemory(finalBlocks, sizeof(finalBlocks));
+
     return hash;
 }
 
@@ -146,47 +130,42 @@ SHA512::Hash SHA512::Compute(const std::vector<uint8_t>& data) {
     return Compute(data.data(), data.size());
 }
 
-SHA512::Hash SHA512::HMAC(const uint8_t* key, size_t keyLen,
-                          const uint8_t* data, size_t dataLen) {
+SHA512::Hash SHA512::HMAC(const uint8_t* key, size_t keyLength,
+                          const uint8_t* data, size_t dataLength) {
     uint8_t keyBlock[BLOCK_SIZE];
     memset(keyBlock, 0, sizeof(keyBlock));
-    
-    // If key > block size, hash it first
-    if (keyLen > BLOCK_SIZE) {
-        Hash keyHash = Compute(key, keyLen);
+
+    if (keyLength > BLOCK_SIZE) {
+        Hash keyHash = Compute(key, keyLength);
         memcpy(keyBlock, keyHash.data(), HASH_SIZE);
     } else {
-        memcpy(keyBlock, key, keyLen);
+        memcpy(keyBlock, key, keyLength);
     }
-    
-    // Create inner and outer padded keys
-    uint8_t ipad[BLOCK_SIZE];
-    uint8_t opad[BLOCK_SIZE];
+
+    uint8_t innerPad[BLOCK_SIZE];
+    uint8_t outerPad[BLOCK_SIZE];
     for (size_t i = 0; i < BLOCK_SIZE; i++) {
-        ipad[i] = keyBlock[i] ^ 0x36;
-        opad[i] = keyBlock[i] ^ 0x5c;
+        innerPad[i] = keyBlock[i] ^ 0x36;
+        outerPad[i] = keyBlock[i] ^ 0x5c;
     }
-    
-    // Inner hash: H(ipad || data)
-    std::vector<uint8_t> innerData(BLOCK_SIZE + dataLen);
-    memcpy(innerData.data(), ipad, BLOCK_SIZE);
-    memcpy(innerData.data() + BLOCK_SIZE, data, dataLen);
-    Hash innerHash = Compute(innerData.data(), innerData.size());
-    
-    // Outer hash: H(opad || innerHash)
-    std::vector<uint8_t> outerData(BLOCK_SIZE + HASH_SIZE);
-    memcpy(outerData.data(), opad, BLOCK_SIZE);
-    memcpy(outerData.data() + BLOCK_SIZE, innerHash.data(), HASH_SIZE);
-    Hash result = Compute(outerData.data(), outerData.size());
-    
-    // Secure cleanup
+
+    std::vector<uint8_t> innerInput(BLOCK_SIZE + dataLength);
+    memcpy(innerInput.data(), innerPad, BLOCK_SIZE);
+    memcpy(innerInput.data() + BLOCK_SIZE, data, dataLength);
+    Hash innerHash = Compute(innerInput.data(), innerInput.size());
+
+    std::vector<uint8_t> outerInput(BLOCK_SIZE + HASH_SIZE);
+    memcpy(outerInput.data(), outerPad, BLOCK_SIZE);
+    memcpy(outerInput.data() + BLOCK_SIZE, innerHash.data(), HASH_SIZE);
+    Hash result = Compute(outerInput.data(), outerInput.size());
+
     SecureZeroMemory(keyBlock, sizeof(keyBlock));
-    SecureZeroMemory(ipad, sizeof(ipad));
-    SecureZeroMemory(opad, sizeof(opad));
-    SecureZeroMemory(innerData.data(), innerData.size());
-    SecureZeroMemory(outerData.data(), outerData.size());
+    SecureZeroMemory(innerPad, sizeof(innerPad));
+    SecureZeroMemory(outerPad, sizeof(outerPad));
+    SecureZeroMemory(innerInput.data(), innerInput.size());
+    SecureZeroMemory(outerInput.data(), outerInput.size());
     SecureZeroMemory(innerHash.data(), innerHash.size());
-    
+
     return result;
 }
 
@@ -195,4 +174,4 @@ SHA512::Hash SHA512::HMAC(const std::vector<uint8_t>& key,
     return HMAC(key.data(), key.size(), data.data(), data.size());
 }
 
-} // namespace Crypto
+}

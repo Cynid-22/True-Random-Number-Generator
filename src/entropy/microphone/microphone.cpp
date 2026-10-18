@@ -1,23 +1,14 @@
 #include "microphone.h"
 #include "../../logging/logger.h"
-#include <iostream>
 #include <cmath>
 #include <vector>
 #include "../../crypto/secure_mem.h"
 
-// Link against required libraries
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "mmdevapi.lib")
 
-// GUID for CLSID_MMDeviceEnumerator causing issues with some MinGW setups
-// Defining it manually if needed, but usually available in uuid.lib or predefined
-// const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
-// const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
-// const IID IID_IAudioClient = __uuidof(IAudioClient);
-// const IID IID_IAudioCaptureClient = __uuidof(IAudioCaptureClient);
-
-// Fix for MinGW missing GUID
-static const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID = 
+// Not provided by MinGW
+static const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID =
 { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 
 namespace Entropy {
@@ -31,25 +22,25 @@ MicrophoneCollector::~MicrophoneCollector() {
 
 void MicrophoneCollector::Start() {
     if (m_running.exchange(true)) {
-        return; // Already running
+        return;
     }
 
     Logger::Log(Logger::Level::INFO, "Microphone", "Starting audio capture thread...");
-    m_captureThread = std::thread(&MicrophoneCollector::CaptureThread, this);
+    m_captureThread = std::thread(&MicrophoneCollector::CaptureLoop, this);
 }
 
 void MicrophoneCollector::Stop() {
     if (!m_running.exchange(false)) {
-        return; // Not running
+        return;
     }
 
     Logger::Log(Logger::Level::INFO, "Microphone", "Stopping audio capture...");
     if (m_captureThread.joinable()) {
         m_captureThread.join();
     }
-    
+
     Logger::Log(Logger::Level::INFO, "Microphone", "Collection stopped.");
-        
+
     SecureClearBuffer();
 }
 
@@ -62,10 +53,9 @@ std::vector<EntropyDataPoint> MicrophoneCollector::Harvest() {
     if (m_buffer.empty()) {
         return {};
     }
-    
+
     std::vector<EntropyDataPoint> harvested;
     harvested.swap(m_buffer);
-    // SECURITY: Shrink to release heap block that held entropy data
     m_buffer.shrink_to_fit();
     return harvested;
 }
@@ -75,29 +65,20 @@ void MicrophoneCollector::SecureClearBuffer() {
     Crypto::SecureClearVector(m_buffer);
 }
 
-double MicrophoneCollector::GetEntropyRate() const {
-    return m_rate;
-}
-
-uint64_t MicrophoneCollector::GetSampleCount() const {
-    return m_sampleCount;
-}
-
-void MicrophoneCollector::CaptureThread() {
+void MicrophoneCollector::CaptureLoop() {
     HRESULT hr;
-    IMMDeviceEnumerator *pEnumerator = NULL;
-    IMMDevice *pDevice = NULL;
-    IAudioClient *pAudioClient = NULL;
-    IAudioCaptureClient *pCaptureClient = NULL;
-    WAVEFORMATEX *pwfx = NULL;
+    IMMDeviceEnumerator *deviceEnumerator = NULL;
+    IMMDevice *captureDevice = NULL;
+    IAudioClient *audioClient = NULL;
+    IAudioCaptureClient *captureClient = NULL;
+    WAVEFORMATEX *mixFormat = NULL;
 
     CoInitialize(NULL);
 
-    // Get enumerator
     hr = CoCreateInstance(
         __uuidof(MMDeviceEnumerator), NULL,
         CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
-        (void**)&pEnumerator);
+        (void**)&deviceEnumerator);
 
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to create MMDeviceEnumerator. Error: 0x%08X", hr);
@@ -106,89 +87,81 @@ void MicrophoneCollector::CaptureThread() {
         return;
     }
 
-    // Get default capture device
-    hr = pEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &pDevice);
+    hr = deviceEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &captureDevice);
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get default audio endpoint. No microphone? Error: 0x%08X", hr);
-        pEnumerator->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
     }
 
-    // Activate Audio Client
-    hr = pDevice->Activate(
+    hr = captureDevice->Activate(
         __uuidof(IAudioClient), CLSCTX_ALL,
-        NULL, (void**)&pAudioClient);
-    
+        NULL, (void**)&audioClient);
+
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to activate AudioClient. Error: 0x%08X", hr);
-        pDevice->Release();
-        pEnumerator->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
     }
 
-    // Get Mix Format
-    hr = pAudioClient->GetMixFormat(&pwfx);
+    hr = audioClient->GetMixFormat(&mixFormat);
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get MixFormat. Error: 0x%08X", hr);
-        pAudioClient->Release();
-        pDevice->Release();
-        pEnumerator->Release();
+        audioClient->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
     }
 
-    // Initialize Audio Client (Shared Mode, Capture)
-    // REFTIMES_PER_SEC = 10000000NS
-    // Requested Duration = 1 second (buffer size)
-    hr = pAudioClient->Initialize(
+    hr = audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         0,
-        10000000, 
+        10000000,
         0,
-        pwfx,
+        mixFormat,
         NULL);
-    
+
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to initialize AudioClient. Error: 0x%08X", hr);
-        CoTaskMemFree(pwfx);
-        pAudioClient->Release();
-        pDevice->Release();
-        pEnumerator->Release();
+        CoTaskMemFree(mixFormat);
+        audioClient->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
     }
 
-    // Get Capture Client
-    hr = pAudioClient->GetService(
+    hr = audioClient->GetService(
         __uuidof(IAudioCaptureClient),
-        (void**)&pCaptureClient);
-        
+        (void**)&captureClient);
+
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get AudioCaptureClient. Error: 0x%08X", hr);
-        CoTaskMemFree(pwfx);
-        pAudioClient->Release();
-        pDevice->Release();
-        pEnumerator->Release();
+        CoTaskMemFree(mixFormat);
+        audioClient->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
     }
 
-    // Start Recording
-    hr = pAudioClient->Start();
+    hr = audioClient->Start();
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to start recording. Error: 0x%08X", hr);
-        pCaptureClient->Release();
-        CoTaskMemFree(pwfx);
-        pAudioClient->Release();
-        pDevice->Release();
-        pEnumerator->Release();
+        captureClient->Release();
+        CoTaskMemFree(mixFormat);
+        audioClient->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
         m_running = false;
         CoUninitialize();
         return;
@@ -197,139 +170,107 @@ void MicrophoneCollector::CaptureThread() {
     Logger::Log(Logger::Level::INFO, "Microphone", "Audio capture started. Initializing loop...");
 
     UINT32 packetLength = 0;
-    BYTE *pData;
-    UINT32 numFramesAvailable;
-    DWORD flags;
+    BYTE *frameData;
+    UINT32 frameCount;
+    DWORD bufferFlags;
 
-    // Stats tracking
-    auto lastRateTime = std::chrono::steady_clock::now();
-    uint64_t samplesSinceLastRateCheck = 0;
-    
-    // Bit packing state
-    uint64_t entropyAccumulator = 0;
-    int bitsCollected = 0;
+    uint64_t lsbAccumulator = 0;
+    int accumulatedBitCount = 0;
 
     while (m_running) {
-        // Sleep for half the buffer duration (approx 10ms for low latency)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        hr = pCaptureClient->GetNextPacketSize(&packetLength);
+        hr = captureClient->GetNextPacketSize(&packetLength);
         if (FAILED(hr)) continue;
 
         while (packetLength != 0) {
-            hr = pCaptureClient->GetBuffer(
-                &pData,
-                &numFramesAvailable,
-                &flags,
+            hr = captureClient->GetBuffer(
+                &frameData,
+                &frameCount,
+                &bufferFlags,
                 NULL,
                 NULL);
 
             if (FAILED(hr)) break;
 
-            if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                // Silent buffer, ignore
-            } else {
-                // Process audio data
-                int bytesPerFrame = pwfx->nBlockAlign;
-                int bitsPerSample = pwfx->wBitsPerSample;
+            if (!(bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+                int bytesPerFrame = mixFormat->nBlockAlign;
+                int bitsPerSample = mixFormat->wBitsPerSample;
 
-                // Simple RMS check for "dead" mic
-                double sumSquares = 0.0;
-                int validSamples = 0;
+                double sumOfSquares = 0.0;
+                int sampleCount = 0;
 
                 std::vector<EntropyDataPoint> newPoints;
-                newPoints.reserve(numFramesAvailable / 64 + 1); // Approx packing ratio
+                newPoints.reserve(frameCount / 64 + 1);
 
-                for (UINT32 i = 0; i < numFramesAvailable; i++) {
-                    // Extract first channel sample
-                    int32_t sampleVal = 0;
-                    
+                for (UINT32 i = 0; i < frameCount; i++) {
+                    int32_t sampleValue = 0;
+
                     if (bitsPerSample == 16) {
-                        int16_t* ptr = (int16_t*)(pData + i * bytesPerFrame);
-                        sampleVal = *ptr;
+                        int16_t* sample = (int16_t*)(frameData + i * bytesPerFrame);
+                        sampleValue = *sample;
                     } else if (bitsPerSample == 32) {
-                        // Float or Int32? Usually float for WASAPI shared
-                        // Use our local GUID definition
-                        if (pwfx->wFormatTag == WAVE_FORMAT_IEEE_FLOAT || 
-                            (pwfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE && 
-                             ((WAVEFORMATEXTENSIBLE*)pwfx)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID)) {
-                            float* ptr = (float*)(pData + i * bytesPerFrame);
-                            sampleVal = (int32_t)(*ptr * 32767.0f);
+                        if (mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+                            (mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+                             ((WAVEFORMATEXTENSIBLE*)mixFormat)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID)) {
+                            float* sample = (float*)(frameData + i * bytesPerFrame);
+                            sampleValue = (int32_t)(*sample * 32767.0f);
                         } else {
-                            int32_t* ptr = (int32_t*)(pData + i * bytesPerFrame);
-                            sampleVal = *ptr;
+                            int32_t* sample = (int32_t*)(frameData + i * bytesPerFrame);
+                            sampleValue = *sample;
                         }
                     }
 
-                    sumSquares += (double)sampleVal * sampleVal;
-                    validSamples++;
+                    sumOfSquares += (double)sampleValue * sampleValue;
+                    sampleCount++;
 
-                    // OPTIMIZATION: Pack bits instead of 1 event per sample
-                    // Extract LSB (0 or 1)
-                    uint64_t lsb = (std::abs(sampleVal) & 1);
-                    
-                    // Shift into accumulator
-                    entropyAccumulator = (entropyAccumulator << 1) | lsb;
-                    bitsCollected++;
-                    
-                    // When we have 64 bits, push a data point
-                    if (bitsCollected >= 64) {
-                        EntropyDataPoint pt;
-                        pt.timestamp = GetNanosecondTimestamp();
-                        pt.value = entropyAccumulator; // 64 bits of entropy
-                        pt.source = EntropySource::Microphone;
-                        newPoints.push_back(pt);
-                        
-                        entropyAccumulator = 0;
-                        bitsCollected = 0;
+                    uint64_t leastSignificantBit = (std::abs(sampleValue) & 1);
+
+                    lsbAccumulator = (lsbAccumulator << 1) | leastSignificantBit;
+                    accumulatedBitCount++;
+
+                    if (accumulatedBitCount >= 64) {
+                        EntropyDataPoint dataPoint;
+                        dataPoint.timestamp = GetNanosecondTimestamp();
+                        dataPoint.value = lsbAccumulator;
+                        dataPoint.source = EntropySource::Microphone;
+                        newPoints.push_back(dataPoint);
+
+                        lsbAccumulator = 0;
+                        accumulatedBitCount = 0;
                     }
                 }
 
-                // RMS Check
                 double rms = 0.0;
-                if (validSamples > 0) {
-                    rms = std::sqrt(sumSquares / validSamples);
+                if (sampleCount > 0) {
+                    rms = std::sqrt(sumOfSquares / sampleCount);
                 }
 
-                // Threshold for "dead" mic (digital silence or near silence)
-                if (rms > 2.0) { 
+                if (rms > 2.0) {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_buffer.insert(m_buffer.end(), newPoints.begin(), newPoints.end());
-                    m_sampleCount += newPoints.size(); // Count EVENTS, not raw samples now
-                    samplesSinceLastRateCheck += newPoints.size();
                 }
-                
-                // Secure clear local buffer
+
                 Crypto::SecureClearVector(newPoints);
             }
 
-            hr = pCaptureClient->ReleaseBuffer(numFramesAvailable);
+            hr = captureClient->ReleaseBuffer(frameCount);
             if (FAILED(hr)) break;
 
-            hr = pCaptureClient->GetNextPacketSize(&packetLength);
-        }
-
-        // Update rate stats once per second
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastRateTime).count();
-        if (elapsed >= 1) {
-            m_rate = (double)samplesSinceLastRateCheck / (double)elapsed;
-            samplesSinceLastRateCheck = 0;
-            lastRateTime = now;
+            hr = captureClient->GetNextPacketSize(&packetLength);
         }
     }
 
-    // Cleanup
-    if (pAudioClient) pAudioClient->Stop();
-    
-    CoTaskMemFree(pwfx);
-    if (pCaptureClient) pCaptureClient->Release();
-    if (pAudioClient) pAudioClient->Release();
-    if (pDevice) pDevice->Release();
-    if (pEnumerator) pEnumerator->Release();
-    
+    if (audioClient) audioClient->Stop();
+
+    CoTaskMemFree(mixFormat);
+    if (captureClient) captureClient->Release();
+    if (audioClient) audioClient->Release();
+    if (captureDevice) captureDevice->Release();
+    if (deviceEnumerator) deviceEnumerator->Release();
+
     CoUninitialize();
     Logger::Log(Logger::Level::INFO, "Microphone", "Capture thread exited.");
 }
 
-} // namespace Entropy
+}

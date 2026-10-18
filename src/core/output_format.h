@@ -1,0 +1,28 @@
+#pragma once
+
+enum OutputFormatId : int {
+    FORMAT_DECIMAL = 0,
+    FORMAT_INTEGER = 1,
+    FORMAT_RANDOM_CHARACTERS = 3,
+    FORMAT_RAW_DATA = 4,
+    FORMAT_PASSPHRASE = 5,
+    FORMAT_ONE_TIME_PAD = 6,
+    FORMAT_UUID_V4 = 7,
+    FORMAT_UUID_V7 = 8
+};
+
+enum RawDataUnit : int {
+    RAW_DATA_UNIT_BITS = 0,
+    RAW_DATA_UNIT_BYTES = 1
+};
+
+enum UuidV7Ordering : int {
+    UUIDV7_DEDICATED_COUNTER = 0,
+    UUIDV7_MONOTONIC_RANDOM = 1,
+    UUIDV7_FULLY_RANDOM = 2
+};
+
+enum OneTimePadInput : int {
+    ONE_TIME_PAD_TEXT_INPUT = 0,
+    ONE_TIME_PAD_FILE_INPUT = 1
+};

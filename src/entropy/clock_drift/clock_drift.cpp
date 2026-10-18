@@ -1,9 +1,8 @@
-#include <bitset> // Added for binary formatting
 #include "clock_drift.h"
 #include "../../logging/logger.h"
-#include <intrin.h> // For __rdtsc
+#include <intrin.h>
 #include <chrono>
-#include <windows.h> // For SecureZeroMemory
+#include <windows.h>
 
 namespace Entropy {
 
@@ -17,7 +16,7 @@ ClockDriftCollector::~ClockDriftCollector() {
 
 void ClockDriftCollector::Start() {
     if (m_running.exchange(true)) {
-        return; // Already running
+        return;
     }
 
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Starting collector thread...");
@@ -26,19 +25,18 @@ void ClockDriftCollector::Start() {
 
 void ClockDriftCollector::Stop() {
     if (!m_running.exchange(false)) {
-        return; // Not running
+        return;
     }
 
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Stopping collector thread...");
     if (m_thread.joinable()) {
         m_thread.join();
     }
-    
+
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Collection stopped.");
-        
+
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Collector thread stopped.");
-    
-    // Securely clear any remaining buffer data
+
     SecureClearBuffer();
 }
 
@@ -51,11 +49,9 @@ std::vector<EntropyDataPoint> ClockDriftCollector::Harvest() {
     if (m_buffer.empty()) {
         return {};
     }
-    
+
     std::vector<EntropyDataPoint> harvested;
     harvested.swap(m_buffer);
-    // SECURITY: After swap, m_buffer holds harvested's old (empty) allocation.
-    // Shrink to release the previous heap block that held entropy data.
     m_buffer.shrink_to_fit();
     return harvested;
 }
@@ -63,15 +59,14 @@ std::vector<EntropyDataPoint> ClockDriftCollector::Harvest() {
 void ClockDriftCollector::SecureClearBuffer() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_buffer.empty()) {
-        // Securely zero all memory before clearing
         SecureZeroMemory(m_buffer.data(), m_buffer.size() * sizeof(EntropyDataPoint));
         m_buffer.clear();
-        m_buffer.shrink_to_fit(); // Release memory
+        m_buffer.shrink_to_fit();
     }
 }
 
-double ClockDriftCollector::GetEntropyRate() const {
-    return m_rate;
+double ClockDriftCollector::GetSamplesPerSecond() const {
+    return m_samplesPerSecond;
 }
 
 uint64_t ClockDriftCollector::GetSampleCount() const {
@@ -80,68 +75,49 @@ uint64_t ClockDriftCollector::GetSampleCount() const {
 
 void ClockDriftCollector::CollectionLoop() {
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Thread main loop started");
-    
+
     auto lastRateCheck = std::chrono::steady_clock::now();
-    uint64_t lastSampleCount = 0;
-    
+    uint64_t sampleCountAtLastRateCheck = 0;
+
     while (m_running) {
-        // 1. Read CPU cycle counter BEFORE sleep
-        uint64_t before = __rdtsc();
-        
-        // 2. Sleep for ~1ms using OS timer
+        uint64_t cyclesBefore = __rdtsc();
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        
-        // 3. Read CPU cycle counter AFTER sleep
-        uint64_t after = __rdtsc();
-        
-        // 4. Calculate delta (this captures the jitter)
-        uint64_t delta = after - before;
-        
-        // 5. Basic sanity check
-        if (delta == 0 || delta > 1000000000) { 
-             Logger::Log(Logger::Level::WARN, "ClockDrift", "Anomalous delta detected: %llu", delta);
+
+        uint64_t cyclesAfter = __rdtsc();
+
+        uint64_t cycleDelta = cyclesAfter - cyclesBefore;
+
+        if (cycleDelta == 0 || cycleDelta > 1000000000) {
+             Logger::Log(Logger::Level::WARN, "ClockDrift", "Anomalous delta detected: %llu", cycleDelta);
              continue;
         }
 
-        // 6. Extract entropy from least significant bits
-        // We take the lower 16 bits as the raw entropy data point.
-        uint64_t entropyPoint = delta & 0xFFFF;
-        
-        // 7. Capture timestamp
-        uint64_t timestamp = GetNanosecondTimestamp();
-        
-        // Log details for every 10th sample (more detailed as requested)
-        // Log conversion removed for security
-        // if (m_sampleCount % 10 == 0) ...
+        uint64_t lowBits = cycleDelta & 0xFFFF;
 
-        // 8. Store sample with timestamp and source
+        uint64_t timestamp = GetNanosecondTimestamp();
+
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             EntropyDataPoint dataPoint;
             dataPoint.timestamp = timestamp;
-            dataPoint.value = entropyPoint;
+            dataPoint.value = lowBits;
             dataPoint.source = EntropySource::ClockDrift;
             m_buffer.push_back(dataPoint);
         }
         m_sampleCount++;
 
-        // Rate calculation (approximate)
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRateCheck).count();
-        if (elapsed >= 1000) {
-            uint64_t count = m_sampleCount;
-            uint64_t diff = count - lastSampleCount;
-            m_rate = (double)diff * 1000.0 / elapsed;
-            
-            lastSampleCount = count;
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRateCheck).count();
+        if (elapsedMs >= 1000) {
+            uint64_t sampleCount = m_sampleCount;
+            uint64_t newSamples = sampleCount - sampleCountAtLastRateCheck;
+            m_samplesPerSecond = (double)newSamples * 1000.0 / elapsedMs;
+
+            sampleCountAtLastRateCheck = sampleCount;
             lastRateCheck = now;
-            
-            // Stats summary removed from loop per user request
-            // Logger::Log(Logger::Level::DEBUG, "ClockDrift", 
-            //    "STATS | Rate: %.2f samples/sec | Total Samples: %llu | Total Bits Est: %llu", 
-            //    m_rate.load(), count, count * 16);
         }
     }
 }
 
-} // namespace Entropy
+}

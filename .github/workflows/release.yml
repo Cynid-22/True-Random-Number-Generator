@@ -51,10 +51,28 @@ jobs:
               -o build/TRNG.exe \
               src/main.cpp \
               src/gui/gui.cpp \
-              src/gui/gui_sources.cpp \
-              src/gui/gui_output.cpp \
+              src/gui/widgets.cpp \
+              src/gui/sources/source_widgets.cpp \
+              src/gui/sources/user_input_tab.cpp \
+              src/gui/sources/system_input_tab.cpp \
+              src/gui/sources/collection_window.cpp \
+              src/gui/output/output_types.cpp \
+              src/gui/output/output_config.cpp \
+              src/gui/output/number_options.cpp \
+              src/gui/output/text_options.cpp \
+              src/gui/output/raw_data_options.cpp \
+              src/gui/output/uuid_options.cpp \
+              src/gui/output/one_time_pad_options.cpp \
+              src/gui/output/generation_task.cpp \
+              src/gui/output/output_result.cpp \
               src/logic/logic.cpp \
               src/logic/csprng.cpp \
+              src/logic/output_generator.cpp \
+              src/logic/formats/number_formats.cpp \
+              src/logic/formats/text_formats.cpp \
+              src/logic/formats/raw_data_format.cpp \
+              src/logic/formats/uuid_formats.cpp \
+              src/logic/formats/one_time_pad_format.cpp \
               src/platform/dx11.cpp \
               src/logging/logger.cpp \
               src/entropy/clock_drift/clock_drift.cpp \
@@ -67,6 +85,7 @@ jobs:
               src/crypto/hkdf.cpp \
               src/crypto/chacha20.cpp \
               src/crypto/aes.cpp \
+              src/crypto/quad_layer.cpp \
               external/imgui/imgui.cpp \
               external/imgui/imgui_draw.cpp \
               external/imgui/imgui_tables.cpp \

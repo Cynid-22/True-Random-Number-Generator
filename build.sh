@@ -1,19 +1,4 @@
 #!/bin/bash
-# TRNG Build Script for MSYS2/MinGW-w64
-#
-# Source Files:
-#   src/main.cpp              - Application entry point and main loop
-#   src/gui/gui.cpp           - GUI rendering functions
-#   src/gui/gui_sources.cpp   - Entropy source tabs
-#   src/gui/gui_output.cpp    - Output configuration
-#   src/logic/logic.cpp       - Entropy calculation
-#   src/platform/dx11.cpp     - DirectX 11 helpers
-#
-# Header Files:
-#   src/core/app_state.h      - Application state definition
-#   src/gui/gui.h             - GUI function declarations
-#   src/logic/logic.h         - Logic declarations
-#   src/platform/dx11.h       - DirectX helper declarations
 
 echo "========================================"
 echo "TRNG Build Script (MinGW)"
@@ -24,7 +9,6 @@ if ! command -v g++ &> /dev/null; then
     exit 1
 fi
 
-# Download ImGui if needed
 if [ ! -d "external/imgui" ]; then
     echo "Downloading Dear ImGui..."
     mkdir -p external/imgui/backends
@@ -52,10 +36,8 @@ windres src/resource.rc -O coff -o build/resource.res
 
 echo "Compiling..."
 
-# Use VERSION env var if set, otherwise fall back to "dev"
 BUILD_VERSION="${VERSION:-dev}"
 
-# Compile all source files
 g++ -std=c++17 -O2 -s -mwindows \
     -DAPP_VERSION="\"${BUILD_VERSION}\"" \
     -D_WIN32_WINNT=0x0A00 \
@@ -65,10 +47,28 @@ g++ -std=c++17 -O2 -s -mwindows \
     -o build/TRNG.exe \
     src/main.cpp \
     src/gui/gui.cpp \
-    src/gui/gui_sources.cpp \
-    src/gui/gui_output.cpp \
+    src/gui/widgets.cpp \
+    src/gui/sources/source_widgets.cpp \
+    src/gui/sources/user_input_tab.cpp \
+    src/gui/sources/system_input_tab.cpp \
+    src/gui/sources/collection_window.cpp \
+    src/gui/output/output_types.cpp \
+    src/gui/output/output_config.cpp \
+    src/gui/output/number_options.cpp \
+    src/gui/output/text_options.cpp \
+    src/gui/output/raw_data_options.cpp \
+    src/gui/output/uuid_options.cpp \
+    src/gui/output/one_time_pad_options.cpp \
+    src/gui/output/generation_task.cpp \
+    src/gui/output/output_result.cpp \
     src/logic/logic.cpp \
     src/logic/csprng.cpp \
+    src/logic/output_generator.cpp \
+    src/logic/formats/number_formats.cpp \
+    src/logic/formats/text_formats.cpp \
+    src/logic/formats/raw_data_format.cpp \
+    src/logic/formats/uuid_formats.cpp \
+    src/logic/formats/one_time_pad_format.cpp \
     src/platform/dx11.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
@@ -81,6 +81,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/crypto/hkdf.cpp \
     src/crypto/chacha20.cpp \
     src/crypto/aes.cpp \
+    src/crypto/quad_layer.cpp \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \

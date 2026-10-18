@@ -1,86 +1,74 @@
 #include "hkdf.h"
 #include <cstring>
 #include <stdexcept>
-#include <windows.h> // For SecureZeroMemory
+#include <windows.h>
 
 namespace Crypto {
 
 SHA512::Hash HKDF::Extract(const std::vector<uint8_t>& salt,
-                           const std::vector<uint8_t>& ikm) {
-    // If salt is empty, use a string of HashLen zeros
+                           const std::vector<uint8_t>& inputKeyMaterial) {
     if (salt.empty()) {
-        std::vector<uint8_t> defaultSalt(SHA512::HASH_SIZE, 0);
-        return SHA512::HMAC(defaultSalt, ikm);
+        std::vector<uint8_t> zeroSalt(SHA512::HASH_SIZE, 0);
+        return SHA512::HMAC(zeroSalt, inputKeyMaterial);
     }
-    return SHA512::HMAC(salt, ikm);
+    return SHA512::HMAC(salt, inputKeyMaterial);
 }
 
-std::vector<uint8_t> HKDF::Expand(const SHA512::Hash& prk,
+std::vector<uint8_t> HKDF::Expand(const SHA512::Hash& pseudorandomKey,
                                    const std::vector<uint8_t>& info,
                                    size_t length) {
     if (length > MAX_OUTPUT_LENGTH) {
         throw std::runtime_error("HKDF: Requested length exceeds maximum");
     }
-    
+
     std::vector<uint8_t> output;
     output.reserve(length);
-    
-    // Number of blocks needed: ceil(length / HashLen)
-    size_t n = (length + SHA512::HASH_SIZE - 1) / SHA512::HASH_SIZE;
-    
-    SHA512::Hash T_prev = {}; // T(0) = empty string
-    size_t T_prev_len = 0;
-    
-    for (size_t i = 1; i <= n; i++) {
-        // T(i) = HMAC(PRK, T(i-1) || info || i)
-        std::vector<uint8_t> data;
-        data.reserve(T_prev_len + info.size() + 1);
-        
-        // Append T(i-1)
-        if (T_prev_len > 0) {
-            data.insert(data.end(), T_prev.begin(), T_prev.begin() + T_prev_len);
+
+    size_t blockCount = (length + SHA512::HASH_SIZE - 1) / SHA512::HASH_SIZE;
+
+    SHA512::Hash previousBlock = {};
+    size_t previousBlockLength = 0;
+
+    for (size_t blockIndex = 1; blockIndex <= blockCount; blockIndex++) {
+        std::vector<uint8_t> hmacInput;
+        hmacInput.reserve(previousBlockLength + info.size() + 1);
+
+        if (previousBlockLength > 0) {
+            hmacInput.insert(hmacInput.end(), previousBlock.begin(), previousBlock.begin() + previousBlockLength);
         }
-        
-        // Append info
-        data.insert(data.end(), info.begin(), info.end());
-        
-        // Append counter byte
-        data.push_back(static_cast<uint8_t>(i));
-        
-        // Compute HMAC
-        std::vector<uint8_t> prkVec(prk.begin(), prk.end());
-        SHA512::Hash T_i = SHA512::HMAC(prkVec, data);
-        
-        // Append to output (may be partial for last block)
-        size_t toAppend = std::min(SHA512::HASH_SIZE, length - output.size());
-        output.insert(output.end(), T_i.begin(), T_i.begin() + toAppend);
-        
-        // Save for next iteration
-        T_prev = T_i;
-        T_prev_len = SHA512::HASH_SIZE;
-        
-        // Secure cleanup
-        SecureZeroMemory(data.data(), data.size());
-        SecureZeroMemory(prkVec.data(), prkVec.size());
+
+        hmacInput.insert(hmacInput.end(), info.begin(), info.end());
+
+        hmacInput.push_back(static_cast<uint8_t>(blockIndex));
+
+        std::vector<uint8_t> keyBytes(pseudorandomKey.begin(), pseudorandomKey.end());
+        SHA512::Hash currentBlock = SHA512::HMAC(keyBytes, hmacInput);
+
+        size_t bytesToAppend = std::min(SHA512::HASH_SIZE, length - output.size());
+        output.insert(output.end(), currentBlock.begin(), currentBlock.begin() + bytesToAppend);
+
+        previousBlock = currentBlock;
+        previousBlockLength = SHA512::HASH_SIZE;
+
+        SecureZeroMemory(hmacInput.data(), hmacInput.size());
+        SecureZeroMemory(keyBytes.data(), keyBytes.size());
     }
-    
-    // Secure cleanup
-    SecureZeroMemory(T_prev.data(), T_prev.size());
-    
+
+    SecureZeroMemory(previousBlock.data(), previousBlock.size());
+
     return output;
 }
 
-std::vector<uint8_t> HKDF::DeriveKey(const std::vector<uint8_t>& ikm,
+std::vector<uint8_t> HKDF::DeriveKey(const std::vector<uint8_t>& inputKeyMaterial,
                                       const std::vector<uint8_t>& salt,
                                       const std::vector<uint8_t>& info,
                                       size_t length) {
-    SHA512::Hash prk = Extract(salt, ikm);
-    std::vector<uint8_t> result = Expand(prk, info, length);
-    
-    // Secure cleanup
-    SecureZeroMemory(prk.data(), prk.size());
-    
+    SHA512::Hash pseudorandomKey = Extract(salt, inputKeyMaterial);
+    std::vector<uint8_t> result = Expand(pseudorandomKey, info, length);
+
+    SecureZeroMemory(pseudorandomKey.data(), pseudorandomKey.size());
+
     return result;
 }
 
-} // namespace Crypto
+}

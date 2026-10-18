@@ -12,35 +12,28 @@ public:
     ClockDriftCollector();
     ~ClockDriftCollector();
 
-    // Start background collection thread
     void Start();
 
-    // Stop background thread
     void Stop();
 
-    // Is the collector running?
     bool IsRunning() const;
-    
-    // Get collected entropy (clears internal buffer and returns data)
-    // Returns a vector of timestamped entropy data points
+
     std::vector<EntropyDataPoint> Harvest();
-    
-    // Statistics for GUI
-    double GetEntropyRate() const;     // samples/sec estimate
-    uint64_t GetSampleCount() const;   // Total samples collected
-    
+
+    double GetSamplesPerSecond() const;
+    uint64_t GetSampleCount() const;
+
 private:
     void CollectionLoop();
-    
+
     std::atomic<bool> m_running{false};
     std::thread m_thread;
     std::mutex m_mutex;
     std::vector<EntropyDataPoint> m_buffer;
     std::atomic<uint64_t> m_sampleCount{0};
-    std::atomic<double> m_rate{0.0};
-    
-    // Secure memory clearing helper
+    std::atomic<double> m_samplesPerSecond{0.0};
+
     void SecureClearBuffer();
 };
 
-} // namespace Entropy
+}

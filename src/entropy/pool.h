@@ -7,53 +7,28 @@
 
 namespace Entropy {
 
-// Centralized entropy pool for collecting and managing timestamped entropy data
-// All data stays in memory only - never written to disk
+float CalculateShannonEntropyBits(const std::vector<uint8_t>& bytes);
+
 class EntropyPool {
 public:
     EntropyPool();
     ~EntropyPool();
 
-    // Add a single data point to the pool
-    void AddDataPoint(const EntropyDataPoint& point);
-
-    // Bulk add data points from a collector
     void AddDataPoints(const std::vector<EntropyDataPoint>& points);
 
-    // Get all pooled data sorted chronologically
     std::vector<EntropyDataPoint> GetPooledData() const;
 
-    // Get pooled data filtered by included source types
-    std::vector<EntropyDataPoint> GetPooledDataForSources(const std::set<EntropySource>& includedSources) const;
-
-    // Clear pool (for new collection session) - securely wipes memory
-    void Clear();
-
-    // Calculate total entropy bits from pooled data (conservative estimate)
-    float GetTotalBits() const;
-
-    // Calculate entropy bits for "Locked" data (timestamp <= lockedTimestamp)
     float GetEntropyBitsBefore(uint64_t timestamp) const;
 
-    // Calculate entropy bits for "New" data (timestamp > lockedTimestamp) filtered by sources
     float GetEntropyBitsAfter(uint64_t timestamp, const std::set<EntropySource>& includedSources) const;
 
-    // Calculate combined total (Locked + New Filtered)
-    float GetTotalBits(uint64_t lockedTimestamp, const std::set<EntropySource>& includedSources) const;
-
-    // Get count of data points in pool
-    size_t GetDataPointCount() const;
-
-    // SECURITY: Securely wipe all data and zero memory (called on shutdown)
     void SecureWipe();
 
 private:
-    // Internal storage - sorted chronologically by timestamp
     mutable std::mutex m_mutex;
     std::vector<EntropyDataPoint> m_data;
 
-    // Helper to ensure data is sorted chronologically
-    void EnsureSorted();
+    void SortByTimestamp();
 };
 
-} // namespace Entropy
+}

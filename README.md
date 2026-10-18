@@ -90,15 +90,23 @@ TRNG/
 ├── src/
 │   ├── main.cpp              # Application entry point
 │   ├── core/
-│   │   └── app_state.h       # Global application state
+│   │   ├── app_state.h       # Global application state
+│   │   └── output_format.h   # Output format, unit and mode ids
 │   ├── gui/
 │   │   ├── gui.h             # GUI declarations
-│   │   ├── gui.cpp           # Style, menu, entropy bar
-│   │   ├── gui_sources.cpp   # Input tabs, Collection Window
-│   │   └── gui_output.cpp    # Output configuration
+│   │   ├── gui.cpp           # Style, menu, entropy bar, modals
+│   │   ├── widgets.h/.cpp    # Shared colors and small widgets
+│   │   ├── sources/          # Input tabs, Collection Window
+│   │   └── output/           # Output type selector, per-format options,
+│   │                         # background generation, result panel
 │   ├── logic/
-│   │   ├── logic.h           # Logic declarations
-│   │   └── logic.cpp         # Entropy calculation
+│   │   ├── logic.h/.cpp      # Wordlist, entropy requirement and estimates
+│   │   ├── csprng.h/.cpp     # Random bytes from the entropy pool
+│   │   ├── output_generator.h/.cpp  # Builds the output for each format
+│   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
+│   ├── crypto/               # SHA-512, HKDF, ChaCha20, AES-256, quad layer
+│   ├── entropy/              # Entropy collectors and pool
+│   ├── logging/              # Logger
 │   └── platform/
 │       ├── dx11.h            # DirectX declarations
 │       └── dx11.cpp          # DirectX implementation
