@@ -3,6 +3,8 @@
 #include "../logging/logger.h"
 #include "../logic/logic.h"
 #include "widgets.h"
+#include "output/generation_task.h"
+#include "output/output_types.h"
 #include "imgui.h"
 #include <cstdio>
 #include <set>
@@ -156,8 +158,8 @@ static void ResetSettings() {
   g_state.clockDriftEnabled = true;
   g_state.cpuJitterEnabled = true;
   g_state.mouseMovementEnabled = true;
-  g_state.outputFormat = FORMAT_DECIMAL;
   g_state.decimalDigits = 16;
+  SelectOutputType(0, 0);
 }
 
 void RenderMenuBar() {
@@ -175,7 +177,7 @@ void RenderMenuBar() {
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Exit", "Alt+F4")) {
-        PostQuitMessage(0);
+        g_state.closeRequested = true;
       }
       ImGui::EndMenu();
     }
@@ -184,7 +186,7 @@ void RenderMenuBar() {
       ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
       ImGui::MenuItem("Show Locked Data Warning", nullptr, &g_state.showDataLockWarning);
       ImGui::Separator();
-      if (ImGui::MenuItem("Reset Settings")) {
+      if (ImGui::MenuItem("Reset Settings", nullptr, false, !IsGenerationRunning())) {
         ResetSettings();
       }
       ImGui::EndMenu();
@@ -434,6 +436,40 @@ void RenderAboutModal() {
       g_state.showAboutModal = false;
       ImGui::CloseCurrentPopup();
     }
+    ImGui::EndPopup();
+  }
+}
+
+void RenderClosingModal() {
+  if (!g_state.closeRequested || !IsGenerationRunning())
+    return;
+
+  g_state.cancelGenerationRequested = true;
+  if (!ImGui::IsPopupOpen("Closing TRNG")) {
+    ImGui::OpenPopup("Closing TRNG");
+    g_state.closeRequestedTime = ImGui::GetTime();
+  }
+
+  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+  if (ImGui::BeginPopupModal("Closing TRNG", nullptr,
+                             ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoMove)) {
+    ImGui::Text("Stopping the generation in progress.");
+    ImGui::Text("The app will close as soon as it has stopped. The unfinished "
+                "output is discarded and all data is wiped.");
+    if (g_state.generationInCryptoPass) {
+      ImGui::Spacing();
+      ImGui::TextColored(UiColor::Warning,
+                         "The encryption pass is running and can't be "
+                         "interrupted. For very large outputs this can take a "
+                         "while.");
+    }
+    ImGui::Spacing();
+    ImGui::TextColored(UiColor::DimText, "Waiting: %.1fs  %s",
+                       ImGui::GetTime() - g_state.closeRequestedTime,
+                       CurrentSpinnerFrame());
     ImGui::EndPopup();
   }
 }

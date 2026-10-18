@@ -12,6 +12,7 @@ enum class GenerationMode {
 
 struct GenerationResult {
     bool success;
+    bool cancelled;
     std::vector<char> output;
     std::string errorMessage;
     GenerationMode mode;

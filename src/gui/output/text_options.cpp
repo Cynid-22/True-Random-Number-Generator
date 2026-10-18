@@ -76,7 +76,7 @@ bool RenderPassphraseOptions() {
   ImGui::TableSetColumnIndex(1);
   ImGui::TextColored(
       UiColor::LabelText,
-      "(Using built-in wordlist: 123,565 words, ~16.5 bits/word)");
+      "(Using built-in wordlist: 123,565 words, ~16.9 bits/word)");
 
   return changed;
 }

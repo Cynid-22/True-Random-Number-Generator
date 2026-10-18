@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <vector>
 #include "../entropy/clock_drift/clock_drift.h"
@@ -101,6 +102,10 @@ struct AppState {
 
     bool truncateOutputView = true;
     volatile bool cancelGenerationRequested{false};
+    std::atomic<bool> generationInCryptoPass{false};
+
+    bool closeRequested = false;
+    double closeRequestedTime = 0.0;
 
     bool showDataLockWarning = true;
 

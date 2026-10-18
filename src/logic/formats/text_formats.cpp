@@ -1,5 +1,6 @@
 #include "text_formats.h"
 #include "cancellation.h"
+#include <stdexcept>
 #include <windows.h>
 
 namespace CSPRNG {
@@ -26,7 +27,8 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
   result.reserve(length);
 
   size_t characterSetSize = characterSet.size();
-  uint16_t acceptBelow = 65535 - (65535 % static_cast<uint16_t>(characterSetSize));
+  const uint32_t acceptBelow =
+      65536u - (65536u % static_cast<uint32_t>(characterSetSize));
 
   size_t byteIndex = 0;
 
@@ -47,8 +49,12 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
       }
     }
 
-    if (!accepted)
-      draw = 0;
+    if (!accepted) {
+      SecureZeroMemory(result.data(), result.size());
+      throw std::runtime_error(
+          "Random Characters: too many random draws were rejected. Please "
+          "try again.");
+    }
 
     size_t characterIndex = draw % characterSetSize;
     result.push_back(characterSet[characterIndex]);
@@ -67,25 +73,42 @@ std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
     return std::vector<char>(error.begin(), error.end());
   }
 
+  const uint32_t THREE_BYTE_DRAW_RANGE = 1u << 24;
+  if (wordList.size() > THREE_BYTE_DRAW_RANGE) {
+    std::string tooLargeError = "[Error: Wordlist is too large]";
+    return std::vector<char>(tooLargeError.begin(), tooLargeError.end());
+  }
+  const uint32_t wordListSize = static_cast<uint32_t>(wordList.size());
+  const uint32_t acceptBelow =
+      THREE_BYTE_DRAW_RANGE - (THREE_BYTE_DRAW_RANGE % wordListSize);
+
   std::string result;
-  size_t bytesPerWord = 3;
+  size_t byteIndex = 0;
 
-  for (int i = 0; i < wordCount; i++) {
-    if ((i & 0x3FF) == 0)
-      ThrowIfGenerationCancelled();
-    size_t offset = i * bytesPerWord;
-    uint32_t randomIndex = 0;
+  try {
+    for (int i = 0; i < wordCount; i++) {
+      if ((i & 0x3FF) == 0)
+        ThrowIfGenerationCancelled();
 
-    for (size_t j = 0; j < bytesPerWord && (offset + j) < randomBytes.size();
-         j++) {
-      randomIndex = (randomIndex << 8) | randomBytes[offset + j];
+      uint32_t draw = 0;
+      do {
+        if (byteIndex + 3 > randomBytes.size())
+          throw std::runtime_error(
+              "Passphrase: too many random draws were rejected. Please try "
+              "again.");
+        draw = (static_cast<uint32_t>(randomBytes[byteIndex]) << 16) |
+               (static_cast<uint32_t>(randomBytes[byteIndex + 1]) << 8) |
+               randomBytes[byteIndex + 2];
+        byteIndex += 3;
+      } while (draw >= acceptBelow);
+
+      if (i > 0)
+        result += separator;
+      result += wordList[draw % wordListSize];
     }
-
-    size_t wordIndex = randomIndex % wordList.size();
-
-    if (i > 0)
-      result += separator;
-    result += wordList[wordIndex];
+  } catch (...) {
+    SecureZeroMemory(result.data(), result.size());
+    throw;
   }
 
   std::vector<char> passphrase(result.begin(), result.end());

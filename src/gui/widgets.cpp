@@ -16,3 +16,8 @@ void HelpMarker(const char *text) {
   ImGui::TextDisabled("(?)");
   ImGui::SetItemTooltip("%s", text);
 }
+
+const char *CurrentSpinnerFrame() {
+  static const char *frames[] = {"|", "/", "-", "\\"};
+  return frames[static_cast<int>(ImGui::GetTime() * 10.0) % 4];
+}

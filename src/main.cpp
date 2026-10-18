@@ -4,6 +4,7 @@
 
 #include "core/app_state.h"
 #include "gui/gui.h"
+#include "gui/output/generation_task.h"
 #include "logic/logic.h"
 #include "platform/dx11.h"
 #include "logging/logger.h"
@@ -34,6 +35,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if ((wParam & 0xfff0) == SC_KEYMENU)
                 return 0;
             break;
+        case WM_CLOSE:
+            g_state.closeRequested = true;
+            return 0;
         case WM_GETMINMAXINFO: {
             LPMINMAXINFO minMaxInfo = (LPMINMAXINFO)lParam;
             minMaxInfo->ptMinTrackSize.x = 900;
@@ -132,6 +136,8 @@ static void RenderMainWindow(ImGuiIO& io) {
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_MenuBar);
 
+    CollectFinishedGeneration();
+
     RenderMenuBar();
 
     RenderEntropyPoolBar();
@@ -161,6 +167,8 @@ static void RenderMainWindow(ImGuiIO& io) {
     RenderCollectionWindow();
 
     RenderAboutModal();
+
+    RenderClosingModal();
 
     ImGui::End();
 }
@@ -268,6 +276,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                 done = true;
         }
         if (done) break;
+
+        if (g_state.closeRequested && !IsGenerationRunning())
+            PostQuitMessage(0);
 
         UpdateEntropyCollection();
 

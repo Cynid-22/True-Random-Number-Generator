@@ -78,9 +78,13 @@ static size_t CalculateBytesPerItem(int format) {
                                          g_state.rawDataUnit))
             .randomByteCount);
     break;
-  case FORMAT_PASSPHRASE:
-    bytesPerItem = static_cast<size_t>(g_state.passphraseWordCount) * 3;
+  case FORMAT_PASSPHRASE: {
+    const size_t wordDrawBytes =
+        static_cast<size_t>(g_state.passphraseWordCount) * 3;
+    bytesPerItem = wordDrawBytes + wordDrawBytes / 4 +
+                   AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
     break;
+  }
   case FORMAT_ONE_TIME_PAD:
     if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
       bytesPerItem = strlen(g_state.oneTimePadMessage.data()) * 2;
@@ -251,6 +255,7 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
 GenerationResult GenerateOutput(GenerationMode mode) {
   GenerationResult result;
   result.success = false;
+  result.cancelled = false;
   result.mode = mode;
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
@@ -281,6 +286,15 @@ GenerationResult GenerateOutput(GenerationMode mode) {
   if (bytesNeeded < 64)
     bytesNeeded = 64;
 
+  const uint64_t CHACHA20_MAX_KEYSTREAM_BYTES = 64ULL << 32;
+  if (static_cast<uint64_t>(bytesNeeded) > CHACHA20_MAX_KEYSTREAM_BYTES) {
+    result.errorMessage = "Requested output is too large: it needs more than "
+                          "256 GiB of random data. Reduce the quantity or "
+                          "item size.";
+    Crypto::SecureClearVector(pooledData);
+    return result;
+  }
+
   Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
               mode == GenerationMode::Consolidation
                   ? "CONSOLIDATION (TRUE RANDOMNESS) - collected entropy met "
@@ -299,6 +313,7 @@ GenerationResult GenerateOutput(GenerationMode mode) {
   try {
     randomBytes = GenerateRandomBytes(pooledData, bytesNeeded);
     result.rawBytesGenerated = randomBytes.size();
+    ThrowIfGenerationCancelled();
 
     const bool written =
         isList ? WriteListOutput(format, quantity, bytesPerItem, randomBytes,
@@ -331,6 +346,12 @@ GenerationResult GenerateOutput(GenerationMode mode) {
                                                       : "EXPANSION",
                 result.rawBytesGenerated);
 
+  } catch (const GenerationCancelled &cancelled) {
+    wipeAll();
+    result.errorMessage = cancelled.what();
+    result.cancelled = true;
+    result.success = false;
+    Logger::Log(Logger::Level::INFO, "CSPRNG", "Generation cancelled by user.");
   } catch (const std::bad_alloc &) {
     wipeAll();
     result.errorMessage = "Memory allocation failed! The requested amount is too large for the system's available RAM/Paging file. Reduce the generation size bounds.";

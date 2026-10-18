@@ -48,7 +48,7 @@ Pick a category, then a type within it:
   - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
 - **Text & Passwords**
   - Random Characters (configurable character set)
-  - Passphrase (123,565 word dictionary, ~16.5 bits/word)
+  - Passphrase (123,565 word dictionary, ~16.9 bits/word)
 - **Identifiers**
   - UUID v4 (RFC 9562, batch count, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)

@@ -14,6 +14,7 @@ static std::atomic<bool> s_generationRunning{false};
 static std::mutex s_finishedResultMutex;
 static CSPRNG::GenerationResult s_finishedResult;
 static long long s_finishedElapsedMs = 0;
+static time_t s_finishedAt = 0;
 static std::atomic<bool> s_resultReady{false};
 
 bool IsGenerationRunning() { return s_generationRunning.load(); }
@@ -37,8 +38,10 @@ static std::string FormatElapsedTime(long long totalMilliseconds) {
 }
 
 void ShowOutputText(const std::string &text) {
+  Crypto::SecureClearVector(g_state.generatedOutput);
   g_state.generatedOutput = std::vector<char>(text.begin(), text.end());
   g_state.generatedOutput.push_back('\0');
+  g_state.generatedAtText = "";
   g_state.generationTimeText = "";
 }
 
@@ -60,10 +63,12 @@ void StartGeneration(CSPRNG::GenerationMode mode) {
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime)
             .count();
+    time_t finishedAt = time(nullptr);
     {
       std::lock_guard<std::mutex> lock(s_finishedResultMutex);
       s_finishedResult = std::move(result);
       s_finishedElapsedMs = elapsedMilliseconds;
+      s_finishedAt = finishedAt;
     }
     s_resultReady.store(true);
   }).detach();
@@ -76,12 +81,12 @@ void CollectFinishedGeneration() {
   std::lock_guard<std::mutex> lock(s_finishedResultMutex);
 
   if (s_finishedResult.success) {
+    Crypto::SecureClearVector(g_state.generatedOutput);
     g_state.generatedOutput = std::move(s_finishedResult.output);
 
-    time_t now = time(nullptr);
     char generatedAt[64];
     strftime(generatedAt, sizeof(generatedAt), "%Y-%m-%d %H:%M:%S (UTC%z)",
-             localtime(&now));
+             localtime(&s_finishedAt));
     g_state.generatedAtText = generatedAt;
     g_state.generationTimeText = FormatElapsedTime(s_finishedElapsedMs);
 
@@ -92,6 +97,9 @@ void CollectFinishedGeneration() {
     Logger::Log(Logger::Level::INFO, "GUI",
                 "Generated output using %s mode, consumed %.1f bits",
                 modeName, s_finishedResult.entropyConsumed);
+  } else if (s_finishedResult.cancelled) {
+    ShowOutputText(s_finishedResult.errorMessage);
+    Logger::Log(Logger::Level::INFO, "GUI", "Generation cancelled");
   } else {
     ShowOutputText("[ERROR] " + s_finishedResult.errorMessage);
     Logger::Log(Logger::Level::ERR, "GUI", "Generation failed: %s",

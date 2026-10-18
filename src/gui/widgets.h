@@ -19,3 +19,5 @@ float ComboWidthForText(float textWidth);
 void InlineDivider();
 
 void HelpMarker(const char *text);
+
+const char *CurrentSpinnerFrame();

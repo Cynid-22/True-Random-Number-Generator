@@ -40,7 +40,7 @@ static void RenderCollectionStatusRow() {
 
   ImGui::Columns(3, "status_columns", false);
 
-  RenderCollectionStatus("Mic", g_state.microphoneEnabled, true);
+  RenderCollectionStatus("Mic", g_state.microphoneEnabled, g_state.microphoneCollector.IsCapturing());
   ImGui::NextColumn();
   RenderCollectionStatus("Keys", g_state.keystrokeEnabled, true);
   ImGui::NextColumn();

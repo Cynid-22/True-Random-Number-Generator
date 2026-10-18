@@ -21,13 +21,20 @@ public:
 
     bool IsRunning() const;
 
+    bool IsCapturing() const;
+
+    bool HasFailed() const;
+
     std::vector<EntropyDataPoint> Harvest();
 
 private:
     void CaptureLoop();
+    void MarkCaptureFailed();
     void SecureClearBuffer();
 
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_capturing{false};
+    std::atomic<long long> m_lastFailureMs{0};
     std::thread m_captureThread;
     std::mutex m_mutex;
     std::vector<EntropyDataPoint> m_buffer;

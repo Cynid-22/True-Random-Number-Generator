@@ -1,5 +1,6 @@
 #include "microphone.h"
 #include "../../logging/logger.h"
+#include <chrono>
 #include <cmath>
 #include <vector>
 #include "../../crypto/secure_mem.h"
@@ -20,32 +21,64 @@ MicrophoneCollector::~MicrophoneCollector() {
     SecureClearBuffer();
 }
 
+static long long SteadyClockMilliseconds() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+static const long long RETRY_AFTER_FAILURE_MS = 3000;
+
 void MicrophoneCollector::Start() {
-    if (m_running.exchange(true)) {
+    if (m_running.load()) {
         return;
     }
 
+    const long long lastFailureMs = m_lastFailureMs.load();
+    if (lastFailureMs != 0 && SteadyClockMilliseconds() - lastFailureMs < RETRY_AFTER_FAILURE_MS) {
+        return;
+    }
+
+    if (m_captureThread.joinable()) {
+        m_captureThread.join();
+    }
+
+    m_running = true;
     Logger::Log(Logger::Level::INFO, "Microphone", "Starting audio capture thread...");
     m_captureThread = std::thread(&MicrophoneCollector::CaptureLoop, this);
 }
 
 void MicrophoneCollector::Stop() {
-    if (!m_running.exchange(false)) {
-        return;
-    }
+    const bool wasRunning = m_running.exchange(false);
 
-    Logger::Log(Logger::Level::INFO, "Microphone", "Stopping audio capture...");
+    if (wasRunning) {
+        Logger::Log(Logger::Level::INFO, "Microphone", "Stopping audio capture...");
+    }
     if (m_captureThread.joinable()) {
         m_captureThread.join();
     }
-
-    Logger::Log(Logger::Level::INFO, "Microphone", "Collection stopped.");
+    if (wasRunning) {
+        Logger::Log(Logger::Level::INFO, "Microphone", "Collection stopped.");
+    }
 
     SecureClearBuffer();
 }
 
 bool MicrophoneCollector::IsRunning() const {
     return m_running;
+}
+
+bool MicrophoneCollector::IsCapturing() const {
+    return m_capturing;
+}
+
+bool MicrophoneCollector::HasFailed() const {
+    return m_lastFailureMs.load() != 0;
+}
+
+void MicrophoneCollector::MarkCaptureFailed() {
+    m_lastFailureMs = SteadyClockMilliseconds();
+    m_running = false;
 }
 
 std::vector<EntropyDataPoint> MicrophoneCollector::Harvest() {
@@ -82,7 +115,7 @@ void MicrophoneCollector::CaptureLoop() {
 
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to create MMDeviceEnumerator. Error: 0x%08X", hr);
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -91,7 +124,7 @@ void MicrophoneCollector::CaptureLoop() {
     if (FAILED(hr)) {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get default audio endpoint. No microphone? Error: 0x%08X", hr);
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -104,7 +137,7 @@ void MicrophoneCollector::CaptureLoop() {
         Logger::Log(Logger::Level::ERR, "Microphone", "Failed to activate AudioClient. Error: 0x%08X", hr);
         captureDevice->Release();
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -115,7 +148,7 @@ void MicrophoneCollector::CaptureLoop() {
         audioClient->Release();
         captureDevice->Release();
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -134,7 +167,7 @@ void MicrophoneCollector::CaptureLoop() {
         audioClient->Release();
         captureDevice->Release();
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -149,7 +182,7 @@ void MicrophoneCollector::CaptureLoop() {
         audioClient->Release();
         captureDevice->Release();
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
@@ -162,12 +195,14 @@ void MicrophoneCollector::CaptureLoop() {
         audioClient->Release();
         captureDevice->Release();
         deviceEnumerator->Release();
-        m_running = false;
+        MarkCaptureFailed();
         CoUninitialize();
         return;
     }
 
     Logger::Log(Logger::Level::INFO, "Microphone", "Audio capture started. Initializing loop...");
+    m_lastFailureMs = 0;
+    m_capturing = true;
 
     UINT32 packetLength = 0;
     BYTE *frameData;
@@ -261,6 +296,7 @@ void MicrophoneCollector::CaptureLoop() {
         }
     }
 
+    m_capturing = false;
     if (audioClient) audioClient->Stop();
 
     CoTaskMemFree(mixFormat);

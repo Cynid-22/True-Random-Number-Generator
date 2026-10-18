@@ -14,3 +14,5 @@ void RenderOutputConfigSection();
 void RenderOutputSection();
 
 void RenderAboutModal();
+
+void RenderClosingModal();

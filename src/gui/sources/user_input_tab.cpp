@@ -38,12 +38,16 @@ static void RenderMicrophoneSource() {
   if (!g_state.microphoneEnabled) {
     RenderExcludedBadge();
   } else if (g_state.isCollecting) {
-    if (g_state.microphoneCollector.IsRunning()) {
+    if (g_state.microphoneCollector.IsCapturing()) {
       RenderSourceBadge(UiColor::StatusActive, "[Active]",
                         "Microphone is actively collecting entropy.\n"
                         "Collected: %.1f bits\n"
                         "Source is working correctly.",
                         g_state.microphoneEntropyBits);
+    } else if (!g_state.microphoneCollector.HasFailed()) {
+      RenderSourceBadge(UiColor::StatusReady, "[Starting...]",
+                        "Microphone capture is starting up.\n"
+                        "Collection will begin shortly.");
     } else {
       RenderSourceBadge(UiColor::StatusUnavailable, "[UNAVAILABLE]",
                         UNAVAILABLE_MICROPHONE_TOOLTIP);

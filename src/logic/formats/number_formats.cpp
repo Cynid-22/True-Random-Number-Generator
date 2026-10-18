@@ -2,6 +2,7 @@
 #include "cancellation.h"
 #include <algorithm>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <windows.h>
 
@@ -38,9 +39,9 @@ std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
       }
     }
 
-    if (!accepted) {
-      draw = 0;
-    }
+    if (!accepted)
+      throw std::runtime_error(
+          "Decimal: too many random draws were rejected. Please try again.");
 
     int digit = draw % 10;
     stream << digit;

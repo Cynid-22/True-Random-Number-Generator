@@ -59,9 +59,15 @@ static std::string BuildLayerOneInfo(size_t byteCount, uint32_t attempt) {
   return info.str();
 }
 
+struct ScopedCryptoPassFlag {
+  ScopedCryptoPassFlag() { g_state.generationInCryptoPass = true; }
+  ~ScopedCryptoPassFlag() { g_state.generationInCryptoPass = false; }
+};
+
 std::vector<uint8_t>
 GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
                     size_t byteCount, uint32_t attempt) {
+  ScopedCryptoPassFlag cryptoPassFlag;
   std::vector<uint8_t> entropyBytes = SerializeEntropyData(entropyData);
 
   Logger::Log(Logger::Level::INFO, "CSPRNG",

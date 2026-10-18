@@ -14,7 +14,7 @@
 #include <sstream>
 #include "../resource.h"
 
-static const float PASSPHRASE_BITS_PER_WORD = 16.5f;
+static const float PASSPHRASE_BITS_PER_WORD = 16.92f;
 
 static void ReadWordList(std::istream& input) {
     g_state.cachedWordList.clear();
