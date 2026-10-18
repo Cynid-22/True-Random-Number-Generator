@@ -90,8 +90,11 @@ void SelectOutputType(int category, int type) {
 
   if (previousFormat == FORMAT_ONE_TIME_PAD &&
       g_state.outputFormat != FORMAT_ONE_TIME_PAD) {
-    Crypto::SecureClearVector(g_state.oneTimePadMessage);
-    Crypto::SecureClearVector(g_state.oneTimePadFilePath);
+    // Zero in place: ImGui needs the buffer size
+    SecureZeroMemory(g_state.oneTimePadMessage.data(),
+                     g_state.oneTimePadMessage.size());
+    SecureZeroMemory(g_state.oneTimePadFilePath.data(),
+                     g_state.oneTimePadFilePath.size());
     g_state.oneTimePadFileSize = 0;
   }
 

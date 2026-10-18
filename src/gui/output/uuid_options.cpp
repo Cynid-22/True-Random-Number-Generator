@@ -19,12 +19,6 @@ static void HighlightedStat(const std::string &value, const char *label) {
   ImGui::TextColored(UiColor::LabelText, "%s", label);
 }
 
-static void HelpMarker(const char *text) {
-  ImGui::SameLine();
-  ImGui::TextDisabled("(?)");
-  ImGui::SetItemTooltip("%s", text);
-}
-
 static bool RenderOrderingMethodRow() {
   bool changed = false;
 

@@ -140,7 +140,9 @@ static void RenderCopyAndClearButtons() {
     Crypto::SecureClearVector(g_state.generatedOutput);
     g_state.generatedAtText = "";
 
-    Crypto::SecureClearVector(g_state.oneTimePadMessage);
+    // Zero in place: ImGui needs the buffer size
+    SecureZeroMemory(g_state.oneTimePadMessage.data(),
+                     g_state.oneTimePadMessage.size());
   }
   if (!hasOutput)
     ImGui::EndDisabled();

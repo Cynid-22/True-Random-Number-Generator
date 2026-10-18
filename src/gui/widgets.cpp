@@ -10,3 +10,9 @@ void InlineDivider() {
   ImGui::TextDisabled("|");
   ImGui::SameLine();
 }
+
+void HelpMarker(const char *text) {
+  ImGui::SameLine();
+  ImGui::TextDisabled("(?)");
+  ImGui::SetItemTooltip("%s", text);
+}

@@ -17,3 +17,5 @@ inline constexpr ImVec4 StopButtonHovered(0.70f, 0.25f, 0.25f, 1.00f);
 float ComboWidthForText(float textWidth);
 
 void InlineDivider();
+
+void HelpMarker(const char *text);

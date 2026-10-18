@@ -23,6 +23,9 @@ namespace AppConfig {
     constexpr int UUIDV7_MAX_INCREMENT_BITS = 48;
     constexpr int UUIDV7_WARN_INCREMENT_BITS = 12;
 
+    constexpr int ONE_TIME_PAD_MIN_MESSAGE_LENGTH = 1;
+    constexpr int ONE_TIME_PAD_MAX_MESSAGE_LENGTH = INT_MAX;
+
     constexpr int PASSPHRASE_MIN_WORDS = 1;
     constexpr int PASSPHRASE_MAX_WORDS = 32767;
 

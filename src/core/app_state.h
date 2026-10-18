@@ -90,6 +90,7 @@ struct AppState {
     std::vector<char> oneTimePadMessage;
     std::vector<char> oneTimePadFilePath;
     long long oneTimePadFileSize = 0;
+    int oneTimePadMessageLength = 16;
     int oneTimePadInputMode = ONE_TIME_PAD_TEXT_INPUT;
 
     std::vector<char> generatedOutput;

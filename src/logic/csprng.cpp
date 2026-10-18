@@ -47,6 +47,8 @@ static std::string BuildLayerOneInfo(size_t byteCount, uint32_t attempt) {
     break;
   case FORMAT_ONE_TIME_PAD:
     info << "O:" << g_state.oneTimePadInputMode;
+    if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT)
+      info << "L:" << g_state.oneTimePadMessageLength;
     break;
   }
   if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)

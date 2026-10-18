@@ -84,6 +84,9 @@ static size_t CalculateBytesPerItem(int format) {
   case FORMAT_ONE_TIME_PAD:
     if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
       bytesPerItem = strlen(g_state.oneTimePadMessage.data()) * 2;
+    } else if (g_state.oneTimePadInputMode ==
+               ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
+      bytesPerItem = static_cast<size_t>(g_state.oneTimePadMessageLength) * 2;
     } else {
       bytesPerItem = static_cast<size_t>(g_state.oneTimePadFileSize);
     }
@@ -107,6 +110,12 @@ static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
   if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
     result.output = GenerateOneTimePadText(
         randomBytes, std::string(g_state.oneTimePadMessage.data()));
+    return true;
+  }
+
+  if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
+    result.output =
+        GenerateOneTimePadKey(randomBytes, g_state.oneTimePadMessageLength);
     return true;
   }
 

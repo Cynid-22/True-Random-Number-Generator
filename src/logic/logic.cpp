@@ -1,4 +1,5 @@
 #include "logic.h"
+#include "formats/one_time_pad_format.h"
 #include "formats/raw_data_format.h"
 #include "../logging/logger.h"
 #include "../core/app_state.h"
@@ -146,7 +147,11 @@ float CalculateRequiredEntropy() {
 
         case FORMAT_ONE_TIME_PAD:
             if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
-                bits = strlen(g_state.oneTimePadMessage.data()) * 8.0f;
+                bits = strlen(g_state.oneTimePadMessage.data()) *
+                       std::log2((double)CSPRNG::ONE_TIME_PAD_ALPHABET_SIZE);
+            } else if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
+                bits = g_state.oneTimePadMessageLength *
+                       std::log2((double)CSPRNG::ONE_TIME_PAD_ALPHABET_SIZE);
             } else {
                 bits = (float)g_state.oneTimePadFileSize * 8.0f;
             }
