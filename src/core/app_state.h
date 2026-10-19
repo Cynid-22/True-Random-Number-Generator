@@ -19,6 +19,21 @@
 #define APP_VERSION "dev"
 #endif
 
+struct OutputSetting {
+    std::string name;
+    std::string value;
+    bool isText;
+};
+
+struct GeneratedOutputDetails {
+    int format = FORMAT_DECIMAL;
+    std::string category;
+    std::string type;
+    std::vector<OutputSetting> settings;
+    std::string securityMode;
+    bool numberedItems = false;
+};
+
 struct AppState {
     AppState() {
         passphraseSeparator.assign(AppConfig::PASSPHRASE_SEPARATOR_MAX_BYTES, '\0');
@@ -106,6 +121,7 @@ struct AppState {
 
     std::vector<char> generatedOutput;
     std::vector<uint8_t> generatedBinaryOutput;
+    GeneratedOutputDetails generatedOutputDetails;
     std::string generatedAtText = "";
     std::string generationTimeText = "";
 
@@ -148,6 +164,7 @@ struct AppState {
     void wipeGeneratedOutput() {
         Crypto::SecureClearVector(generatedOutput);
         Crypto::SecureClearVector(generatedBinaryOutput);
+        generatedOutputDetails = GeneratedOutputDetails();
     }
 
     void wipeOneTimePadResult() {

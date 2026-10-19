@@ -57,7 +57,7 @@ Pick a category, then a type within it:
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
     - Message Length: a pad (key) of a given number of characters, without typing the message
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
-    - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
+    - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt, .csv or .json (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
 
 Every type except One-Time Pad can generate many items at once (**Quantity**), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...).
 
@@ -66,7 +66,33 @@ Every type except One-Time Pad can generate many items at once (**Quantity**), o
 File > Export Output (Ctrl+S) saves the output in the format picked under "Save as type":
 
 - **.txt**: the text as shown.
-- **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines.
+- **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines (layout below).
+- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column.
+- **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`.
+
+In .txt, .csv and .json, One-Time Pad File results are written as hex.
+
+```json
+{
+  "app": "TRNG",
+  "version": "1.0.3",
+  "category": "Identifiers",
+  "type": "UUID v4",
+  "settings": {
+    "quantity": 2,
+    "uppercase": false,
+    "hyphens": true
+  },
+  "securityMode": "TRUE RANDOMNESS",
+  "generatedAt": "2026-10-19 14:03:22 (UTC+0700)",
+  "items": [
+    "0f8e2c4a-6b1d-4e3f-9a7c-5d2b8e1f4a6c",
+    "7c3a9e5f-2d8b-4c1e-b6a4-9f0d3e7b2c5a"
+  ]
+}
+```
+
+Excel changes some values when it opens a CSV: numbers longer than 15 digits lose digits, leading zeros are dropped, and values starting with `=`, `+`, `-` or `@` are read as formulas. To keep them exact, import with Data > From Text/CSV and set the column type to Text.
 
 | Type | Each item in the .bin file |
 |------|----------------------------|
@@ -130,6 +156,7 @@ TRNG/
 │   │   ├── logic.h/.cpp      # Wordlist, entropy requirement and estimates
 │   │   ├── csprng.h/.cpp     # Random bytes from the entropy pool
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
+│   │   ├── output_export.h/.cpp     # CSV and JSON export
 │   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
 │   ├── crypto/               # SHA-512, HKDF, ChaCha20, AES-256, quad layer
 │   ├── entropy/              # Entropy collectors and pool

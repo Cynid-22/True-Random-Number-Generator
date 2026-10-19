@@ -2,6 +2,7 @@
 #include "../core/app_state.h"
 #include "../logging/logger.h"
 #include "../logic/logic.h"
+#include "../logic/output_export.h"
 #include "widgets.h"
 #include "../platform/unicode_path.h"
 #include "output/generation_task.h"
@@ -129,6 +130,12 @@ void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
   }
 }
 
+void WriteAndWipeExportFile(const wchar_t *filePath, std::vector<char> &content,
+                            const char *exportName) {
+  WriteExportFile(filePath, content.data(), content.size(), exportName);
+  Crypto::SecureClearVector(content);
+}
+
 void ExportWithSaveDialog(const std::wstring &defaultName,
                           const wchar_t *filter,
                           const wchar_t *defaultExtension, const char *data,
@@ -150,6 +157,8 @@ struct OutputFileTypeInfo {
 static constexpr OutputFileTypeInfo OUTPUT_FILE_TYPES[] = {
     {OutputFileType::Text, L"Text Files (*.txt)", L"txt"},
     {OutputFileType::Binary, L"Binary Files (*.bin)", L"bin"},
+    {OutputFileType::Csv, L"CSV Files (*.csv)", L"csv"},
+    {OutputFileType::Json, L"JSON Files (*.json)", L"json"},
 };
 
 static std::wstring BuildOutputFileFilter(size_t typeCount) {
@@ -222,24 +231,40 @@ static void ExportOutput() {
   }
 
   const std::vector<uint8_t> &binary = g_state.generatedBinaryOutput;
+  const bool isGeneratedResult = !binary.empty();
   std::wstring filePath;
   OutputFileType fileType = OutputFileType::Text;
-  if (!ChooseOutputFile(L"output.txt", binary.empty(), filePath, fileType))
+  if (!ChooseOutputFile(L"output.txt", !isGeneratedResult, filePath, fileType))
     return;
 
-  if (fileType == OutputFileType::Binary) {
+  const char *text = g_state.generatedOutput.data();
+  size_t textLength = g_state.generatedOutput.size();
+  if (textLength > 0 && g_state.generatedOutput.back() == '\0') {
+    textLength--;
+  }
+  const GeneratedOutputDetails &details = g_state.generatedOutputDetails;
+
+  switch (fileType) {
+  case OutputFileType::Text:
+    WriteExportFile(filePath.c_str(), text, textLength, "Output");
+    break;
+  case OutputFileType::Binary:
     WriteExportFile(filePath.c_str(),
                     reinterpret_cast<const char *>(binary.data()),
                     binary.size(), "Output as binary");
-    return;
+    break;
+  case OutputFileType::Csv: {
+    std::vector<char> csv = BuildOutputCsv(details, text, textLength);
+    WriteAndWipeExportFile(filePath.c_str(), csv, "Output as CSV");
+    break;
   }
-
-  size_t size = g_state.generatedOutput.size();
-  if (size > 0 && g_state.generatedOutput.back() == '\0') {
-    size--;
+  case OutputFileType::Json: {
+    std::vector<char> json =
+        BuildOutputJson(details, g_state.generatedAtText, text, textLength);
+    WriteAndWipeExportFile(filePath.c_str(), json, "Output as JSON");
+    break;
   }
-  WriteExportFile(filePath.c_str(), g_state.generatedOutput.data(), size,
-                  "Output");
+  }
 }
 
 static void ResetSettings() {

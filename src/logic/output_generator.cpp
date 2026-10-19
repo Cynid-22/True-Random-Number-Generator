@@ -20,19 +20,6 @@
 
 namespace CSPRNG {
 
-template <typename T>
-static void ReserveWithoutLeavingCopies(std::vector<T> &output,
-                                        size_t extraElements) {
-  size_t needed = output.size() + extraElements;
-  if (needed <= output.capacity())
-    return;
-  std::vector<T> larger;
-  larger.reserve(std::max(needed, output.capacity() * 2));
-  larger.insert(larger.end(), output.begin(), output.end());
-  Crypto::SecureClearVector(output);
-  output.swap(larger);
-}
-
 static void AppendListItem(std::vector<char> &output, size_t index,
                            size_t quantity, const std::vector<char> &item,
                            bool numbered, bool blankLine) {
@@ -43,10 +30,12 @@ static void AppendListItem(std::vector<char> &output, size_t index,
     size_t estimatedItemSize =
         item.size() + 2 + (numbered ? std::to_string(quantity).size() + 2 : 0);
     if (quantity <= (SIZE_MAX - 1) / estimatedItemSize)
-      ReserveWithoutLeavingCopies(output, estimatedItemSize * quantity + 1);
+      Crypto::ReserveWithoutLeavingCopies(output,
+                                          estimatedItemSize * quantity + 1);
   }
 
-  ReserveWithoutLeavingCopies(output, separatorLength + prefix.size() + item.size());
+  Crypto::ReserveWithoutLeavingCopies(
+      output, separatorLength + prefix.size() + item.size());
   if (index > 0) {
     output.push_back('\n');
     if (blankLine)
@@ -61,9 +50,10 @@ static void AppendBinaryItem(std::vector<uint8_t> &binaryOutput, size_t index,
                              const std::vector<uint8_t> &itemBinary) {
   if (index == 0 && !itemBinary.empty() &&
       quantity <= SIZE_MAX / itemBinary.size())
-    ReserveWithoutLeavingCopies(binaryOutput, itemBinary.size() * quantity);
+    Crypto::ReserveWithoutLeavingCopies(binaryOutput,
+                                        itemBinary.size() * quantity);
 
-  ReserveWithoutLeavingCopies(binaryOutput, itemBinary.size());
+  Crypto::ReserveWithoutLeavingCopies(binaryOutput, itemBinary.size());
   binaryOutput.insert(binaryOutput.end(), itemBinary.begin(), itemBinary.end());
 }
 
@@ -381,7 +371,7 @@ GenerationResult GenerateOutput(
     }
 
     if (result.oneTimePadResultMode == ONE_TIME_PAD_NO_RESULT) {
-      ReserveWithoutLeavingCopies(result.output, 1);
+      Crypto::ReserveWithoutLeavingCopies(result.output, 1);
       result.output.push_back('\0');
     }
 

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 inline constexpr wchar_t TEXT_FILE_FILTER[] =
     L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
@@ -13,13 +14,16 @@ void ExportWithSaveDialog(const std::wstring &defaultName,
                           const wchar_t *defaultExtension, const char *data,
                           size_t size, const char *exportName);
 
-enum class OutputFileType { Text, Binary };
+enum class OutputFileType { Text, Binary, Csv, Json };
 
 bool ChooseOutputFile(const std::wstring &defaultName, bool textOnly,
                       std::wstring &filePath, OutputFileType &fileType);
 
 void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
                      const char *exportName);
+
+void WriteAndWipeExportFile(const wchar_t *filePath, std::vector<char> &content,
+                            const char *exportName);
 
 void SetupNativeStyle();
 

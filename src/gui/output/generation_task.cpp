@@ -1,6 +1,8 @@
 #include "generation_task.h"
 #include "../../core/app_state.h"
 #include "../../logging/logger.h"
+#include "../../logic/output_export.h"
+#include "output_types.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -15,6 +17,7 @@ static CSPRNG::GenerationResult s_finishedResult;
 static long long s_finishedElapsedMs = 0;
 static time_t s_finishedAt = 0;
 static std::atomic<bool> s_resultReady{false};
+static GeneratedOutputDetails s_runningGenerationDetails;
 
 bool IsGenerationRunning() { return s_generationRunning.load(); }
 
@@ -45,7 +48,24 @@ void ShowOutputText(const std::string &text) {
   g_state.generationTimeText = "";
 }
 
+static GeneratedOutputDetails CaptureOutputDetails() {
+  int category = 0;
+  int type = 0;
+  FindCurrentOutputType(category, type);
+  const OutputCategory &outputCategory = GetOutputCategory(category);
+
+  GeneratedOutputDetails details;
+  details.format = g_state.outputFormat;
+  details.category = outputCategory.name;
+  details.type = outputCategory.types[type].name;
+  details.settings = CaptureOutputSettings();
+  details.numberedItems =
+      g_state.numberListItems && g_state.outputFormat != FORMAT_ONE_TIME_PAD;
+  return details;
+}
+
 void StartGeneration(CSPRNG::GenerationMode mode) {
+  s_runningGenerationDetails = CaptureOutputDetails();
   s_generationRunning.store(true);
   s_resultReady.store(false);
   g_state.cancelGenerationRequested = false;
@@ -101,6 +121,8 @@ void CollectFinishedGeneration() {
         (s_finishedResult.mode == CSPRNG::GenerationMode::Consolidation)
             ? "TRUE RANDOMNESS"
             : "PSEUDO-RANDOM";
+    g_state.generatedOutputDetails = std::move(s_runningGenerationDetails);
+    g_state.generatedOutputDetails.securityMode = modeName;
     Logger::Log(Logger::Level::INFO, "GUI",
                 "Generated output using %s mode, consumed %.1f bits",
                 modeName, s_finishedResult.entropyConsumed);

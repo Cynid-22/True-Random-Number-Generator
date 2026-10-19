@@ -1,6 +1,7 @@
 #include "one_time_pad_result.h"
 #include "../../core/app_state.h"
 #include "../../logic/formats/one_time_pad_format.h"
+#include "../../logic/output_export.h"
 #include "../../platform/unicode_path.h"
 #include "../gui.h"
 #include "../widgets.h"
@@ -114,9 +115,9 @@ static void RenderFileResult() {
   }
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::DimText);
   ImGui::TextWrapped("Both are raw binary files of %llu bytes, the same size "
-                     "as the original. Ctrl+S saves both in one file: .txt "
-                     "as hex, or .bin as the key followed by the "
-                     "ciphertext.",
+                     "as the original. Ctrl+S saves both in one file: .txt, "
+                     ".csv or .json as hex, or .bin as the key followed by "
+                     "the ciphertext.",
                      static_cast<unsigned long long>(length));
   ImGui::PopStyleColor();
 }
@@ -142,22 +143,43 @@ void ExportOneTimePadKeyAndCiphertext() {
   if (!ChooseOutputFile(defaultName, false, filePath, fileType))
     return;
 
-  if (fileType == OutputFileType::Binary) {
+  const char *key = g_state.oneTimePadKey.data();
+  const char *ciphertext = g_state.oneTimePadCiphertext.data();
+  const size_t length = KeyAndCiphertextLength();
+
+  switch (fileType) {
+  case OutputFileType::Text: {
+    std::vector<char> text = CSPRNG::BuildOneTimePadExportText(
+        key, ciphertext, length, fileMode, g_state.oneTimePadResultFileName);
+    WriteAndWipeExportFile(filePath.c_str(), text,
+                           "One-Time Pad key and ciphertext");
+    break;
+  }
+  case OutputFileType::Binary: {
     std::vector<uint8_t> binary = CSPRNG::BuildOneTimePadExportBinary(
-        g_state.oneTimePadKey.data(), g_state.oneTimePadCiphertext.data(),
-        KeyAndCiphertextLength(), fileMode);
+        key, ciphertext, length, fileMode);
     WriteExportFile(filePath.c_str(),
                     reinterpret_cast<const char *>(binary.data()),
                     binary.size(),
                     "One-Time Pad key and ciphertext as binary");
     Crypto::SecureClearVector(binary);
-    return;
+    break;
   }
-
-  std::vector<char> text = CSPRNG::BuildOneTimePadExportText(
-      g_state.oneTimePadKey.data(), g_state.oneTimePadCiphertext.data(),
-      KeyAndCiphertextLength(), fileMode, g_state.oneTimePadResultFileName);
-  WriteExportFile(filePath.c_str(), text.data(), text.size(),
-                  "One-Time Pad key and ciphertext");
-  Crypto::SecureClearVector(text);
+  case OutputFileType::Csv: {
+    std::vector<char> csv =
+        BuildOneTimePadCsv(key, ciphertext, length, fileMode);
+    WriteAndWipeExportFile(filePath.c_str(), csv,
+                           "One-Time Pad key and ciphertext as CSV");
+    break;
+  }
+  case OutputFileType::Json: {
+    std::vector<char> json =
+        BuildOneTimePadJson(g_state.generatedOutputDetails,
+                            g_state.generatedAtText, key, ciphertext, length,
+                            fileMode);
+    WriteAndWipeExportFile(filePath.c_str(), json,
+                           "One-Time Pad key and ciphertext as JSON");
+    break;
+  }
+  }
 }
