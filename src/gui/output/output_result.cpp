@@ -169,7 +169,7 @@ static void RenderCopyAndClearButtons() {
   if (!canClear)
     ImGui::BeginDisabled();
   if (ImGui::Button("Clear", ImVec2(80, 0))) {
-    Crypto::SecureClearVector(g_state.generatedOutput);
+    g_state.wipeGeneratedOutput();
     g_state.wipeOneTimePadResult();
     g_state.generatedAtText = "";
     g_state.generationTimeText = "";

@@ -57,9 +57,32 @@ Pick a category, then a type within it:
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
     - Message Length: a pad (key) of a given number of characters, without typing the message
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
-    - Export Output (Ctrl+S) saves the key and the ciphertext together in one .txt file (hex for files). Save the key: without it the ciphertext can't be decrypted
+    - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
 
 Every type except One-Time Pad can generate many items at once (**Quantity**), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...).
+
+### Exporting
+
+File > Export Output (Ctrl+S) saves the output in the format picked under "Save as type":
+
+- **.txt**: the text as shown.
+- **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines.
+
+| Type | Each item in the .bin file |
+|------|----------------------------|
+| Decimal | One byte per digit after `0.`, 0 to 9 |
+| Integer Range | 8-byte signed integer, little-endian |
+| Raw Data: Base 16, Base 32 (RFC 4648), Base 45, Base 64, Base 64 URL, Base 85 | The bytes the text encodes |
+| Raw Data: Base 2, Base 8, Base 32 Crockford | The bits the text shows, first bit in the high bit of the first byte, zero-padded to a whole byte |
+| Raw Data: Base 10, 12, 36, 58, 62 | One byte per digit: its position in the encoding's alphabet |
+| Random Characters | One byte per character: its position in the character set (the ticked groups in the order numbers, uppercase, lowercase, special; each group in ASCII order) |
+| Passphrase | 4 bytes per word, little-endian: its position in the word list (0 = first word) |
+| UUID v4 / v7 | The 16 bytes in RFC 9562 order |
+| One-Time Pad: Text | The key, then the ciphertext, one byte per character as 0-62 (0-9 = 0-9, A-Z = 10-35, a-z = 36-61, space = 62) |
+| One-Time Pad: Message Length | The key, one byte per character as 0-62 |
+| One-Time Pad: File | The key bytes, then the ciphertext bytes |
+
+When the output box shows an error or a cancelled generation, only .txt is offered.
 
 ---
 

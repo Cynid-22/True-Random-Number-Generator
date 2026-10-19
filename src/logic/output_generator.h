@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <set>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@ struct GenerationResult {
     bool success;
     bool cancelled;
     std::vector<char> output;
+    std::vector<uint8_t> binaryOutput;
     std::string errorMessage;
     GenerationMode mode;
     float entropyConsumed;

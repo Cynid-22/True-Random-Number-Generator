@@ -9,7 +9,9 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
                                            int length, bool includeNumbers,
                                            bool includeUppercase,
                                            bool includeLowercase,
-                                           bool includeSpecial) {
+                                           bool includeSpecial,
+                                           std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   std::string characterSet;
   if (includeNumbers)
     characterSet += "0123456789";
@@ -25,6 +27,7 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
 
   std::vector<char> result;
   result.reserve(length);
+  binaryValue.reserve(length);
 
   size_t characterSetSize = characterSet.size();
   const uint32_t acceptBelow =
@@ -51,6 +54,7 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
 
     if (!accepted) {
       SecureZeroMemory(result.data(), result.size());
+      Crypto::SecureClearVector(binaryValue);
       throw std::runtime_error(
           "Random Characters: too many random draws were rejected. Please "
           "try again.");
@@ -58,6 +62,7 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
 
     size_t characterIndex = draw % characterSetSize;
     result.push_back(characterSet[characterIndex]);
+    binaryValue.push_back(static_cast<uint8_t>(characterIndex));
   }
 
   return result;
@@ -66,8 +71,9 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
 std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
                                      int wordCount,
                                      const std::string &separator,
-                                     const std::vector<std::string> &wordList) {
-
+                                     const std::vector<std::string> &wordList,
+                                     std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   std::string error = "[Error: Wordlist not loaded]";
   if (wordList.empty() || randomBytes.empty() || wordCount <= 0) {
     return std::vector<char>(error.begin(), error.end());
@@ -82,6 +88,8 @@ std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
   const uint32_t acceptBelow =
       THREE_BYTE_DRAW_RANGE - (THREE_BYTE_DRAW_RANGE % wordListSize);
 
+  const size_t WORD_INDEX_BYTES = sizeof(uint32_t);
+  binaryValue.reserve(static_cast<size_t>(wordCount) * WORD_INDEX_BYTES);
   std::string result;
   size_t byteIndex = 0;
 
@@ -102,12 +110,17 @@ std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
         byteIndex += 3;
       } while (draw >= acceptBelow);
 
+      const uint32_t wordIndex = draw % wordListSize;
+      for (size_t b = 0; b < WORD_INDEX_BYTES; b++)
+        binaryValue.push_back(static_cast<uint8_t>(wordIndex >> (8 * b)));
+
       if (i > 0)
         result += separator;
-      result += wordList[draw % wordListSize];
+      result += wordList[wordIndex];
     }
   } catch (...) {
     SecureZeroMemory(result.data(), result.size());
+    Crypto::SecureClearVector(binaryValue);
     throw;
   }
 

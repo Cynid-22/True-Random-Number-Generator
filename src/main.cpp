@@ -173,9 +173,10 @@ static void RenderMainWindow(ImGuiIO& io) {
     ImGui::End();
 }
 
-static void WipeAndRelease(std::vector<char>& buffer) {
+template <typename T>
+static void WipeAndRelease(std::vector<T>& buffer) {
     if (!buffer.empty()) {
-        SecureZeroMemory(buffer.data(), buffer.size());
+        SecureZeroMemory(buffer.data(), buffer.size() * sizeof(T));
         buffer.clear();
         buffer.shrink_to_fit();
     }
@@ -189,6 +190,7 @@ static void WipeSensitiveState() {
     g_state.wipeOneTimePadResult();
 
     WipeAndRelease(g_state.generatedOutput);
+    WipeAndRelease(g_state.generatedBinaryOutput);
 
     WipeAndRelease(g_state.keystrokePreview);
 

@@ -37,7 +37,7 @@ static std::string FormatElapsedTime(long long totalMilliseconds) {
 }
 
 void ShowOutputText(const std::string &text) {
-  Crypto::SecureClearVector(g_state.generatedOutput);
+  g_state.wipeGeneratedOutput();
   g_state.wipeOneTimePadResult();
   g_state.generatedOutput = std::vector<char>(text.begin(), text.end());
   g_state.generatedOutput.push_back('\0');
@@ -77,7 +77,7 @@ void CollectFinishedGeneration() {
   std::lock_guard<std::mutex> lock(s_finishedResultMutex);
 
   if (s_finishedResult.success) {
-    Crypto::SecureClearVector(g_state.generatedOutput);
+    g_state.wipeGeneratedOutput();
     g_state.wipeOneTimePadResult();
     if (s_finishedResult.oneTimePadResultMode != ONE_TIME_PAD_NO_RESULT) {
       g_state.oneTimePadResultMode = s_finishedResult.oneTimePadResultMode;
@@ -88,6 +88,7 @@ void CollectFinishedGeneration() {
           std::move(s_finishedResult.oneTimePadFileName);
     } else {
       g_state.generatedOutput = std::move(s_finishedResult.output);
+      g_state.generatedBinaryOutput = std::move(s_finishedResult.binaryOutput);
     }
 
     char generatedAt[64];

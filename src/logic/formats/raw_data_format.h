@@ -41,6 +41,7 @@ std::vector<char> GenerateRawData(
     int unit,
     int encoding,
     int groupSize,
-    bool uppercase);
+    bool uppercase,
+    std::vector<uint8_t> &binaryValue);
 
 }

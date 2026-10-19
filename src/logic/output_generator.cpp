@@ -20,12 +20,13 @@
 
 namespace CSPRNG {
 
-static void ReserveWithoutLeavingCopies(std::vector<char> &output,
-                                        size_t extraBytes) {
-  size_t needed = output.size() + extraBytes;
+template <typename T>
+static void ReserveWithoutLeavingCopies(std::vector<T> &output,
+                                        size_t extraElements) {
+  size_t needed = output.size() + extraElements;
   if (needed <= output.capacity())
     return;
-  std::vector<char> larger;
+  std::vector<T> larger;
   larger.reserve(std::max(needed, output.capacity() * 2));
   larger.insert(larger.end(), output.begin(), output.end());
   Crypto::SecureClearVector(output);
@@ -53,6 +54,17 @@ static void AppendListItem(std::vector<char> &output, size_t index,
   }
   output.insert(output.end(), prefix.begin(), prefix.end());
   output.insert(output.end(), item.begin(), item.end());
+}
+
+static void AppendBinaryItem(std::vector<uint8_t> &binaryOutput, size_t index,
+                             size_t quantity,
+                             const std::vector<uint8_t> &itemBinary) {
+  if (index == 0 && !itemBinary.empty() &&
+      quantity <= SIZE_MAX / itemBinary.size())
+    ReserveWithoutLeavingCopies(binaryOutput, itemBinary.size() * quantity);
+
+  ReserveWithoutLeavingCopies(binaryOutput, itemBinary.size());
+  binaryOutput.insert(binaryOutput.end(), itemBinary.begin(), itemBinary.end());
 }
 
 static size_t CalculateBytesPerItem(int format) {
@@ -171,6 +183,8 @@ static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
                             "exhausted). Please retry.";
       return false;
     }
+    result.binaryOutput =
+        OneTimePadValues(result.output.data(), result.output.size());
     return true;
   }
 
@@ -205,16 +219,17 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
     itemBytes.assign(randomBytes.begin() + i * bytesPerItem,
                      randomBytes.begin() + (i + 1) * bytesPerItem);
     std::vector<char> item;
+    std::vector<uint8_t> itemBinary;
 
     switch (format) {
     case FORMAT_DECIMAL:
-      item = GenerateDecimal(itemBytes, g_state.decimalDigits);
+      item = GenerateDecimal(itemBytes, g_state.decimalDigits, itemBinary);
       break;
 
     case FORMAT_INTEGER: {
       bool allDrawsRejected = false;
       item = GenerateInteger(itemBytes, g_state.integerMin,
-                             g_state.integerMax, allDrawsRejected);
+                             g_state.integerMax, allDrawsRejected, itemBinary);
 
       for (unsigned retry = 1;
            allDrawsRejected && retry <= AppConfig::INTEGER_MAX_RETRIES; retry++) {
@@ -226,7 +241,8 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
         Crypto::SecureClearVector(itemBytes);
         itemBytes = GenerateRandomBytes(pooledData, bytesPerItem, attempt);
         item = GenerateInteger(itemBytes, g_state.integerMin,
-                               g_state.integerMax, allDrawsRejected);
+                               g_state.integerMax, allDrawsRejected,
+                               itemBinary);
       }
 
       if (allDrawsRejected) {
@@ -243,7 +259,7 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
                                       g_state.includeNumbers,
                                       g_state.includeUppercase,
                                       g_state.includeLowercase,
-                                      g_state.includeSpecial);
+                                      g_state.includeSpecial, itemBinary);
       break;
 
     case FORMAT_RAW_DATA: {
@@ -253,29 +269,33 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
       item = GenerateRawData(itemBytes, g_state.rawDataAmount,
                              g_state.rawDataUnit, encoding,
                              grouped ? g_state.rawDataGroupSize[encoding] : 0,
-                             validEncoding && g_state.rawDataUppercase[encoding]);
+                             validEncoding && g_state.rawDataUppercase[encoding],
+                             itemBinary);
       break;
     }
 
     case FORMAT_PASSPHRASE:
       item = GeneratePassphrase(itemBytes, g_state.passphraseWordCount,
-                                separator, g_state.cachedWordList);
+                                separator, g_state.cachedWordList, itemBinary);
       break;
 
     case FORMAT_UUID_V4:
       item = GenerateUUIDv4(itemBytes, g_state.uuidUppercase,
-                            g_state.uuidHyphens);
+                            g_state.uuidHyphens, itemBinary);
       break;
 
     case FORMAT_UUID_V7:
       item = GenerateUUIDv7(itemBytes, g_state.uuidUppercase,
-                            g_state.uuidHyphens, uuidV7Options, uuidV7State);
+                            g_state.uuidHyphens, uuidV7Options, uuidV7State,
+                            itemBinary);
       break;
     }
 
     AppendListItem(result.output, i, quantity, item, g_state.numberListItems,
                    g_state.blankLineBetweenItems);
+    AppendBinaryItem(result.binaryOutput, i, quantity, itemBinary);
     Crypto::SecureClearVector(item);
+    Crypto::SecureClearVector(itemBinary);
   }
   return true;
 }
@@ -341,6 +361,7 @@ GenerationResult GenerateOutput(
     Crypto::SecureClearVector(itemBytes);
     Crypto::SecureClearVector(pooledData);
     Crypto::SecureClearVector(result.output);
+    Crypto::SecureClearVector(result.binaryOutput);
     Crypto::SecureClearVector(result.oneTimePadKey);
     Crypto::SecureClearVector(result.oneTimePadCiphertext);
     result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;

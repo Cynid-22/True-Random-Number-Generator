@@ -114,8 +114,9 @@ static void RenderFileResult() {
   }
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::DimText);
   ImGui::TextWrapped("Both are raw binary files of %llu bytes, the same size "
-                     "as the original. Ctrl+S saves both in one .txt file as "
-                     "hex.",
+                     "as the original. Ctrl+S saves both in one file: .txt "
+                     "as hex, or .bin as the key followed by the "
+                     "ciphertext.",
                      static_cast<unsigned long long>(length));
   ImGui::PopStyleColor();
 }
@@ -132,14 +133,31 @@ void ExportOneTimePadKeyAndCiphertext() {
     return;
 
   const bool fileMode = IsFileResult();
-  std::vector<char> text = CSPRNG::BuildOneTimePadExportText(
-      g_state.oneTimePadKey.data(), g_state.oneTimePadCiphertext.data(),
-      KeyAndCiphertextLength(), fileMode, g_state.oneTimePadResultFileName);
   const std::wstring defaultName =
       fileMode ? ResultFileNameWithoutExtension() +
                      L"_otp_key_and_ciphertext.txt"
                : std::wstring(L"otp_key_and_ciphertext.txt");
-  ExportWithSaveDialog(defaultName, TEXT_FILE_FILTER, L"txt", text.data(),
-                       text.size(), "One-Time Pad key and ciphertext");
+  std::wstring filePath;
+  OutputFileType fileType = OutputFileType::Text;
+  if (!ChooseOutputFile(defaultName, false, filePath, fileType))
+    return;
+
+  if (fileType == OutputFileType::Binary) {
+    std::vector<uint8_t> binary = CSPRNG::BuildOneTimePadExportBinary(
+        g_state.oneTimePadKey.data(), g_state.oneTimePadCiphertext.data(),
+        KeyAndCiphertextLength(), fileMode);
+    WriteExportFile(filePath.c_str(),
+                    reinterpret_cast<const char *>(binary.data()),
+                    binary.size(),
+                    "One-Time Pad key and ciphertext as binary");
+    Crypto::SecureClearVector(binary);
+    return;
+  }
+
+  std::vector<char> text = CSPRNG::BuildOneTimePadExportText(
+      g_state.oneTimePadKey.data(), g_state.oneTimePadCiphertext.data(),
+      KeyAndCiphertextLength(), fileMode, g_state.oneTimePadResultFileName);
+  WriteExportFile(filePath.c_str(), text.data(), text.size(),
+                  "One-Time Pad key and ciphertext");
   Crypto::SecureClearVector(text);
 }

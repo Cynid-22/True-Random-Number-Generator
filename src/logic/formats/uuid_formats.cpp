@@ -22,7 +22,9 @@ static std::vector<char> FormatUuidText(const uint8_t uuidBytes[16],
 }
 
 std::vector<char> GenerateUUIDv4(const std::vector<uint8_t> &randomBytes,
-                                 bool uppercase, bool hyphens) {
+                                 bool uppercase, bool hyphens,
+                                 std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   if (randomBytes.size() < 16)
     return {};
 
@@ -33,6 +35,7 @@ std::vector<char> GenerateUUIDv4(const std::vector<uint8_t> &randomBytes,
   uuidBytes[8] = static_cast<uint8_t>((uuidBytes[8] & 0x3F) | 0x80);
 
   std::vector<char> result = FormatUuidText(uuidBytes, uppercase, hyphens);
+  binaryValue.assign(uuidBytes, uuidBytes + sizeof(uuidBytes));
   SecureZeroMemory(uuidBytes, sizeof(uuidBytes));
   return result;
 }
@@ -40,7 +43,9 @@ std::vector<char> GenerateUUIDv4(const std::vector<uint8_t> &randomBytes,
 std::vector<char> GenerateUUIDv7(const std::vector<uint8_t> &randomBytes,
                                  bool uppercase, bool hyphens,
                                  const UUIDv7Options &options,
-                                 UUIDv7State &state) {
+                                 UUIDv7State &state,
+                                 std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   if (randomBytes.size() < 16)
     return {};
 
@@ -141,6 +146,7 @@ std::vector<char> GenerateUUIDv7(const std::vector<uint8_t> &randomBytes,
     uuidBytes[i] = static_cast<uint8_t>(randB >> (8 * (15 - i)));
 
   std::vector<char> result = FormatUuidText(uuidBytes, uppercase, hyphens);
+  binaryValue.assign(uuidBytes, uuidBytes + sizeof(uuidBytes));
   SecureZeroMemory(uuidBytes, sizeof(uuidBytes));
   return result;
 }

@@ -187,4 +187,30 @@ std::vector<char> BuildOneTimePadExportText(const char *key,
   return output;
 }
 
+static void AppendAsBytesOrValues(std::vector<uint8_t> &output,
+                                  const char *data, size_t length,
+                                  bool fileMode) {
+  for (size_t i = 0; i < length; i++)
+    output.push_back(fileMode ? static_cast<uint8_t>(data[i])
+                              : static_cast<uint8_t>(
+                                    OneTimePadAlphabetIndex(data[i])));
+}
+
+std::vector<uint8_t> OneTimePadValues(const char *text, size_t length) {
+  std::vector<uint8_t> values;
+  values.reserve(length);
+  AppendAsBytesOrValues(values, text, length, false);
+  return values;
+}
+
+std::vector<uint8_t> BuildOneTimePadExportBinary(const char *key,
+                                                 const char *ciphertext,
+                                                 size_t length, bool fileMode) {
+  std::vector<uint8_t> output;
+  output.reserve(length * 2);
+  AppendAsBytesOrValues(output, key, length, fileMode);
+  AppendAsBytesOrValues(output, ciphertext, length, fileMode);
+  return output;
+}
+
 }

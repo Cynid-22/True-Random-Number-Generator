@@ -5,8 +5,6 @@
 
 inline constexpr wchar_t TEXT_FILE_FILTER[] =
     L"Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0";
-inline constexpr wchar_t OUTPUT_FILE_FILTER[] =
-    L"Text Files (*.txt)\0*.txt\0Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0";
 inline constexpr wchar_t BINARY_FILE_FILTER[] =
     L"Binary Files (*.bin)\0*.bin\0All Files (*.*)\0*.*\0";
 
@@ -14,6 +12,14 @@ void ExportWithSaveDialog(const std::wstring &defaultName,
                           const wchar_t *filter,
                           const wchar_t *defaultExtension, const char *data,
                           size_t size, const char *exportName);
+
+enum class OutputFileType { Text, Binary };
+
+bool ChooseOutputFile(const std::wstring &defaultName, bool textOnly,
+                      std::wstring &filePath, OutputFileType &fileType);
+
+void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
+                     const char *exportName);
 
 void SetupNativeStyle();
 

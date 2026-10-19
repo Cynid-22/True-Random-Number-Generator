@@ -38,4 +38,10 @@ std::vector<char> BuildOneTimePadExportText(const char *key,
                                             size_t length, bool fileMode,
                                             const std::string &fileName);
 
+std::vector<uint8_t> OneTimePadValues(const char *text, size_t length);
+
+std::vector<uint8_t> BuildOneTimePadExportBinary(const char *key,
+                                                 const char *ciphertext,
+                                                 size_t length, bool fileMode);
+
 }

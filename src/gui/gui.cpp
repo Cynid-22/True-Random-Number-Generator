@@ -10,6 +10,7 @@
 #include "imgui.h"
 #include <cstdio>
 #include <cwchar>
+#include <iterator>
 #include <sstream>
 #include <windows.h>
 #include <commdlg.h>
@@ -102,9 +103,9 @@ void SetupNativeStyle() {
 
 static constexpr DWORD SAVE_PATH_MAX_CHARS = 1024;
 
-static bool ShowSaveFileDialog(wchar_t *filePath, const wchar_t *filter,
+static bool ShowSaveFileDialog(OPENFILENAMEW &dialog, wchar_t *filePath,
+                               const wchar_t *filter,
                                const wchar_t *defaultExtension) {
-  OPENFILENAMEW dialog;
   ZeroMemory(&dialog, sizeof(dialog));
   dialog.lStructSize = sizeof(dialog);
   dialog.lpstrFilter = filter;
@@ -115,15 +116,8 @@ static bool ShowSaveFileDialog(wchar_t *filePath, const wchar_t *filter,
   return GetSaveFileNameW(&dialog);
 }
 
-void ExportWithSaveDialog(const std::wstring &defaultName,
-                          const wchar_t *filter,
-                          const wchar_t *defaultExtension, const char *data,
-                          size_t size, const char *exportName) {
-  wchar_t filePath[SAVE_PATH_MAX_CHARS] = {0};
-  wcsncpy(filePath, defaultName.c_str(), SAVE_PATH_MAX_CHARS - 1);
-  if (!ShowSaveFileDialog(filePath, filter, defaultExtension))
-    return;
-
+void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
+                     const char *exportName) {
   std::string logPath = Platform::WideToUtf8(filePath);
   if (Platform::WriteWholeFile(filePath, data, size)) {
     Logger::Log(Logger::Level::INFO, "GUI", "%s exported to %s", exportName,
@@ -133,6 +127,73 @@ void ExportWithSaveDialog(const std::wstring &defaultName,
                 "Failed to export %s to %s. Error code: %lu", exportName,
                 logPath.c_str(), GetLastError());
   }
+}
+
+void ExportWithSaveDialog(const std::wstring &defaultName,
+                          const wchar_t *filter,
+                          const wchar_t *defaultExtension, const char *data,
+                          size_t size, const char *exportName) {
+  wchar_t filePath[SAVE_PATH_MAX_CHARS] = {0};
+  wcsncpy(filePath, defaultName.c_str(), SAVE_PATH_MAX_CHARS - 1);
+  OPENFILENAMEW dialog;
+  if (!ShowSaveFileDialog(dialog, filePath, filter, defaultExtension))
+    return;
+  WriteExportFile(filePath, data, size, exportName);
+}
+
+struct OutputFileTypeInfo {
+  OutputFileType type;
+  const wchar_t *filterName;
+  const wchar_t *extension;
+};
+
+static constexpr OutputFileTypeInfo OUTPUT_FILE_TYPES[] = {
+    {OutputFileType::Text, L"Text Files (*.txt)", L"txt"},
+    {OutputFileType::Binary, L"Binary Files (*.bin)", L"bin"},
+};
+
+static std::wstring BuildOutputFileFilter(size_t typeCount) {
+  std::wstring filter;
+  for (size_t i = 0; i < typeCount; i++) {
+    filter += OUTPUT_FILE_TYPES[i].filterName;
+    filter += L'\0';
+    filter += L"*.";
+    filter += OUTPUT_FILE_TYPES[i].extension;
+    filter += L'\0';
+  }
+  filter += L"All Files (*.*)";
+  filter += L'\0';
+  filter += L"*.*";
+  filter += L'\0';
+  return filter;
+}
+
+static OutputFileType OutputFileTypeOf(const wchar_t *extension,
+                                       DWORD filterIndex, size_t typeCount) {
+  for (size_t i = 0; i < typeCount; i++) {
+    if (_wcsicmp(extension, OUTPUT_FILE_TYPES[i].extension) == 0)
+      return OUTPUT_FILE_TYPES[i].type;
+  }
+  if (filterIndex >= 1 && filterIndex <= typeCount)
+    return OUTPUT_FILE_TYPES[filterIndex - 1].type;
+  return OutputFileType::Text;
+}
+
+bool ChooseOutputFile(const std::wstring &defaultName, bool textOnly,
+                      std::wstring &filePath, OutputFileType &fileType) {
+  const size_t typeCount = textOnly ? 1 : std::size(OUTPUT_FILE_TYPES);
+  const std::wstring filter = BuildOutputFileFilter(typeCount);
+  wchar_t chosenPath[SAVE_PATH_MAX_CHARS] = {0};
+  wcsncpy(chosenPath, defaultName.c_str(), SAVE_PATH_MAX_CHARS - 1);
+  OPENFILENAMEW dialog;
+  if (!ShowSaveFileDialog(dialog, chosenPath, filter.c_str(),
+                          OUTPUT_FILE_TYPES[0].extension))
+    return false;
+
+  filePath = chosenPath;
+  fileType = OutputFileTypeOf(chosenPath + dialog.nFileExtension,
+                              dialog.nFilterIndex, typeCount);
+  return true;
 }
 
 static void ExportSettings() {
@@ -160,12 +221,25 @@ static void ExportOutput() {
     return;
   }
 
+  const std::vector<uint8_t> &binary = g_state.generatedBinaryOutput;
+  std::wstring filePath;
+  OutputFileType fileType = OutputFileType::Text;
+  if (!ChooseOutputFile(L"output.txt", binary.empty(), filePath, fileType))
+    return;
+
+  if (fileType == OutputFileType::Binary) {
+    WriteExportFile(filePath.c_str(),
+                    reinterpret_cast<const char *>(binary.data()),
+                    binary.size(), "Output as binary");
+    return;
+  }
+
   size_t size = g_state.generatedOutput.size();
   if (size > 0 && g_state.generatedOutput.back() == '\0') {
     size--;
   }
-  ExportWithSaveDialog(L"output.txt", OUTPUT_FILE_FILTER, L"txt",
-                       g_state.generatedOutput.data(), size, "Output");
+  WriteExportFile(filePath.c_str(), g_state.generatedOutput.data(), size,
+                  "Output");
 }
 
 static void ResetSettings() {

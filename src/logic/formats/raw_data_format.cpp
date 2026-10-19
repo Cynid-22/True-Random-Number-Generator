@@ -239,10 +239,12 @@ static void WriteBase85(GroupedCharacterWriter &writer,
 
 static void WriteRandomDigits(GroupedCharacterWriter &writer,
                               const std::vector<uint8_t> &randomBytes,
-                              const RawDataLayout &layout, const char *alphabet) {
+                              const RawDataLayout &layout, const char *alphabet,
+                              std::vector<uint8_t> &digitValues) {
   const unsigned radix = static_cast<unsigned>(strlen(alphabet));
   const unsigned acceptBelow = 256 - 256 % radix;
   uint64_t byteIndex = 0;
+  digitValues.reserve(layout.characterCount);
   for (uint64_t c = 0; c < layout.characterCount; c++) {
     unsigned draw;
     do {
@@ -253,12 +255,26 @@ static void WriteRandomDigits(GroupedCharacterWriter &writer,
       draw = randomBytes[byteIndex++];
     } while (draw >= acceptBelow);
     writer.Write(alphabet[draw % radix]);
+    digitValues.push_back(static_cast<uint8_t>(draw % radix));
   }
+}
+
+static void CopyShownBitsAsBytes(const std::vector<uint8_t> &randomBytes,
+                                 const RawDataLayout &layout,
+                                 std::vector<uint8_t> &binaryValue) {
+  binaryValue.assign(randomBytes.begin(),
+                     randomBytes.begin() + layout.randomByteCount);
+  const uint64_t paddingBitCount =
+      layout.randomByteCount * 8 - static_cast<uint64_t>(layout.bitsCarried);
+  if (paddingBitCount > 0)
+    binaryValue.back() &= static_cast<uint8_t>(0xFFu << paddingBitCount);
 }
 
 std::vector<char> GenerateRawData(const std::vector<uint8_t> &randomBytes,
                                   int amount, int unit, int encoding,
-                                  int groupSize, bool uppercase) {
+                                  int groupSize, bool uppercase,
+                                  std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   if (encoding < 0 || encoding >= RAW_ENCODING_COUNT)
     encoding = RAW_HEX;
 
@@ -286,12 +302,15 @@ std::vector<char> GenerateRawData(const std::vector<uint8_t> &randomBytes,
     else if (encoding == RAW_BASE85)
       WriteBase85(writer, randomBytes, layout, alphabet);
     else
-      WriteRandomDigits(writer, randomBytes, layout, alphabet);
+      WriteRandomDigits(writer, randomBytes, layout, alphabet, binaryValue);
   } catch (...) {
     Crypto::SecureClearVector(output);
+    Crypto::SecureClearVector(binaryValue);
     throw;
   }
 
+  if (!layout.usesRandomDigits)
+    CopyShownBitsAsBytes(randomBytes, layout, binaryValue);
   return output;
 }
 

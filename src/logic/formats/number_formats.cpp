@@ -9,11 +9,15 @@
 namespace CSPRNG {
 
 std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
-                                  int digitCount) {
+                                  int digitCount,
+                                  std::vector<uint8_t> &binaryValue) {
+  binaryValue.clear();
   if (randomBytes.empty() || digitCount <= 0) {
+    binaryValue.push_back(0);
     std::string text = "0.0";
     return std::vector<char>(text.begin(), text.end());
   }
+  binaryValue.reserve(static_cast<size_t>(digitCount));
 
   std::ostringstream stream;
   stream << "0.";
@@ -39,12 +43,15 @@ std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
       }
     }
 
-    if (!accepted)
+    if (!accepted) {
+      Crypto::SecureClearVector(binaryValue);
       throw std::runtime_error(
           "Decimal: too many random draws were rejected. Please try again.");
+    }
 
     int digit = draw % 10;
     stream << digit;
+    binaryValue.push_back(static_cast<uint8_t>(digit));
   }
 
   std::string text = stream.str();
@@ -55,8 +62,10 @@ std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
 
 std::vector<char> GenerateInteger(const std::vector<uint8_t> &randomBytes,
                                   int64_t min, int64_t max,
-                                  bool &allDrawsRejected) {
+                                  bool &allDrawsRejected,
+                                  std::vector<uint8_t> &binaryValue) {
   allDrawsRejected = false;
+  binaryValue.clear();
   if (min > max)
     std::swap(min, max);
 
@@ -88,6 +97,11 @@ std::vector<char> GenerateInteger(const std::vector<uint8_t> &randomBytes,
 
   uint64_t offset = fullRange ? draw : draw % range;
   int64_t value = static_cast<int64_t>(static_cast<uint64_t>(min) + offset);
+
+  const uint64_t valueBits = static_cast<uint64_t>(value);
+  binaryValue.resize(sizeof(value));
+  for (size_t i = 0; i < sizeof(value); i++)
+    binaryValue[i] = static_cast<uint8_t>(valueBits >> (8 * i));
 
   std::string text = std::to_string(value);
   std::vector<char> result(text.begin(), text.end());

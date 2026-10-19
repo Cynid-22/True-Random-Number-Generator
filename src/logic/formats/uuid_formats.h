@@ -7,7 +7,8 @@ namespace CSPRNG {
 std::vector<char> GenerateUUIDv4(
     const std::vector<uint8_t> &randomBytes,
     bool uppercase,
-    bool hyphens);
+    bool hyphens,
+    std::vector<uint8_t> &binaryValue);
 
 struct UUIDv7Options {
     int ordering = 0;
@@ -28,6 +29,7 @@ std::vector<char> GenerateUUIDv7(
     bool uppercase,
     bool hyphens,
     const UUIDv7Options &options,
-    UUIDv7State &state);
+    UUIDv7State &state,
+    std::vector<uint8_t> &binaryValue);
 
 }

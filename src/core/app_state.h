@@ -105,6 +105,7 @@ struct AppState {
     std::string oneTimePadResultFileName;
 
     std::vector<char> generatedOutput;
+    std::vector<uint8_t> generatedBinaryOutput;
     std::string generatedAtText = "";
     std::string generationTimeText = "";
 
@@ -144,6 +145,11 @@ struct AppState {
         return oneTimePadResultMode != ONE_TIME_PAD_NO_RESULT;
     }
 
+    void wipeGeneratedOutput() {
+        Crypto::SecureClearVector(generatedOutput);
+        Crypto::SecureClearVector(generatedBinaryOutput);
+    }
+
     void wipeOneTimePadResult() {
         Crypto::SecureClearVector(oneTimePadKey);
         Crypto::SecureClearVector(oneTimePadCiphertext);
@@ -152,9 +158,7 @@ struct AppState {
     }
 
     ~AppState() {
-        if (!generatedOutput.empty()) {
-            Crypto::SecureClearVector(generatedOutput);
-        }
+        wipeGeneratedOutput();
         Crypto::SecureClearVector(oneTimePadMessage);
         Crypto::SecureClearVector(passphraseSeparator);
         wipeOneTimePadResult();
