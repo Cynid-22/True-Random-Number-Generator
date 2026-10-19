@@ -4,7 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
-| Latest  | ✅        |
+| Latest  | Yes       |
 
 ## Reporting a Vulnerability
 
@@ -37,7 +37,7 @@ This application implements the following security measures:
 - **HKDF** (RFC 5869) for key derivation
 - **ChaCha20** (RFC 8439) for stream generation
 - **AES-256-CTR** (FIPS 197) for block transformation
-- Quad-layer pipeline validated against **NIST SP 800-22** (all 15 tests passed)
+- Quad-layer pipeline tested with **NIST SP 800-22** (8000 streams): 13 of 15 tests passed cleanly; FFT and Universal passed only marginally (their P-values passed, but their pass counts, 7886 and 7892 of 8000, were just under the strict bound of 7893). See the README for the full results
 
 ### Memory Security
 - `SecureZeroMemory` used for all sensitive buffers

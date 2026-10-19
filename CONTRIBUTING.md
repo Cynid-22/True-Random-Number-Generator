@@ -27,7 +27,8 @@ Thank you for your interest in contributing! This project deals with cryptograph
 ### Code Style
 - Use 4-space indentation
 - Follow existing naming conventions (`camelCase` for variables, `PascalCase` for classes/functions)
-- Include comments for non-obvious logic
+- Keep comments to a minimum: clear names and named constants should explain the code
+- Comment only a non-obvious reason that no name can express, in one short line
 
 ### Security Requirements
 

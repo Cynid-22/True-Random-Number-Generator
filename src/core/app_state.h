@@ -24,6 +24,7 @@ struct AppState {
         passphraseSeparator[0] = '-';
         oneTimePadMessage.assign(AppConfig::ONE_TIME_PAD_MESSAGE_MAX_BYTES, '\0');
         oneTimePadFilePath.assign(AppConfig::ONE_TIME_PAD_FILE_PATH_MAX_BYTES, '\0');
+        keystrokePreview.reserve(AppConfig::KEYSTROKE_PREVIEW_MAX_CHARACTERS);
     }
 
     Entropy::ClockDriftCollector clockDriftCollector;

@@ -98,7 +98,7 @@ static void RenderMouseSource() {
         "Records X/Y coordinates and precise timestamps (nanoseconds) of mouse "
         "movements. "
         "Your physical motor noise creates unpredictable patterns. "
-        "Small movements (<3 pixels) are filtered to avoid sensor drift.");
+        "Small movements (under 2 pixels) are filtered to avoid sensor drift.");
   }
   RenderSourceToggle("Include Mouse in Final Calculation",
                      &g_state.mouseMovementEnabled, "Mouse");

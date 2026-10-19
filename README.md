@@ -2,7 +2,7 @@
 
 A desktop application for generating cryptographically secure random numbers using multiple hardware entropy sources. Built with C++ and Dear ImGui for Windows.
 
-**Platinum-Standard Validation**: Passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand**, and **TestU01**, achieving Information Theoretic minimum entropy guarantees under **NIST SP 800-90B**. [Scroll down for detailed statistical results](#statistical-validation-results).
+**Platinum-Standard Validation**: Passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand**, and **TestU01**, with ~7.36 - 7.53/8.0 min-entropy under **NIST SP 800-90B**. [Scroll down for detailed statistical results](#statistical-validation-results).
 
 ---
 
@@ -11,7 +11,7 @@ A desktop application for generating cryptographically secure random numbers usi
 TRNG collects entropy from physical and system sources to generate high-quality random output. Unlike pseudo-random number generators that rely on deterministic algorithms, TRNG harvests genuine randomness from hardware imperfections, user behavior, and operating system chaos.
 
 The application supports two security modes:
-- **TRUE RANDOMNESS (Consolidation)**: When collected entropy exceeds the output requirement, raw data is condensed using cryptographic hashing. This provides Information Theoretic Security.
+- **TRUE RANDOMNESS (Consolidation)**: When collected entropy is at least the output size, the raw data is condensed into the output by the cryptographic pipeline. Security is computational, from that pipeline: TRUE RANDOMNESS means the output is backed by at least as much collected entropy as it has bits, not that it is information-theoretically secure.
 - **PSEUDO-RANDOM (Expansion)**: When collected entropy is less than required, a CSPRNG (ChaCha20) is seeded via HKDF to expand the available entropy. This provides Computational Security.
 
 ---
@@ -42,7 +42,7 @@ Pick a category, then a type within it:
 - **Numbers**
   - Decimal (0.0 - 1.0)
   - Integer Range (custom min/max)
-- **Raw Data** (amount in bits or bytes, optional space every N characters; letter case follows each standard: uppercase for Hex, Base 32, Crockford Base 32 and Base 45; lowercase for Base 12 and Base 36, which no standard defines; either can be switched with Uppercase)
+- **Raw Data** (amount in bits or bytes, optional space every N characters; letters default to the case each standard uses: uppercase for Hex, Base 32, Crockford Base 32 and Base 45. No standard defines a case for Base 12 or Base 36, so they default to lowercase. The Uppercase checkbox switches any of them)
   - Base 2 (Binary), Base 8 (Octal), Base 32 Crockford: exact bits
   - Base 16 (Hexadecimal), Base 32 (RFC 4648), Base 45 (RFC 9285), Base 64, Base 64 URL, Base 85 (RFC 1924 alphabet): standard encodings of whole bytes
   - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
@@ -50,7 +50,7 @@ Pick a category, then a type within it:
   - Random Characters (configurable character set)
   - Passphrase (123,565 word dictionary, ~16.9 bits/word)
 - **Identifiers**
-  - UUID v4 (RFC 9562, batch count, optional uppercase/no hyphens)
+  - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
   - One-Time Pad (Vernam cipher)
@@ -135,7 +135,7 @@ The application enforces a **512-bit minimum** for all output generation, regard
 All output generation uses a sophisticated four-layer pipeline designed to exceed NIST and NSA security recommendations:
 
 1.  **Layer 1 (Masking)**: `ChaCha20` (RFC 8439) stream seeded by a `SHA-512` hash of the pool + context.
-2.  **Layer 2 (Injection)**: **XOR Information Fold**. The raw entropy pool is XORed directly into the stream, ensuring Information Theoretic security (One-Time Pad property) when Input bits >= Output bits.
+2.  **Layer 2 (Injection)**: **XOR Information Fold**. The raw entropy pool is XORed directly into the stream, which Layer 3 then encrypts with a key hashed from it.
 3.  **Layer 3 (Transformation)**: `AES-256` (FIPS 197) in CTR mode, using a dynamic key derived from the stream itself. This adds robust non-linearity.
 4.  **Layer 4 (Whitening)**: Final `ChaCha20` whitening pass to remove any potential structural artifacts.
 
@@ -145,7 +145,9 @@ All output generation uses a sophisticated four-layer pipeline designed to excee
 |-------------------|------|----------------|
 | < 512 bits | Blocked | Generation disabled |
 | >= 512, < target | PSEUDO-RANDOM | Computational (3-Primitive Hardened CSPRNG) |
-| >= target | TRUE RANDOMNESS | Information Theoretic (Math-guaranteed via Layer 2 XOR) |
+| >= target | TRUE RANDOMNESS | Computational (Quad-Layer pipeline); collected entropy is at least the output size |
+
+Both modes are computationally secure. The last layer is a ChaCha20 stream keyed from a SHA-512 hash, so the output is only as strong as the pipeline. TRUE RANDOMNESS means the collected entropy (as estimated) is at least the output size, not that the output is information-theoretically secure.
 
 ## Documentation & Standards
 

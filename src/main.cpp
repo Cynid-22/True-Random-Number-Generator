@@ -117,7 +117,7 @@ static void UpdateEntropyCollection() {
         MatchCollectorToSetting(g_state.microphoneCollector, false);
 
         g_state.mouseTrail.clear();
-        g_state.keystrokePreview.clear();
+        Crypto::SecureClearVector(g_state.keystrokePreview);
     }
 }
 

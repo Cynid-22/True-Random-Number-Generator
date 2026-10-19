@@ -321,9 +321,10 @@ static void RenderSecurityMode() {
     ImGui::TextColored(UiColor::StatusActive,
                        "TRUE RANDOMNESS (Consolidation)");
     if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("Input Entropy >= Target Output. \nWe will condense "
-                        "raw data into perfect random bits. \nInformation "
-                        "Theoretic Security possible (for OTP).");
+      ImGui::SetTooltip("Collected entropy is at least the output size. \nThe "
+                        "raw data is condensed into the output by the "
+                        "cryptographic pipeline. \nSecurity is computational, "
+                        "from that pipeline.");
     }
   } else {
     ImGui::TextColored(UiColor::Warning,

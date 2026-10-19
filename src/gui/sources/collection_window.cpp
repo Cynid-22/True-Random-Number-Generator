@@ -3,27 +3,28 @@
 #include "../widgets.h"
 #include "imgui.h"
 #include <cmath>
-#include <string>
 #include <vector>
 
-static const size_t KEYSTROKE_PREVIEW_MAX_CHARACTERS = 500;
 static const size_t MOUSE_TRAIL_MAX_POINTS = 4000;
 static const float TRAIL_INTERPOLATION_STEP = 0.002f;
 
+static void AppendToKeystrokePreview(char character) {
+  std::vector<char> &preview = g_state.keystrokePreview;
+  if (preview.size() >= AppConfig::KEYSTROKE_PREVIEW_MAX_CHARACTERS)
+    preview.erase(preview.begin());
+  preview.push_back(character);
+}
+
 static void CaptureTypedCharacters() {
   ImGuiIO &io = ImGui::GetIO();
+  bool textBoxHasFocus = io.WantTextInput;
+  if (textBoxHasFocus)
+    return;
   for (int i = 0; i < io.InputQueueCharacters.Size; i++) {
     ImWchar character = io.InputQueueCharacters[i];
     if (character >= 32 && character < 127) {
-      g_state.keystrokePreview.push_back((char)character);
+      AppendToKeystrokePreview((char)character);
     }
-  }
-  if (g_state.keystrokePreview.size() > KEYSTROKE_PREVIEW_MAX_CHARACTERS) {
-    size_t length = g_state.keystrokePreview.size();
-    std::vector<char> recentCharacters(
-        g_state.keystrokePreview.begin() + (length - KEYSTROKE_PREVIEW_MAX_CHARACTERS),
-        g_state.keystrokePreview.end());
-    g_state.keystrokePreview = recentCharacters;
   }
 }
 
@@ -63,13 +64,14 @@ static void RenderKeyboardPreview() {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
 
     float availableWidth = ImGui::GetContentRegionAvail().x - 10.0f;
-    std::string visibleText(g_state.keystrokePreview.begin(), g_state.keystrokePreview.end());
+    const char *visibleBegin = g_state.keystrokePreview.data();
+    const char *visibleEnd = visibleBegin + g_state.keystrokePreview.size();
 
-    while (!visibleText.empty() && ImGui::CalcTextSize(visibleText.c_str()).x > availableWidth) {
-      visibleText = visibleText.substr(1);
+    while (visibleBegin < visibleEnd && ImGui::CalcTextSize(visibleBegin, visibleEnd).x > availableWidth) {
+      visibleBegin++;
     }
 
-    ImGui::Text("%s", visibleText.c_str());
+    ImGui::TextUnformatted(visibleBegin, visibleEnd);
     ImGui::PopStyleColor();
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
       ImGui::SetScrollHereY(1.0f);

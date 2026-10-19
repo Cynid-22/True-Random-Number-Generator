@@ -35,6 +35,7 @@ namespace AppConfig {
     constexpr size_t REJECTION_MIN_BYTES_PER_ITEM = 64;
     constexpr unsigned INTEGER_MAX_RETRIES = 4;
 
+    constexpr size_t KEYSTROKE_PREVIEW_MAX_CHARACTERS = 500;
     constexpr size_t PASSPHRASE_SEPARATOR_MAX_BYTES = 16;
     constexpr size_t ONE_TIME_PAD_MESSAGE_MAX_BYTES = 1024 * 1024;
     constexpr size_t MAX_UTF8_BYTES_PER_UTF16_CHAR = 3;
