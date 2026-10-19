@@ -1,6 +1,5 @@
 #include "generation_task.h"
 #include "../../core/app_state.h"
-#include "../../entropy/entropy_common.h"
 #include "../../logging/logger.h"
 #include <atomic>
 #include <chrono>
@@ -52,14 +51,10 @@ void StartGeneration(CSPRNG::GenerationMode mode) {
   g_state.cancelGenerationRequested = false;
   g_state.generationTimeText = "";
 
-  g_state.lockedDataTimestamp = Entropy::GetNanosecondTimestamp();
-  Logger::Log(Logger::Level::INFO, "GUI",
-              "Entropy locked at timestamp: %llu",
-              g_state.lockedDataTimestamp);
-
-  std::thread([mode]() {
+  std::thread([mode, includedSources = g_state.enabledEntropySources()]() {
     auto startTime = std::chrono::steady_clock::now();
-    CSPRNG::GenerationResult result = CSPRNG::GenerateOutput(mode);
+    CSPRNG::GenerationResult result =
+        CSPRNG::GenerateOutput(mode, includedSources);
     long long elapsedMilliseconds =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime)

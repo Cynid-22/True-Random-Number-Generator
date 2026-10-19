@@ -280,7 +280,9 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
   return true;
 }
 
-GenerationResult GenerateOutput(GenerationMode mode) {
+GenerationResult GenerateOutput(
+    GenerationMode mode,
+    const std::set<Entropy::EntropySource> &includedSources) {
   GenerationResult result;
   result.success = false;
   result.cancelled = false;
@@ -288,14 +290,6 @@ GenerationResult GenerateOutput(GenerationMode mode) {
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
-
-  std::vector<Entropy::EntropyDataPoint> pooledData =
-      g_state.entropyPool.GetPooledData();
-
-  if (pooledData.empty()) {
-    result.errorMessage = "No entropy data available";
-    return result;
-  }
 
   const int format = g_state.outputFormat;
   const bool isList = (format != FORMAT_ONE_TIME_PAD);
@@ -307,7 +301,6 @@ GenerationResult GenerateOutput(GenerationMode mode) {
   if (bytesPerItem > 0 && quantity > SIZE_MAX / bytesPerItem) {
     result.errorMessage =
         "Requested output is too large. Reduce the quantity or item size.";
-    Crypto::SecureClearVector(pooledData);
     return result;
   }
   size_t bytesNeeded = bytesPerItem * quantity;
@@ -320,7 +313,17 @@ GenerationResult GenerateOutput(GenerationMode mode) {
     result.errorMessage = "Requested output is too large: it needs more than "
                           "256 GiB of random data. Reduce the quantity or "
                           "item size.";
-    Crypto::SecureClearVector(pooledData);
+    return result;
+  }
+
+  std::vector<Entropy::EntropyDataPoint> pooledData =
+      g_state.entropyPool.LockAndCopyDataForGeneration(includedSources);
+  Logger::Log(Logger::Level::INFO, "CSPRNG",
+              "Entropy locked: %zu data points used for this generation",
+              pooledData.size());
+
+  if (pooledData.empty()) {
+    result.errorMessage = "No entropy data available";
     return result;
   }
 

@@ -1,7 +1,9 @@
 #pragma once
 #include <cstddef>
+#include <set>
 #include <string>
 #include <vector>
+#include "../entropy/entropy_common.h"
 
 namespace CSPRNG {
 
@@ -25,6 +27,7 @@ struct GenerationResult {
     std::string oneTimePadFileName;
 };
 
-GenerationResult GenerateOutput(GenerationMode mode);
+GenerationResult GenerateOutput(GenerationMode mode,
+                                const std::set<Entropy::EntropySource>& includedSources);
 
 }

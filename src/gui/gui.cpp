@@ -10,7 +10,6 @@
 #include "imgui.h"
 #include <cstdio>
 #include <cwchar>
-#include <set>
 #include <sstream>
 #include <windows.h>
 #include <commdlg.h>
@@ -238,25 +237,9 @@ static void ClearAllEntropyData() {
   g_state.cpuJitterEntropyBits = 0.0f;
   g_state.mouseEntropyBits = 0.0f;
   g_state.collectedEntropyBits = 0.0f;
-  g_state.lockedDataTimestamp = 0;
 
   Logger::Log(Logger::Level::INFO, "GUI",
               "All recorded entropy data cleared by user");
-}
-
-static std::set<Entropy::EntropySource> GetEnabledEntropySources() {
-  std::set<Entropy::EntropySource> enabledSources;
-  if (g_state.microphoneEnabled)
-    enabledSources.insert(Entropy::EntropySource::Microphone);
-  if (g_state.keystrokeEnabled)
-    enabledSources.insert(Entropy::EntropySource::Keystroke);
-  if (g_state.clockDriftEnabled)
-    enabledSources.insert(Entropy::EntropySource::ClockDrift);
-  if (g_state.cpuJitterEnabled)
-    enabledSources.insert(Entropy::EntropySource::CpuJitter);
-  if (g_state.mouseMovementEnabled)
-    enabledSources.insert(Entropy::EntropySource::Mouse);
-  return enabledSources;
 }
 
 static void RenderEntropyProgressBar(float lockedBits, float newBits) {
@@ -295,7 +278,7 @@ static void RenderEntropyProgressBar(float lockedBits, float newBits) {
   drawList->AddRect(barMin, barMax, ImGui::GetColorU32(ImGuiCol_Border));
 
   char overlay[64];
-  if (g_state.lockedDataTimestamp > 0 && lockedBits > 0) {
+  if (g_state.entropyPool.IsDataLocked() && lockedBits > 0) {
     snprintf(overlay, sizeof(overlay),
              "Entropy: %.0f (Locked) + %.0f (New) / %.0f", lockedBits, newBits,
              g_state.targetEntropyBits);
@@ -422,10 +405,9 @@ static void RenderCollectionControls() {
 }
 
 void RenderEntropyPoolBar() {
-  float lockedBits =
-      g_state.entropyPool.GetEntropyBitsBefore(g_state.lockedDataTimestamp);
-  float newBits = g_state.entropyPool.GetEntropyBitsAfter(
-      g_state.lockedDataTimestamp, GetEnabledEntropySources());
+  float lockedBits = g_state.entropyPool.GetLockedEntropyBits();
+  float newBits =
+      g_state.entropyPool.GetNewEntropyBits(g_state.enabledEntropySources());
 
   g_state.collectedEntropyBits = lockedBits + newBits;
 

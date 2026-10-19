@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <chrono>
 
@@ -11,6 +12,8 @@ enum class EntropySource {
     CpuJitter,
     Mouse
 };
+
+constexpr size_t ENTROPY_SOURCE_COUNT = static_cast<size_t>(EntropySource::Mouse) + 1;
 
 inline uint64_t GetNanosecondTimestamp() {
     using namespace std::chrono;

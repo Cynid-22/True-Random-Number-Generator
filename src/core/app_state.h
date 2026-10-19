@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <set>
 #include <string>
 #include <vector>
 #include "../entropy/clock_drift/clock_drift.h"
@@ -43,8 +44,6 @@ struct AppState {
 
     bool isCollecting = false;
     float collectedEntropyBits = 0.0f;
-
-    uint64_t lockedDataTimestamp = 0;
 
     float microphoneEntropyBits = 0.0f;
     float keystrokeEntropyBits = 0.0f;
@@ -124,6 +123,21 @@ struct AppState {
 
     bool hasReachedTargetEntropy() const {
         return collectedEntropyBits >= targetEntropyBits;
+    }
+
+    std::set<Entropy::EntropySource> enabledEntropySources() const {
+        std::set<Entropy::EntropySource> enabledSources;
+        if (microphoneEnabled)
+            enabledSources.insert(Entropy::EntropySource::Microphone);
+        if (keystrokeEnabled)
+            enabledSources.insert(Entropy::EntropySource::Keystroke);
+        if (clockDriftEnabled)
+            enabledSources.insert(Entropy::EntropySource::ClockDrift);
+        if (cpuJitterEnabled)
+            enabledSources.insert(Entropy::EntropySource::CpuJitter);
+        if (mouseMovementEnabled)
+            enabledSources.insert(Entropy::EntropySource::Mouse);
+        return enabledSources;
     }
 
     bool hasOneTimePadResult() const {
