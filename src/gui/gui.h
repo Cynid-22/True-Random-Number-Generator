@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,12 @@ void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
 
 void WriteAndWipeExportFile(const wchar_t *filePath, std::vector<char> &content,
                             const char *exportName);
+
+void WriteAndWipeExportFile(const wchar_t *filePath,
+                            std::vector<uint8_t> &content,
+                            const char *exportName);
+
+void LogExportOutOfMemory(const char *exportName);
 
 void SetupNativeStyle();
 

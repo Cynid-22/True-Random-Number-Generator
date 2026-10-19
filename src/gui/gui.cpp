@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cwchar>
 #include <iterator>
+#include <new>
 #include <sstream>
 #include <windows.h>
 #include <commdlg.h>
@@ -130,10 +131,34 @@ void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
   }
 }
 
+template <typename Byte>
+static void WriteAndWipe(const wchar_t *filePath, std::vector<Byte> &content,
+                         const char *exportName) {
+  try {
+    WriteExportFile(filePath, reinterpret_cast<const char *>(content.data()),
+                    content.size(), exportName);
+  } catch (...) {
+    Crypto::SecureClearVector(content);
+    throw;
+  }
+  Crypto::SecureClearVector(content);
+}
+
 void WriteAndWipeExportFile(const wchar_t *filePath, std::vector<char> &content,
                             const char *exportName) {
-  WriteExportFile(filePath, content.data(), content.size(), exportName);
-  Crypto::SecureClearVector(content);
+  WriteAndWipe(filePath, content, exportName);
+}
+
+void WriteAndWipeExportFile(const wchar_t *filePath,
+                            std::vector<uint8_t> &content,
+                            const char *exportName) {
+  WriteAndWipe(filePath, content, exportName);
+}
+
+void LogExportOutOfMemory(const char *exportName) {
+  Logger::Log(Logger::Level::ERR, "GUI",
+              "Not enough memory to export %s. The file was not saved.",
+              exportName);
 }
 
 void ExportWithSaveDialog(const std::wstring &defaultName,
@@ -221,22 +246,9 @@ static void ExportSettings() {
                        text.data(), text.size(), "Settings");
 }
 
-static void ExportOutput() {
-  if (g_state.hasOneTimePadResult()) {
-    ExportOneTimePadKeyAndCiphertext();
-    return;
-  }
-  if (g_state.generatedOutput.empty()) {
-    return;
-  }
-
+static void SaveOutputAs(OutputFileType fileType,
+                         const std::wstring &filePath) {
   const std::vector<uint8_t> &binary = g_state.generatedBinaryOutput;
-  const bool isGeneratedResult = !binary.empty();
-  std::wstring filePath;
-  OutputFileType fileType = OutputFileType::Text;
-  if (!ChooseOutputFile(L"output.txt", !isGeneratedResult, filePath, fileType))
-    return;
-
   const char *text = g_state.generatedOutput.data();
   size_t textLength = g_state.generatedOutput.size();
   if (textLength > 0 && g_state.generatedOutput.back() == '\0') {
@@ -264,6 +276,28 @@ static void ExportOutput() {
     WriteAndWipeExportFile(filePath.c_str(), json, "Output as JSON");
     break;
   }
+  }
+}
+
+static void ExportOutput() {
+  if (g_state.hasOneTimePadResult()) {
+    ExportOneTimePadKeyAndCiphertext();
+    return;
+  }
+  if (g_state.generatedOutput.empty()) {
+    return;
+  }
+
+  const bool isGeneratedResult = !g_state.generatedBinaryOutput.empty();
+  std::wstring filePath;
+  OutputFileType fileType = OutputFileType::Text;
+  if (!ChooseOutputFile(L"output.txt", !isGeneratedResult, filePath, fileType))
+    return;
+
+  try {
+    SaveOutputAs(fileType, filePath);
+  } catch (const std::bad_alloc &) {
+    LogExportOutOfMemory("the output");
   }
 }
 

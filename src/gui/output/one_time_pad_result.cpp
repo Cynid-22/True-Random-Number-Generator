@@ -7,6 +7,7 @@
 #include "../widgets.h"
 #include "imgui.h"
 #include <algorithm>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -129,20 +130,8 @@ void RenderOneTimePadResult() {
     RenderTextResult();
 }
 
-void ExportOneTimePadKeyAndCiphertext() {
-  if (!g_state.hasOneTimePadResult())
-    return;
-
-  const bool fileMode = IsFileResult();
-  const std::wstring defaultName =
-      fileMode ? ResultFileNameWithoutExtension() +
-                     L"_otp_key_and_ciphertext.txt"
-               : std::wstring(L"otp_key_and_ciphertext.txt");
-  std::wstring filePath;
-  OutputFileType fileType = OutputFileType::Text;
-  if (!ChooseOutputFile(defaultName, false, filePath, fileType))
-    return;
-
+static void SaveOneTimePadAs(OutputFileType fileType,
+                             const std::wstring &filePath, bool fileMode) {
   const char *key = g_state.oneTimePadKey.data();
   const char *ciphertext = g_state.oneTimePadCiphertext.data();
   const size_t length = KeyAndCiphertextLength();
@@ -158,11 +147,8 @@ void ExportOneTimePadKeyAndCiphertext() {
   case OutputFileType::Binary: {
     std::vector<uint8_t> binary = CSPRNG::BuildOneTimePadExportBinary(
         key, ciphertext, length, fileMode);
-    WriteExportFile(filePath.c_str(),
-                    reinterpret_cast<const char *>(binary.data()),
-                    binary.size(),
-                    "One-Time Pad key and ciphertext as binary");
-    Crypto::SecureClearVector(binary);
+    WriteAndWipeExportFile(filePath.c_str(), binary,
+                           "One-Time Pad key and ciphertext as binary");
     break;
   }
   case OutputFileType::Csv: {
@@ -181,5 +167,26 @@ void ExportOneTimePadKeyAndCiphertext() {
                            "One-Time Pad key and ciphertext as JSON");
     break;
   }
+  }
+}
+
+void ExportOneTimePadKeyAndCiphertext() {
+  if (!g_state.hasOneTimePadResult())
+    return;
+
+  const bool fileMode = IsFileResult();
+  const std::wstring defaultName =
+      fileMode ? ResultFileNameWithoutExtension() +
+                     L"_otp_key_and_ciphertext.txt"
+               : std::wstring(L"otp_key_and_ciphertext.txt");
+  std::wstring filePath;
+  OutputFileType fileType = OutputFileType::Text;
+  if (!ChooseOutputFile(defaultName, false, filePath, fileType))
+    return;
+
+  try {
+    SaveOneTimePadAs(fileType, filePath, fileMode);
+  } catch (const std::bad_alloc &) {
+    LogExportOutOfMemory("the One-Time Pad key and ciphertext");
   }
 }

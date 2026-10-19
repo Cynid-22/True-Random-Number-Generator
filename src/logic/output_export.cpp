@@ -6,18 +6,45 @@
 static constexpr char CSV_LINE_END[] = "\r\n";
 static constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
 
-static void Append(std::vector<char> &output, const char *data,
-                   size_t length) {
-  Crypto::ReserveWithoutLeavingCopies(output, length);
-  output.insert(output.end(), data, data + length);
-}
+class ExportWriter {
+public:
+  ExportWriter() = default;
+  explicit ExportWriter(std::vector<char> &output) : m_output(&output) {}
 
-static void Append(std::vector<char> &output, const char *text) {
-  Append(output, text, strlen(text));
-}
+  void Append(const char *data, size_t length) {
+    m_size += length;
+    if (!m_output)
+      return;
+    Crypto::ReserveWithoutLeavingCopies(*m_output, length);
+    m_output->insert(m_output->end(), data, data + length);
+  }
 
-static void Append(std::vector<char> &output, const std::string &text) {
-  Append(output, text.data(), text.size());
+  void Append(const char *text) { Append(text, strlen(text)); }
+
+  void Append(const std::string &text) { Append(text.data(), text.size()); }
+
+  size_t Size() const { return m_size; }
+
+private:
+  std::vector<char> *m_output = nullptr;
+  size_t m_size = 0;
+};
+
+template <typename WriteExport>
+static std::vector<char> BuildExactlySized(WriteExport writeExport) {
+  ExportWriter sizeCounter;
+  writeExport(sizeCounter);
+
+  std::vector<char> output;
+  try {
+    output.reserve(sizeCounter.Size());
+    ExportWriter writer(output);
+    writeExport(writer);
+  } catch (...) {
+    Crypto::SecureClearVector(output);
+    throw;
+  }
+  return output;
 }
 
 static OutputSetting NumberSetting(const char *name, long long value) {
@@ -179,38 +206,37 @@ static void ForEachItem(const char *text, size_t length, bool numberedItems,
   }
 }
 
-static void AppendQuotedHex(std::vector<char> &output, const char *data,
+static void AppendQuotedHex(ExportWriter &out, const char *data,
                             size_t length) {
-  Crypto::ReserveWithoutLeavingCopies(output, length * 2 + 2);
-  output.push_back('"');
+  out.Append("\"");
   for (size_t i = 0; i < length; i++) {
     const uint8_t byte = static_cast<uint8_t>(data[i]);
-    output.push_back(HEX_DIGITS[byte >> 4]);
-    output.push_back(HEX_DIGITS[byte & 0x0F]);
+    const char hexPair[] = {HEX_DIGITS[byte >> 4], HEX_DIGITS[byte & 0x0F]};
+    out.Append(hexPair, sizeof(hexPair));
   }
-  output.push_back('"');
+  out.Append("\"");
 }
 
-static void AppendCsvField(std::vector<char> &csv, const char *field,
+static void AppendCsvField(ExportWriter &csv, const char *field,
                            size_t length) {
-  Append(csv, "\"");
+  csv.Append("\"");
   size_t runStart = 0;
   for (size_t i = 0; i < length; i++) {
     if (field[i] != '"')
       continue;
-    Append(csv, field + runStart, i - runStart);
-    Append(csv, "\"\"");
+    csv.Append(field + runStart, i - runStart);
+    csv.Append("\"\"");
     runStart = i + 1;
   }
-  Append(csv, field + runStart, length - runStart);
-  Append(csv, "\"");
+  csv.Append(field + runStart, length - runStart);
+  csv.Append("\"");
 }
 
-static void AppendCsvField(std::vector<char> &csv, const std::string &field) {
+static void AppendCsvField(ExportWriter &csv, const std::string &field) {
   AppendCsvField(csv, field.data(), field.size());
 }
 
-static void AppendCsvKeyOrCiphertext(std::vector<char> &csv, const char *data,
+static void AppendCsvKeyOrCiphertext(ExportWriter &csv, const char *data,
                                      size_t length, bool fileMode) {
   if (fileMode)
     AppendQuotedHex(csv, data, length);
@@ -218,24 +244,51 @@ static void AppendCsvKeyOrCiphertext(std::vector<char> &csv, const char *data,
     AppendCsvField(csv, data, length);
 }
 
-std::vector<char> BuildOneTimePadCsv(const char *key, const char *ciphertext,
-                                     size_t length, bool fileMode) {
-  std::vector<char> csv;
-  csv.reserve(length * 4);
+static void WriteOneTimePadCsv(ExportWriter &csv, const char *key,
+                               const char *ciphertext, size_t length,
+                               bool fileMode) {
   AppendCsvField(csv, "key");
   if (ciphertext) {
-    Append(csv, ",");
+    csv.Append(",");
     AppendCsvField(csv, "ciphertext");
   }
-  Append(csv, CSV_LINE_END);
+  csv.Append(CSV_LINE_END);
 
   AppendCsvKeyOrCiphertext(csv, key, length, fileMode);
   if (ciphertext) {
-    Append(csv, ",");
+    csv.Append(",");
     AppendCsvKeyOrCiphertext(csv, ciphertext, length, fileMode);
   }
-  Append(csv, CSV_LINE_END);
-  return csv;
+  csv.Append(CSV_LINE_END);
+}
+
+static void WriteItemsCsv(ExportWriter &csv,
+                          const GeneratedOutputDetails &details,
+                          const char *text, size_t length) {
+  if (details.numberedItems) {
+    AppendCsvField(csv, "#");
+    csv.Append(",");
+  }
+  AppendCsvField(csv, details.type);
+  csv.Append(CSV_LINE_END);
+
+  ForEachItem(text, length, details.numberedItems,
+              [&csv, &details](size_t index, const char *item,
+                               size_t itemLength) {
+                if (details.numberedItems) {
+                  AppendCsvField(csv, std::to_string(index + 1));
+                  csv.Append(",");
+                }
+                AppendCsvField(csv, item, itemLength);
+                csv.Append(CSV_LINE_END);
+              });
+}
+
+std::vector<char> BuildOneTimePadCsv(const char *key, const char *ciphertext,
+                                     size_t length, bool fileMode) {
+  return BuildExactlySized([&](ExportWriter &csv) {
+    WriteOneTimePadCsv(csv, key, ciphertext, length, fileMode);
+  });
 }
 
 std::vector<char> BuildOutputCsv(const GeneratedOutputDetails &details,
@@ -243,31 +296,14 @@ std::vector<char> BuildOutputCsv(const GeneratedOutputDetails &details,
   if (details.format == FORMAT_ONE_TIME_PAD)
     return BuildOneTimePadCsv(text, nullptr, length, false);
 
-  std::vector<char> csv;
-  csv.reserve(length * 2);
-  if (details.numberedItems) {
-    AppendCsvField(csv, "#");
-    Append(csv, ",");
-  }
-  AppendCsvField(csv, details.type);
-  Append(csv, CSV_LINE_END);
-
-  ForEachItem(text, length, details.numberedItems,
-              [&csv, &details](size_t index, const char *item,
-                               size_t itemLength) {
-                if (details.numberedItems) {
-                  AppendCsvField(csv, std::to_string(index + 1));
-                  Append(csv, ",");
-                }
-                AppendCsvField(csv, item, itemLength);
-                Append(csv, CSV_LINE_END);
-              });
-  return csv;
+  return BuildExactlySized([&](ExportWriter &csv) {
+    WriteItemsCsv(csv, details, text, length);
+  });
 }
 
-static void AppendJsonString(std::vector<char> &json, const char *text,
+static void AppendJsonString(ExportWriter &json, const char *text,
                              size_t length) {
-  Append(json, "\"");
+  json.Append("\"");
   size_t runStart = 0;
   for (size_t i = 0; i < length; i++) {
     const unsigned char character = static_cast<unsigned char>(text[i]);
@@ -275,59 +311,59 @@ static void AppendJsonString(std::vector<char> &json, const char *text,
     if (!isControlCharacter && character != '"' && character != '\\')
       continue;
 
-    Append(json, text + runStart, i - runStart);
+    json.Append(text + runStart, i - runStart);
     if (isControlCharacter) {
       const char unicodeEscape[] = {'\\', 'u', '0', '0',
                                     HEX_DIGITS[character >> 4],
                                     HEX_DIGITS[character & 0x0F]};
-      Append(json, unicodeEscape, sizeof(unicodeEscape));
+      json.Append(unicodeEscape, sizeof(unicodeEscape));
     } else {
       const char backslashEscape[] = {'\\', text[i]};
-      Append(json, backslashEscape, sizeof(backslashEscape));
+      json.Append(backslashEscape, sizeof(backslashEscape));
     }
     runStart = i + 1;
   }
-  Append(json, text + runStart, length - runStart);
-  Append(json, "\"");
+  json.Append(text + runStart, length - runStart);
+  json.Append("\"");
 }
 
-static void AppendJsonString(std::vector<char> &json, const std::string &text) {
+static void AppendJsonString(ExportWriter &json, const std::string &text) {
   AppendJsonString(json, text.data(), text.size());
 }
 
-static void AppendJsonMemberName(std::vector<char> &json, const char *name) {
-  Append(json, "  ");
+static void AppendJsonMemberName(ExportWriter &json, const char *name) {
+  json.Append("  ");
   AppendJsonString(json, name);
-  Append(json, ": ");
+  json.Append(": ");
 }
 
-static void AppendJsonTextMember(std::vector<char> &json, const char *name,
+static void AppendJsonTextMember(ExportWriter &json, const char *name,
                                  const std::string &value) {
   AppendJsonMemberName(json, name);
   AppendJsonString(json, value);
-  Append(json, ",\n");
+  json.Append(",\n");
 }
 
-static void AppendJsonSettings(std::vector<char> &json,
+static void AppendJsonSettings(ExportWriter &json,
                                const std::vector<OutputSetting> &settings) {
   AppendJsonMemberName(json, "settings");
-  Append(json, "{");
+  json.Append("{");
   for (size_t i = 0; i < settings.size(); i++) {
-    Append(json, i == 0 ? "\n    " : ",\n    ");
+    json.Append(i == 0 ? "\n    " : ",\n    ");
     AppendJsonString(json, settings[i].name);
-    Append(json, ": ");
+    json.Append(": ");
     if (settings[i].isText)
       AppendJsonString(json, settings[i].value);
     else
-      Append(json, settings[i].value);
+      json.Append(settings[i].value);
   }
-  Append(json, settings.empty() ? "},\n" : "\n  },\n");
+  json.Append(settings.empty() ? "},\n" : "\n  },\n");
 }
 
-static void AppendJsonHeader(std::vector<char> &json,
+static void AppendJsonHeader(ExportWriter &json,
                              const GeneratedOutputDetails &details,
                              const std::string &generatedAt) {
-  Append(json, "{\n");
+  json.Append("{\n");
   AppendJsonTextMember(json, "app", "TRNG");
   AppendJsonTextMember(json, "version", APP_VERSION);
   AppendJsonTextMember(json, "category", details.category);
@@ -337,33 +373,55 @@ static void AppendJsonHeader(std::vector<char> &json,
   AppendJsonTextMember(json, "generatedAt", generatedAt);
 }
 
-static void AppendJsonKeyOrCiphertext(std::vector<char> &json,
-                                      const char *data, size_t length,
-                                      bool fileMode) {
+static void AppendJsonKeyOrCiphertext(ExportWriter &json, const char *data,
+                                      size_t length, bool fileMode) {
   if (fileMode)
     AppendQuotedHex(json, data, length);
   else
     AppendJsonString(json, data, length);
 }
 
-std::vector<char> BuildOneTimePadJson(const GeneratedOutputDetails &details,
-                                      const std::string &generatedAt,
-                                      const char *key, const char *ciphertext,
-                                      size_t length, bool fileMode) {
-  std::vector<char> json;
-  json.reserve(length * 4);
+static void WriteOneTimePadJson(ExportWriter &json,
+                                const GeneratedOutputDetails &details,
+                                const std::string &generatedAt,
+                                const char *key, const char *ciphertext,
+                                size_t length, bool fileMode) {
   AppendJsonHeader(json, details, generatedAt);
   AppendJsonTextMember(json, "encoding", fileMode ? "hex" : "text");
 
   AppendJsonMemberName(json, "key");
   AppendJsonKeyOrCiphertext(json, key, length, fileMode);
   if (ciphertext) {
-    Append(json, ",\n");
+    json.Append(",\n");
     AppendJsonMemberName(json, "ciphertext");
     AppendJsonKeyOrCiphertext(json, ciphertext, length, fileMode);
   }
-  Append(json, "\n}\n");
-  return json;
+  json.Append("\n}\n");
+}
+
+static void WriteItemsJson(ExportWriter &json,
+                           const GeneratedOutputDetails &details,
+                           const std::string &generatedAt, const char *text,
+                           size_t length) {
+  AppendJsonHeader(json, details, generatedAt);
+  AppendJsonMemberName(json, "items");
+  json.Append("[");
+  ForEachItem(text, length, details.numberedItems,
+              [&json](size_t index, const char *item, size_t itemLength) {
+                json.Append(index == 0 ? "\n    " : ",\n    ");
+                AppendJsonString(json, item, itemLength);
+              });
+  json.Append("\n  ]\n}\n");
+}
+
+std::vector<char> BuildOneTimePadJson(const GeneratedOutputDetails &details,
+                                      const std::string &generatedAt,
+                                      const char *key, const char *ciphertext,
+                                      size_t length, bool fileMode) {
+  return BuildExactlySized([&](ExportWriter &json) {
+    WriteOneTimePadJson(json, details, generatedAt, key, ciphertext, length,
+                        fileMode);
+  });
 }
 
 std::vector<char> BuildOutputJson(const GeneratedOutputDetails &details,
@@ -373,16 +431,7 @@ std::vector<char> BuildOutputJson(const GeneratedOutputDetails &details,
     return BuildOneTimePadJson(details, generatedAt, text, nullptr, length,
                                false);
 
-  std::vector<char> json;
-  json.reserve(length * 2);
-  AppendJsonHeader(json, details, generatedAt);
-  AppendJsonMemberName(json, "items");
-  Append(json, "[");
-  ForEachItem(text, length, details.numberedItems,
-              [&json](size_t index, const char *item, size_t itemLength) {
-                Append(json, index == 0 ? "\n    " : ",\n    ");
-                AppendJsonString(json, item, itemLength);
-              });
-  Append(json, "\n  ]\n}\n");
-  return json;
+  return BuildExactlySized([&](ExportWriter &json) {
+    WriteItemsJson(json, details, generatedAt, text, length);
+  });
 }
