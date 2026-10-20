@@ -28,6 +28,9 @@ namespace AppConfig {
 
     constexpr int PASSPHRASE_MIN_WORDS = 1;
     constexpr int PASSPHRASE_MAX_WORDS = 32767;
+    constexpr int PASSPHRASE_MAX_NUMBERS_PER_WORD = 2;
+    constexpr size_t WORD_LIST_MIN_WORDS = 2;
+    constexpr size_t WORD_LIST_MAX_WORDS = size_t(1) << 24;
 
     constexpr long long INTEGER_RANGE_MIN = LLONG_MIN;
     constexpr long long INTEGER_RANGE_MAX = LLONG_MAX;

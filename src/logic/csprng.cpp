@@ -43,7 +43,9 @@ static std::string BuildLayerOneInfo(size_t byteCount, uint32_t attempt) {
          << "E:" << g_state.rawDataEncoding;
     break;
   case FORMAT_PASSPHRASE:
-    info << "W:" << g_state.passphraseWordCount;
+    info << "W:" << g_state.passphraseWordCount
+         << "L:" << g_state.passphraseWordList
+         << "N:" << g_state.passphraseNumberCount;
     break;
   case FORMAT_ONE_TIME_PAD:
     info << "O:" << g_state.oneTimePadInputMode;

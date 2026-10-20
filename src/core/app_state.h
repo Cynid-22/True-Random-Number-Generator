@@ -104,7 +104,9 @@ struct AppState {
     int uuidV7CounterBits = 12;
     int uuidV7IncrementBits = 32;
 
+    int passphraseWordList = WORD_LIST_NORDPASS;
     int passphraseWordCount = 6;
+    int passphraseNumberCount = 0;
     std::vector<char> passphraseSeparator;
 
     std::vector<char> oneTimePadMessage;
@@ -124,8 +126,6 @@ struct AppState {
     GeneratedOutputDetails generatedOutputDetails;
     std::string generatedAtText = "";
     std::string generationTimeText = "";
-
-    std::vector<std::string> cachedWordList;
 
     bool truncateOutputView = true;
     volatile bool cancelGenerationRequested{false};

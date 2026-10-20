@@ -1,105 +1,14 @@
 #include "logic.h"
 #include "formats/one_time_pad_format.h"
 #include "formats/raw_data_format.h"
-#include "../logging/logger.h"
+#include "formats/text_formats.h"
+#include "word_lists.h"
 #include "../core/app_state.h"
 #include "../entropy/pool.h"
 #include <cmath>
 #include <cstdint>
-#include <fstream>
-#include <string>
 #include <cstring>
 #include <vector>
-#include <windows.h>
-#include <sstream>
-#include "../resource.h"
-
-static const float PASSPHRASE_BITS_PER_WORD = 16.92f;
-
-static void ReadWordList(std::istream& input) {
-    g_state.cachedWordList.clear();
-    g_state.cachedWordList.reserve(125000);
-
-    std::string line;
-    while (std::getline(input, line)) {
-        size_t start = line.find_first_not_of(" \t\r\n");
-        size_t end = line.find_last_not_of(" \t\r\n");
-        if (start != std::string::npos && end != std::string::npos) {
-            g_state.cachedWordList.push_back(line.substr(start, end - start + 1));
-        }
-    }
-}
-
-bool LoadWordListForGeneration() {
-    try {
-        if (!g_state.cachedWordList.empty()) {
-            return true;
-        }
-
-        HRSRC resourceInfo = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_WORDLIST), (LPCSTR)RT_RCDATA);
-        if (resourceInfo) {
-            HGLOBAL resourceHandle = LoadResource(NULL, resourceInfo);
-            if (resourceHandle) {
-                DWORD resourceSize = SizeofResource(NULL, resourceInfo);
-                const char* resourceData = (const char*)LockResource(resourceHandle);
-                if (resourceData && resourceSize > 0) {
-                    std::string wordListText(resourceData, resourceSize);
-                    std::istringstream wordListStream(wordListText);
-                    ReadWordList(wordListStream);
-
-                    Logger::Log(Logger::Level::INFO, "Logic", "Loaded %zu words from embedded resource", g_state.cachedWordList.size());
-                    return !g_state.cachedWordList.empty();
-                }
-            }
-        }
-
-        std::vector<std::string> candidatePaths = {
-            "assets/default_wordlist.txt",
-            "./assets/default_wordlist.txt",
-            "../assets/default_wordlist.txt",
-            "default_wordlist.txt"
-        };
-
-        char executablePath[MAX_PATH];
-        if (GetModuleFileNameA(NULL, executablePath, MAX_PATH) > 0) {
-            std::string executableDirectory = executablePath;
-            size_t lastSlash = executableDirectory.find_last_of("\\/");
-            if (lastSlash != std::string::npos) {
-                executableDirectory = executableDirectory.substr(0, lastSlash + 1);
-                candidatePaths.insert(candidatePaths.begin(), executableDirectory + "assets/default_wordlist.txt");
-                candidatePaths.insert(candidatePaths.begin(), executableDirectory + "assets\\default_wordlist.txt");
-            }
-        }
-
-        std::ifstream file;
-        for (const auto& path : candidatePaths) {
-            file.open(path);
-            if (file.is_open()) {
-                Logger::Log(Logger::Level::INFO, "Logic",
-                            "Loaded wordlist from: %s", path.c_str());
-                break;
-            }
-        }
-
-        if (!file.is_open()) {
-            Logger::Log(Logger::Level::ERR, "Logic",
-                        "Failed to find wordlist in any path");
-            return false;
-        }
-
-        ReadWordList(file);
-        file.close();
-
-        Logger::Log(Logger::Level::INFO, "Logic",
-                    "Loaded %zu words into wordlist cache",
-                    g_state.cachedWordList.size());
-
-        return !g_state.cachedWordList.empty();
-    } catch (...) {
-        g_state.cachedWordList.clear();
-        return false;
-    }
-}
 
 float CalculateRequiredEntropy() {
     float bits = 0.0f;
@@ -142,7 +51,10 @@ float CalculateRequiredEntropy() {
             break;
 
         case FORMAT_PASSPHRASE:
-            bits = g_state.passphraseWordCount * PASSPHRASE_BITS_PER_WORD;
+            bits = (float)(g_state.passphraseWordCount *
+                               WordLists::Get(g_state.passphraseWordList).bitsPerWord +
+                           CSPRNG::PassphraseNumberBits(g_state.passphraseWordCount,
+                                                        g_state.passphraseNumberCount));
             break;
 
         case FORMAT_ONE_TIME_PAD:

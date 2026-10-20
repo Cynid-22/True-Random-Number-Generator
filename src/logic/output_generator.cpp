@@ -11,7 +11,7 @@
 #include "formats/raw_data_format.h"
 #include "formats/text_formats.h"
 #include "formats/uuid_formats.h"
-#include "logic.h"
+#include "word_lists.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -78,9 +78,12 @@ static size_t CalculateBytesPerItem(int format) {
             .randomByteCount);
     break;
   case FORMAT_PASSPHRASE: {
-    const size_t wordDrawBytes =
-        static_cast<size_t>(g_state.passphraseWordCount) * 3;
-    bytesPerItem = wordDrawBytes + wordDrawBytes / 4 +
+    const size_t DRAWS_PER_NUMBER = 2;
+    const size_t drawCount =
+        static_cast<size_t>(g_state.passphraseWordCount) +
+        static_cast<size_t>(g_state.passphraseNumberCount) * DRAWS_PER_NUMBER;
+    const size_t drawBytes = drawCount * 3;
+    bytesPerItem = drawBytes + drawBytes / 4 +
                    AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
     break;
   }
@@ -186,8 +189,10 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
                             std::vector<uint8_t> &itemBytes,
                             const std::vector<Entropy::EntropyDataPoint> &pooledData,
                             GenerationResult &result) {
-  if (format == FORMAT_PASSPHRASE && !LoadWordListForGeneration()) {
-    result.errorMessage = "Failed to load wordlist";
+  const WordLists::WordList &wordList =
+      WordLists::Get(g_state.passphraseWordList);
+  if (format == FORMAT_PASSPHRASE && !wordList.IsUsable()) {
+    result.errorMessage = wordList.loadError;
     return false;
   }
   const std::string separator =
@@ -266,7 +271,8 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
 
     case FORMAT_PASSPHRASE:
       item = GeneratePassphrase(itemBytes, g_state.passphraseWordCount,
-                                separator, g_state.cachedWordList, itemBinary);
+                                g_state.passphraseNumberCount, separator,
+                                wordList.words, itemBinary);
       break;
 
     case FORMAT_UUID_V4:

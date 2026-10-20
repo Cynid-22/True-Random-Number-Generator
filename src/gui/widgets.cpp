@@ -22,6 +22,13 @@ const char *CurrentSpinnerFrame() {
   return frames[static_cast<int>(ImGui::GetTime() * 10.0) % 4];
 }
 
+std::string WithThousandsSeparators(uint64_t value) {
+  std::string digits = std::to_string(value);
+  for (int insertAt = (int)digits.size() - 3; insertAt > 0; insertAt -= 3)
+    digits.insert((size_t)insertAt, ",");
+  return digits;
+}
+
 static void RenderWrappedText(const char *begin, const char *end) {
   ImGui::PushTextWrapPos(0.0f);
   ImGui::TextUnformatted(begin, end);

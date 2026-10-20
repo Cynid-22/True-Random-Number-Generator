@@ -1,4 +1,7 @@
 #include "resource.h"
 
 IDI_APP_ICON ICON "../assets/icons/icon-256.ico"
-IDR_WORDLIST RCDATA "../assets/default_wordlist.txt"
+IDR_WORDLIST_NORDPASS RCDATA "../assets/NordPass_wordlist.txt"
+IDR_WORDLIST_EFF_LARGE RCDATA "../assets/eff_large_wordlist.txt"
+IDR_WORDLIST_DICEWARE_8K RCDATA "../assets/diceware8k.txt"
+IDR_WORDLIST_BIP39_ENGLISH RCDATA "../assets/BIP39-English.txt"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
 #include "imgui.h"
 
 namespace UiColor {
@@ -22,6 +24,8 @@ void InlineDivider();
 void HelpMarker(const char *text);
 
 const char *CurrentSpinnerFrame();
+
+std::string WithThousandsSeparators(uint64_t value);
 
 void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText);

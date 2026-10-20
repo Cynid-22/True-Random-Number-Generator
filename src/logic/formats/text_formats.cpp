@@ -1,6 +1,10 @@
 #include "text_formats.h"
+#include "../../../config/AppConfig.h"
 #include "cancellation.h"
+#include <algorithm>
+#include <cmath>
 #include <stdexcept>
+#include <utility>
 #include <windows.h>
 
 namespace CSPRNG {
@@ -68,64 +72,128 @@ std::vector<char> GenerateRandomCharacters(const std::vector<uint8_t> &randomByt
   return result;
 }
 
+static constexpr uint32_t THREE_BYTE_DRAW_RANGE = 1u << 24;
+static constexpr uint32_t DIGIT_COUNT = 10;
+static constexpr char NO_NUMBER_IN_SLOT = '\0';
+static constexpr uint8_t NO_NUMBER_IN_SLOT_BYTE = 0xFF;
+static constexpr int CANCEL_CHECK_MASK = 0x3FF;
+static_assert(AppConfig::WORD_LIST_MAX_WORDS <= THREE_BYTE_DRAW_RANGE);
+static_assert(AppConfig::PASSPHRASE_MAX_NUMBERS_PER_WORD == 2,
+              "each word has one number slot before it and one after it");
+
+static uint32_t DrawBelow(const std::vector<uint8_t> &randomBytes,
+                          size_t &byteIndex, uint32_t range) {
+  const uint32_t acceptBelow =
+      THREE_BYTE_DRAW_RANGE - (THREE_BYTE_DRAW_RANGE % range);
+  uint32_t draw = 0;
+  do {
+    if (byteIndex + 3 > randomBytes.size())
+      throw std::runtime_error(
+          "Passphrase: too many random draws were rejected. Please try "
+          "again.");
+    draw = (static_cast<uint32_t>(randomBytes[byteIndex]) << 16) |
+           (static_cast<uint32_t>(randomBytes[byteIndex + 1]) << 8) |
+           randomBytes[byteIndex + 2];
+    byteIndex += 3;
+  } while (draw >= acceptBelow);
+  return draw % range;
+}
+
+double PassphraseNumberBits(int wordCount, int numberCount) {
+  if (wordCount <= 0 || numberCount <= 0)
+    return 0.0;
+  const double slotCount = static_cast<double>(wordCount) *
+                           AppConfig::PASSPHRASE_MAX_NUMBERS_PER_WORD;
+  const double numbers = std::min(static_cast<double>(numberCount), slotCount);
+  const double slotChoiceBits =
+      (std::lgamma(slotCount + 1.0) - std::lgamma(numbers + 1.0) -
+       std::lgamma(slotCount - numbers + 1.0)) /
+      std::log(2.0);
+  return numbers * std::log2(static_cast<double>(DIGIT_COUNT)) + slotChoiceBits;
+}
+
 std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
-                                     int wordCount,
+                                     int wordCount, int numberCount,
                                      const std::string &separator,
                                      const std::vector<std::string> &wordList,
                                      std::vector<uint8_t> &binaryValue) {
   binaryValue.clear();
-  std::string error = "[Error: Wordlist not loaded]";
-  if (wordList.empty() || randomBytes.empty() || wordCount <= 0) {
-    return std::vector<char>(error.begin(), error.end());
-  }
-
-  const uint32_t THREE_BYTE_DRAW_RANGE = 1u << 24;
-  if (wordList.size() > THREE_BYTE_DRAW_RANGE) {
-    std::string tooLargeError = "[Error: Wordlist is too large]";
-    return std::vector<char>(tooLargeError.begin(), tooLargeError.end());
-  }
+  if (wordList.empty() || randomBytes.empty() || wordCount <= 0)
+    throw std::runtime_error("Passphrase: no word list or random data.");
+  if (wordList.size() > THREE_BYTE_DRAW_RANGE)
+    throw std::runtime_error("Passphrase: the word list is too large.");
+  const size_t slotCount = static_cast<size_t>(wordCount) *
+                           AppConfig::PASSPHRASE_MAX_NUMBERS_PER_WORD;
+  if (numberCount < 0 || static_cast<size_t>(numberCount) > slotCount)
+    throw std::runtime_error("Passphrase: too many numbers for the word count.");
   const uint32_t wordListSize = static_cast<uint32_t>(wordList.size());
-  const uint32_t acceptBelow =
-      THREE_BYTE_DRAW_RANGE - (THREE_BYTE_DRAW_RANGE % wordListSize);
 
   const size_t WORD_INDEX_BYTES = sizeof(uint32_t);
-  binaryValue.reserve(static_cast<size_t>(wordCount) * WORD_INDEX_BYTES);
+  binaryValue.reserve(static_cast<size_t>(wordCount) * WORD_INDEX_BYTES +
+                      (numberCount > 0 ? slotCount : 0));
+  std::vector<uint32_t> wordIndices;
+  std::vector<uint32_t> shuffledSlots;
+  std::vector<char> numberInSlot;
   std::string result;
   size_t byteIndex = 0;
+  auto wipeWorkingState = [&]() {
+    Crypto::SecureClearVector(wordIndices);
+    Crypto::SecureClearVector(shuffledSlots);
+    Crypto::SecureClearVector(numberInSlot);
+    SecureZeroMemory(result.data(), result.size());
+  };
 
   try {
+    wordIndices.reserve(static_cast<size_t>(wordCount));
     for (int i = 0; i < wordCount; i++) {
-      if ((i & 0x3FF) == 0)
+      if ((i & CANCEL_CHECK_MASK) == 0)
         ThrowIfGenerationCancelled();
-
-      uint32_t draw = 0;
-      do {
-        if (byteIndex + 3 > randomBytes.size())
-          throw std::runtime_error(
-              "Passphrase: too many random draws were rejected. Please try "
-              "again.");
-        draw = (static_cast<uint32_t>(randomBytes[byteIndex]) << 16) |
-               (static_cast<uint32_t>(randomBytes[byteIndex + 1]) << 8) |
-               randomBytes[byteIndex + 2];
-        byteIndex += 3;
-      } while (draw >= acceptBelow);
-
-      const uint32_t wordIndex = draw % wordListSize;
+      const uint32_t wordIndex = DrawBelow(randomBytes, byteIndex, wordListSize);
+      wordIndices.push_back(wordIndex);
       for (size_t b = 0; b < WORD_INDEX_BYTES; b++)
         binaryValue.push_back(static_cast<uint8_t>(wordIndex >> (8 * b)));
+    }
 
+    if (numberCount > 0) {
+      shuffledSlots.resize(slotCount);
+      for (size_t slot = 0; slot < slotCount; slot++)
+        shuffledSlots[slot] = static_cast<uint32_t>(slot);
+      numberInSlot.assign(slotCount, NO_NUMBER_IN_SLOT);
+      for (int i = 0; i < numberCount; i++) {
+        if ((i & CANCEL_CHECK_MASK) == 0)
+          ThrowIfGenerationCancelled();
+        const size_t pick =
+            i + DrawBelow(randomBytes, byteIndex,
+                          static_cast<uint32_t>(slotCount - i));
+        std::swap(shuffledSlots[i], shuffledSlots[pick]);
+        numberInSlot[shuffledSlots[i]] = static_cast<char>(
+            '0' + DrawBelow(randomBytes, byteIndex, DIGIT_COUNT));
+      }
+      for (char number : numberInSlot)
+        binaryValue.push_back(number == NO_NUMBER_IN_SLOT
+                                  ? NO_NUMBER_IN_SLOT_BYTE
+                                  : static_cast<uint8_t>(number - '0'));
+    }
+
+    for (int i = 0; i < wordCount; i++) {
       if (i > 0)
         result += separator;
-      result += wordList[wordIndex];
+      const size_t slotBefore =
+          static_cast<size_t>(i) * AppConfig::PASSPHRASE_MAX_NUMBERS_PER_WORD;
+      if (numberCount > 0 && numberInSlot[slotBefore] != NO_NUMBER_IN_SLOT)
+        result += numberInSlot[slotBefore];
+      result += wordList[wordIndices[i]];
+      if (numberCount > 0 && numberInSlot[slotBefore + 1] != NO_NUMBER_IN_SLOT)
+        result += numberInSlot[slotBefore + 1];
     }
   } catch (...) {
-    SecureZeroMemory(result.data(), result.size());
+    wipeWorkingState();
     Crypto::SecureClearVector(binaryValue);
     throw;
   }
 
   std::vector<char> passphrase(result.begin(), result.end());
-  SecureZeroMemory(result.data(), result.size());
+  wipeWorkingState();
   return passphrase;
 }
 

@@ -48,7 +48,12 @@ Pick a category, then a type within it:
   - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
 - **Text & Passwords**
   - Random Characters (configurable character set)
-  - Passphrase (123,565 word dictionary, ~16.9 bits/word)
+  - Passphrase, from a word list of your choice (see [assets/Wordlist_specs.md](assets/Wordlist_specs.md)):
+    - NordPass (default): 123,565 words, 16.91 bits/word
+    - EFF Large: 7,776 words, 12.92 bits/word; no word starts with another
+    - Diceware 8k: 8,192 words, 13 bits/word; short entries with digits and symbols
+    - BIP39 English: 2,048 words, 11 bits/word; not a wallet recovery phrase (no BIP39 checksum)
+    - Optional random digits at the start or end of words, up to two per word (e.g. `4word-word7-2word`)
 - **Identifiers**
   - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
@@ -102,7 +107,7 @@ Excel changes some values when it opens a CSV: numbers longer than 15 digits los
 | Raw Data: Base 2, Base 8, Base 32 Crockford | The bits the text shows, first bit in the high bit of the first byte, zero-padded to a whole byte |
 | Raw Data: Base 10, 12, 36, 58, 62 | One byte per digit: its position in the encoding's alphabet |
 | Random Characters | One byte per character: its position in the character set (the ticked groups in the order numbers, uppercase, lowercase, special; each group in ASCII order) |
-| Passphrase | 4 bytes per word, little-endian: its position in the word list (0 = first word) |
+| Passphrase | 4 bytes per word, little-endian: its position in the selected word list (0 = first word). With Numbers above 0, then one byte per spot, two per word (start, then end): the digit 0-9, or 255 for no digit |
 | UUID v4 / v7 | The 16 bytes in RFC 9562 order |
 | One-Time Pad: Text | The key, then the ciphertext, one byte per character as 0-62 (0-9 = 0-9, A-Z = 10-35, a-z = 36-61, space = 62) |
 | One-Time Pad: Message Length | The key, one byte per character as 0-62 |
@@ -153,7 +158,8 @@ TRNG/
 │   │   └── output/           # Output type selector, per-format options,
 │   │                         # background generation, result panel
 │   ├── logic/
-│   │   ├── logic.h/.cpp      # Wordlist, entropy requirement and estimates
+│   │   ├── logic.h/.cpp      # Entropy requirement and estimates
+│   │   ├── word_lists.h/.cpp # Embedded passphrase word lists
 │   │   ├── csprng.h/.cpp     # Random bytes from the entropy pool
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
 │   │   ├── output_export.h/.cpp     # CSV and JSON export
@@ -166,7 +172,11 @@ TRNG/
 │       ├── dx11.cpp          # DirectX implementation
 │       └── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
 ├── assets/
-│   └── default_wordlist.txt  # Passphrase dictionary
+│   ├── NordPass_wordlist.txt   # Passphrase word lists, embedded in the exe
+│   ├── eff_large_wordlist.txt
+│   ├── diceware8k.txt
+│   ├── BIP39-English.txt
+│   └── Wordlist_specs.md       # Word count, bits per word and use of each list
 ├── external/
 │   └── imgui/                # Dear ImGui (auto-downloaded)
 └── build.sh                  # Build script

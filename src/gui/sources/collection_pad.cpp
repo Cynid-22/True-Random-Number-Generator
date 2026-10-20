@@ -280,13 +280,6 @@ static void RenderMicrophoneReadout() {
   }
 }
 
-static std::string WithThousandsSeparators(uint64_t value) {
-  std::string digits = std::to_string(value);
-  for (int insertAt = (int)digits.size() - 3; insertAt > 0; insertAt -= 3)
-    digits.insert((size_t)insertAt, ",");
-  return digits;
-}
-
 static std::string SampleReadoutText(uint64_t sampleCount,
                                      double samplesPerSecond) {
   const std::string countText = WithThousandsSeparators(sampleCount) +

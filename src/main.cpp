@@ -6,6 +6,7 @@
 #include "gui/gui.h"
 #include "gui/output/generation_task.h"
 #include "logic/logic.h"
+#include "logic/word_lists.h"
 #include "platform/dx11.h"
 #include "logging/logger.h"
 
@@ -215,13 +216,7 @@ static void WipeSensitiveState() {
 
     WipeAndRelease(g_state.keystrokePreview);
 
-    for (auto& word : g_state.cachedWordList) {
-        if (!word.empty()) {
-            SecureZeroMemory(word.data(), word.size());
-        }
-    }
-    g_state.cachedWordList.clear();
-    g_state.cachedWordList.shrink_to_fit();
+    WordLists::WipeAll();
 }
 
 static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
@@ -252,6 +247,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     Logger::Log(Logger::Level::INFO, "Main", "Application starting...");
 
     SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+
+    WordLists::LoadAll();
 
     WNDCLASSEXW windowClass = { sizeof(windowClass), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr),
                                 nullptr, nullptr, nullptr, nullptr, L"TRNG", nullptr };

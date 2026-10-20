@@ -2,8 +2,6 @@
 #include <vector>
 #include <cstdint>
 
-bool LoadWordListForGeneration();
-
 float CalculateRequiredEntropy();
 
 void UpdateTargetEntropy();

@@ -22,6 +22,14 @@ enum UuidV7Ordering : int {
     UUIDV7_FULLY_RANDOM = 2
 };
 
+enum PassphraseWordList : int {
+    WORD_LIST_NORDPASS = 0,
+    WORD_LIST_EFF_LARGE = 1,
+    WORD_LIST_DICEWARE_8K = 2,
+    WORD_LIST_BIP39_ENGLISH = 3,
+    WORD_LIST_COUNT = 4
+};
+
 enum OneTimePadInput : int {
     ONE_TIME_PAD_NO_RESULT = -1,
     ONE_TIME_PAD_TEXT_INPUT = 0,

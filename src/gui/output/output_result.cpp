@@ -1,6 +1,7 @@
 #include "../../core/app_state.h"
 #include "../../logic/formats/one_time_pad_format.h"
 #include "../../logic/logic.h"
+#include "../../logic/word_lists.h"
 #include "../../platform/unicode_path.h"
 #include "../gui.h"
 #include "../widgets.h"
@@ -127,6 +128,13 @@ static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
       !g_state.includeNumbers && !g_state.includeUppercase &&
       !g_state.includeLowercase && !g_state.includeSpecial)
     return "Select at least one character set (0-9, A-Z, a-z or Special).";
+
+  if (g_state.outputFormat == FORMAT_PASSPHRASE) {
+    const WordLists::WordList &wordList =
+        WordLists::Get(g_state.passphraseWordList);
+    if (!wordList.IsUsable())
+      return wordList.loadError.c_str();
+  }
 
   if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)
     return nullptr;

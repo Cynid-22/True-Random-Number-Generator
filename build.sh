@@ -66,6 +66,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/logic/csprng.cpp \
     src/logic/output_generator.cpp \
     src/logic/output_export.cpp \
+    src/logic/word_lists.cpp \
     src/logic/formats/number_formats.cpp \
     src/logic/formats/text_formats.cpp \
     src/logic/formats/raw_data_format.cpp \

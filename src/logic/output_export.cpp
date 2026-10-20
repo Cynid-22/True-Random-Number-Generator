@@ -1,5 +1,6 @@
 #include "output_export.h"
 #include "formats/raw_data_format.h"
+#include "word_lists.h"
 #include <cstdint>
 #include <cstring>
 
@@ -160,7 +161,10 @@ std::vector<OutputSetting> CaptureOutputSettings() {
     AddRawDataSettings(settings);
     break;
   case FORMAT_PASSPHRASE:
+    settings.push_back(TextSetting(
+        "wordList", WordLists::Get(g_state.passphraseWordList).name));
     settings.push_back(NumberSetting("words", g_state.passphraseWordCount));
+    settings.push_back(NumberSetting("numbers", g_state.passphraseNumberCount));
     settings.push_back(
         TextSetting("separator", g_state.passphraseSeparator.data()));
     break;

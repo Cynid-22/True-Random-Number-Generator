@@ -14,9 +14,12 @@ std::vector<char> GenerateRandomCharacters(
     bool includeSpecial,
     std::vector<uint8_t> &binaryValue);
 
+double PassphraseNumberBits(int wordCount, int numberCount);
+
 std::vector<char> GeneratePassphrase(
     const std::vector<uint8_t> &randomBytes,
     int wordCount,
+    int numberCount,
     const std::string &separator,
     const std::vector<std::string> &wordList,
     std::vector<uint8_t> &binaryValue);
