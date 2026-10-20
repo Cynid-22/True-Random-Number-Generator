@@ -85,8 +85,15 @@ void BeginCollectionPadFrame() {
     return;
   }
 
-  CaptureTypedCharacters();
+  if (g_state.keystrokeEnabled)
+    CaptureTypedCharacters();
   ReportCanvasHovered(false);
+}
+
+static const char *KeystrokePreviewPlaceholder() {
+  if (!g_state.keystrokeEnabled)
+    return " [ Keystroke Dynamics is excluded ] ";
+  return " [ Keystrokes will appear here ] ";
 }
 
 static void RenderKeyboardPreview() {
@@ -94,7 +101,7 @@ static void RenderKeyboardPreview() {
 
   ImGui::BeginChild("KeyOutputBox", ImVec2(0, KEYSTROKE_PREVIEW_HEIGHT), true);
   if (g_state.keystrokePreview.empty()) {
-    ImGui::TextDisabled(" [ Keystrokes will appear here ] ");
+    ImGui::TextDisabled("%s", KeystrokePreviewPlaceholder());
   } else {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
 
@@ -214,13 +221,23 @@ static LevelMeterMetrics CurrentLevelMeterMetrics() {
           std::round(fontSize * LEVEL_METER_BLOCK_GAP_EM)};
 }
 
+static void IndentUnderHeading() {
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                       ImGui::GetStyle().SeparatorTextPadding.x);
+}
+
+static float DigitCenterOffsetY() {
+  const ImFontGlyph *digit = ImGui::GetFontBaked()->FindGlyph('0');
+  return ImGui::GetStyle().FramePadding.y + (digit->Y0 + digit->Y1) * 0.5f;
+}
+
 static void RenderMicrophoneLevelMeter() {
   const LevelMeterMetrics meter = CurrentLevelMeterMetrics();
   const float rowHeight = ImGui::GetFrameHeight();
   const ImVec2 origin = ImGui::GetCursorScreenPos();
   const float left = std::floor(origin.x);
-  const float top =
-      std::floor(origin.y + (rowHeight - meter.blockHeight) * 0.5f);
+  const float top = std::round(origin.y + DigitCenterOffsetY() -
+                               meter.blockHeight * 0.5f);
   const float dbPerBlock = -LEVEL_METER_FLOOR_DB / LEVEL_METER_BLOCK_COUNT;
 
   ImDrawList *drawList = ImGui::GetWindowDrawList();
@@ -248,11 +265,13 @@ static float MicrophoneReadoutWidth() {
   const float trailingLineWidth = separatorPadding;
   const float headingWidth = separatorPadding * 2.0f + trailingLineWidth +
                              ImGui::CalcTextSize(MICROPHONE_READOUT_TITLE).x;
-  return std::max(CurrentLevelMeterMetrics().Width(), headingWidth);
+  return std::max(separatorPadding + CurrentLevelMeterMetrics().Width(),
+                  headingWidth);
 }
 
 static void RenderMicrophoneReadout() {
   ImGui::SeparatorText(MICROPHONE_READOUT_TITLE);
+  IndentUnderHeading();
   if (g_state.microphoneEnabled) {
     RenderMicrophoneLevelMeter();
   } else {
@@ -287,6 +306,7 @@ template <typename Collector>
 static void RenderSampleReadout(const char *title, bool enabled,
                                 const Collector &collector) {
   ImGui::SeparatorText(title);
+  IndentUnderHeading();
   ImGui::AlignTextToFramePadding();
   if (!enabled) {
     ImGui::TextDisabled("Excluded");

@@ -1,4 +1,5 @@
 #include "cpu_jitter.h"
+#include "../high_resolution_sleeper.h"
 #include "../../logging/logger.h"
 #include <chrono>
 #include <windows.h>
@@ -58,8 +59,15 @@ void CpuJitterCollector::SamplerLoop() {
     Logger::Log(Logger::Level::INFO, "CpuJitter", "Referee thread started (Race Condition Active)");
     uint64_t previousCount = 0;
 
+    HighResolutionSleeper sleeper;
+    if (!sleeper.IsHighResolution()) {
+        Logger::Log(Logger::Level::WARN, "CpuJitter",
+                    "High-resolution timer unavailable (Error: %lu); sampling at the system timer rate",
+                    GetLastError());
+    }
+
     while (m_running) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        sleeper.SleepFor(std::chrono::milliseconds(1));
 
         if (!m_running) break;
 

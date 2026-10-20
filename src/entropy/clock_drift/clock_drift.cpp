@@ -1,4 +1,5 @@
 #include "clock_drift.h"
+#include "../high_resolution_sleeper.h"
 #include "../../logging/logger.h"
 #include <intrin.h>
 #include <chrono>
@@ -77,10 +78,17 @@ uint64_t ClockDriftCollector::GetSampleCount() const {
 void ClockDriftCollector::CollectionLoop() {
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Thread main loop started");
 
+    HighResolutionSleeper sleeper;
+    if (!sleeper.IsHighResolution()) {
+        Logger::Log(Logger::Level::WARN, "ClockDrift",
+                    "High-resolution timer unavailable (Error: %lu); sampling at the system timer rate",
+                    GetLastError());
+    }
+
     while (m_running) {
         uint64_t cyclesBefore = __rdtsc();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        sleeper.SleepFor(std::chrono::milliseconds(1));
 
         uint64_t cyclesAfter = __rdtsc();
 
