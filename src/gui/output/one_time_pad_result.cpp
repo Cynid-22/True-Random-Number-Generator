@@ -11,6 +11,9 @@
 #include <string>
 #include <vector>
 
+static const char *const ONE_TIME_PAD_METHOD_TEXT =
+    "Method: Vernam cipher with a key from the ChaCha20 pipeline";
+
 static bool IsFileResult() {
   return g_state.oneTimePadResultMode == ONE_TIME_PAD_FILE_INPUT;
 }
@@ -33,9 +36,12 @@ static std::wstring ResultFileNameWithoutExtension() {
 
 static void RenderKeyWarning() {
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-  ImGui::TextWrapped("Save the key. Without it the ciphertext is "
-                     "mathematically impossible to decrypt, and this program "
-                     "can't recover it either.");
+  ImGui::TextWrapped("Save the key. Without it the ciphertext can't be "
+                     "decrypted in practice, and this program can't recover "
+                     "it either. The key is ChaCha20 output from the "
+                     "cryptographic pipeline, so this security is "
+                     "computational, not the information-theoretic security "
+                     "of a true one-time pad.");
   ImGui::PopStyleColor();
 }
 
@@ -52,7 +58,8 @@ static void RenderKeyOrCiphertextBox(const char *title,
                      static_cast<unsigned long long>(length), countSuffix);
   ImGui::SameLine();
   if (ImGui::Button(copyButtonLabel))
-    ImGui::SetClipboardText(text.data());
+    CopySecretText(text.data(), length);
+  RenderSecretCopyTooltip();
 
   if (ImGui::BeginChild(boxId, ImVec2(-1, boxHeight), true))
     RenderTruncatableText(text.data(), length, g_state.truncateOutputView);
@@ -60,7 +67,7 @@ static void RenderKeyOrCiphertextBox(const char *title,
 }
 
 static void RenderTextResult() {
-  ImGui::Text("Method: One-Time Pad (Vernam cipher)");
+  ImGui::Text("%s", ONE_TIME_PAD_METHOD_TEXT);
   ImGui::TextColored(UiColor::LabelText,
                      "ciphertext = (message + key) mod 63 over 0-9 A-Z a-z "
                      "space");
@@ -93,7 +100,7 @@ static void RenderFileResult() {
   ImGui::Text("File: %s", g_state.oneTimePadResultFileName.c_str());
   ImGui::Text("Size: %llu bytes", static_cast<unsigned long long>(length));
   ImGui::Spacing();
-  ImGui::Text("Method: One-Time Pad (Vernam cipher)");
+  ImGui::Text("%s", ONE_TIME_PAD_METHOD_TEXT);
   ImGui::TextColored(UiColor::LabelText,
                      "Each byte: ciphertext = file XOR key");
   ImGui::TextColored(UiColor::LabelText,
@@ -187,6 +194,6 @@ void ExportOneTimePadKeyAndCiphertext() {
   try {
     SaveOneTimePadAs(fileType, filePath, fileMode);
   } catch (const std::bad_alloc &) {
-    LogExportOutOfMemory("the One-Time Pad key and ciphertext");
+    ReportExportOutOfMemory("the One-Time Pad key and ciphertext");
   }
 }

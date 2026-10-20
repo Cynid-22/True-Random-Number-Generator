@@ -5,11 +5,14 @@
 #include "core/app_state.h"
 #include "gui/gui.h"
 #include "gui/output/generation_task.h"
-#include "logic/logic.h"
 #include "logic/word_lists.h"
+#include "gui/widgets.h"
 #include "platform/dx11.h"
+#include "platform/secure_clipboard.h"
 #include "logging/logger.h"
 
+#include <cstdlib>
+#include <malloc.h>
 #include <shellscalingapi.h>
 #include <windows.h>
 #pragma comment(lib, "shcore.lib")
@@ -17,7 +20,12 @@
 
 AppState g_state;
 
+static constexpr SIZE_T LOCKABLE_MEMORY_BYTES = SIZE_T(128) * 1024 * 1024;
+static constexpr SIZE_T WORKING_SET_MAXIMUM_BYTES = SIZE_T(1024) * 1024 * 1024;
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+static void WipeForSessionEnd();
 
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
@@ -38,6 +46,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
         case WM_CLOSE:
             g_state.closeRequested = true;
+            return 0;
+        case WM_ENDSESSION:
+            if (wParam)
+                WipeForSessionEnd();
             return 0;
         case WM_GETMINMAXINFO: {
             LPMINMAXINFO minMaxInfo = (LPMINMAXINFO)lParam;
@@ -62,37 +74,27 @@ static void MatchCollectorToSetting(Collector& collector, bool enabled) {
     }
 }
 
-template <typename Collector>
-static void HarvestTimingSource(Collector& collector, float& entropyBits) {
-    auto data = collector.Harvest();
-    if (!data.empty()) {
-        g_state.entropyPool.AddDataPoints(data);
-
-        std::vector<uint64_t> values;
-        values.reserve(data.size());
-        for (const auto& point : data) values.push_back(point.value);
-
-        entropyBits += CalculateEntropyFromDeltas(values);
-
-        if (!values.empty()) {
-            SecureZeroMemory(values.data(), values.size() * sizeof(uint64_t));
-        }
-        SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
-    }
+static void StopAllCollectors() {
+    MatchCollectorToSetting(g_state.clockDriftCollector, false);
+    MatchCollectorToSetting(g_state.cpuJitterCollector, false);
+    MatchCollectorToSetting(g_state.keystrokeCollector, false);
+    MatchCollectorToSetting(g_state.mouseCollector, false);
+    MatchCollectorToSetting(g_state.microphoneCollector, false);
 }
 
-static void HarvestMicrophone() {
-    auto data = g_state.microphoneCollector.Harvest();
-    if (!data.empty()) {
+template <typename Collector>
+static void HarvestSource(Collector& collector) {
+    const Entropy::EntropyDataVector data = collector.Harvest();
+    if (!data.empty())
         g_state.entropyPool.AddDataPoints(data);
-
-        g_state.microphoneEntropyBits += (float)(data.size() * 32);
-
-        SecureZeroMemory(data.data(), data.size() * sizeof(Entropy::EntropyDataPoint));
-    }
 }
 
 static void UpdateEntropyCollection() {
+    static bool wasCollecting = false;
+    if (g_state.isCollecting && !wasCollecting)
+        g_state.entropyPool.RestartSourceTracking();
+    wasCollecting = g_state.isCollecting;
+
     if (g_state.isCollecting) {
         MatchCollectorToSetting(g_state.clockDriftCollector, g_state.clockDriftEnabled);
         MatchCollectorToSetting(g_state.cpuJitterCollector, g_state.cpuJitterEnabled);
@@ -101,21 +103,17 @@ static void UpdateEntropyCollection() {
         MatchCollectorToSetting(g_state.microphoneCollector, g_state.microphoneEnabled);
 
         if (g_state.clockDriftEnabled)
-            HarvestTimingSource(g_state.clockDriftCollector, g_state.clockDriftEntropyBits);
+            HarvestSource(g_state.clockDriftCollector);
         if (g_state.cpuJitterEnabled)
-            HarvestTimingSource(g_state.cpuJitterCollector, g_state.cpuJitterEntropyBits);
+            HarvestSource(g_state.cpuJitterCollector);
         if (g_state.keystrokeEnabled)
-            HarvestTimingSource(g_state.keystrokeCollector, g_state.keystrokeEntropyBits);
+            HarvestSource(g_state.keystrokeCollector);
         if (g_state.mouseMovementEnabled)
-            HarvestTimingSource(g_state.mouseCollector, g_state.mouseEntropyBits);
+            HarvestSource(g_state.mouseCollector);
         if (g_state.microphoneEnabled)
-            HarvestMicrophone();
+            HarvestSource(g_state.microphoneCollector);
     } else {
-        MatchCollectorToSetting(g_state.clockDriftCollector, false);
-        MatchCollectorToSetting(g_state.cpuJitterCollector, false);
-        MatchCollectorToSetting(g_state.keystrokeCollector, false);
-        MatchCollectorToSetting(g_state.mouseCollector, false);
-        MatchCollectorToSetting(g_state.microphoneCollector, false);
+        StopAllCollectors();
 
         g_state.mouseTrail.clear();
         Crypto::SecureClearVector(g_state.keystrokePreview);
@@ -190,6 +188,8 @@ static void RenderMainWindow(ImGuiIO& io) {
 
     RenderAboutModal();
 
+    RenderErrorModal();
+
     RenderClosingModal();
 
     ImGui::End();
@@ -206,6 +206,8 @@ static void WipeAndRelease(std::vector<T>& buffer) {
 
 static void WipeSensitiveState() {
     g_state.entropyPool.SecureWipe();
+    WipeTextInputBuffers();
+    Platform::ClearSecretClipboardNow();
 
     Crypto::SecureClearVector(g_state.oneTimePadMessage);
     Crypto::SecureClearVector(g_state.oneTimePadFilePath);
@@ -217,6 +219,34 @@ static void WipeSensitiveState() {
     WipeAndRelease(g_state.keystrokePreview);
 
     WordLists::WipeAll();
+}
+
+static void WipeForSessionEnd() {
+    g_state.cancelGenerationRequested = true;
+    g_state.isCollecting = false;
+    StopAllCollectors();
+    g_state.entropyPool.SecureWipe();
+
+    // Zero in place: ImGui may draw another frame before the process ends
+    SecureZeroMemory(g_state.oneTimePadMessage.data(), g_state.oneTimePadMessage.size());
+    SecureZeroMemory(g_state.oneTimePadFilePath.data(), g_state.oneTimePadFilePath.size());
+    g_state.wipeOneTimePadResult();
+    g_state.wipeGeneratedOutput();
+    Crypto::SecureClearVector(g_state.keystrokePreview);
+
+    WipeTextInputBuffers();
+    Platform::ClearSecretClipboardNow();
+}
+
+static void* AllocateImGuiMemory(size_t size, void*) {
+    return malloc(size);
+}
+
+static void FreeImGuiMemory(void* memory, void*) {
+    if (!memory)
+        return;
+    SecureZeroMemory(memory, _msize(memory));
+    free(memory);
 }
 
 static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
@@ -243,6 +273,9 @@ static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+    SetProcessWorkingSetSize(GetCurrentProcess(), LOCKABLE_MEMORY_BYTES,
+                             WORKING_SET_MAXIMUM_BYTES);
     Logger::Init();
     Logger::Log(Logger::Level::INFO, "Main", "Application starting...");
 
@@ -273,6 +306,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                               WS_OVERLAPPEDWINDOW, windowX, windowY, windowWidth, windowHeight,
                               nullptr, nullptr, windowClass.hInstance, nullptr);
 
+    Platform::SetClipboardOwnerWindow(hwnd);
+
     if (!CreateD3DDevice(hwnd)) {
         DestroyD3DDevice();
         UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
@@ -283,6 +318,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     UpdateWindow(hwnd);
 
     IMGUI_CHECKVERSION();
+    ImGui::SetAllocatorFunctions(AllocateImGuiMemory, FreeImGuiMemory, nullptr);
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -326,6 +362,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             PostQuitMessage(0);
 
         UpdateEntropyCollection();
+        Platform::ClearSecretClipboardWhenDue();
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();

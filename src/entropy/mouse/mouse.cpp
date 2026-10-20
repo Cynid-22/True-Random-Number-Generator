@@ -81,8 +81,8 @@ void MouseCollector::FlushLocalBuffer() {
 
 LRESULT CALLBACK MouseCollector::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && s_instance && s_instance->IsRunning()) {
-        if (wParam == WM_MOUSEMOVE) {
-            MSLLHOOKSTRUCT* mouseEvent = (MSLLHOOKSTRUCT*)lParam;
+        MSLLHOOKSTRUCT* mouseEvent = (MSLLHOOKSTRUCT*)lParam;
+        if (wParam == WM_MOUSEMOVE && !(mouseEvent->flags & LLMHF_INJECTED)) {
             uint64_t now = GetNanosecondTimestamp();
             s_instance->ProcessMouseMove(mouseEvent->pt, now);
         }
@@ -108,10 +108,10 @@ void MouseCollector::ProcessMouseMove(POINT position, uint64_t timestamp) {
         return;
     }
 
-    uint64_t packedValue = ((uint64_t)(position.x & 0xFFFF) << 48) |
-                           ((uint64_t)(position.y & 0xFFFF) << 32) |
-                           ((uint64_t)(dx & 0xFFFF) << 16) |
-                           ((uint64_t)(dy & 0xFFFF));
+    uint64_t packedValue = (((uint64_t)position.x & PACKED_FIELD_MASK) << PACKED_X_SHIFT) |
+                           (((uint64_t)position.y & PACKED_FIELD_MASK) << PACKED_Y_SHIFT) |
+                           (((uint64_t)dx & PACKED_FIELD_MASK) << PACKED_DX_SHIFT) |
+                           ((uint64_t)dy & PACKED_FIELD_MASK);
 
     {
         EntropyDataPoint dataPoint;
@@ -145,13 +145,13 @@ void MouseCollector::ProcessMouseMove(POINT position, uint64_t timestamp) {
     m_lastY = position.y;
 }
 
-std::vector<EntropyDataPoint> MouseCollector::Harvest() {
+EntropyDataVector MouseCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_buffer.empty()) {
         return {};
     }
 
-    std::vector<EntropyDataPoint> harvested;
+    EntropyDataVector harvested;
     harvested.swap(m_buffer);
     m_buffer.shrink_to_fit();
     return harvested;

@@ -30,7 +30,7 @@ void WriteAndWipeExportFile(const wchar_t *filePath,
                             std::vector<uint8_t> &content,
                             const char *exportName);
 
-void LogExportOutOfMemory(const char *exportName);
+void ReportExportOutOfMemory(const char *exportName);
 
 void SetupNativeStyle();
 
@@ -49,5 +49,11 @@ void RenderOutputConfigSection();
 void RenderOutputSection();
 
 void RenderAboutModal();
+
+void RenderErrorModal();
+
+void CopySecretText(const char *text, size_t length);
+
+void RenderSecretCopyTooltip();
 
 void RenderClosingModal();

@@ -5,7 +5,22 @@ ID3D11DeviceContext*     g_d3dDeviceContext = nullptr;
 IDXGISwapChain*          g_swapChain = nullptr;
 ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
 
+using CreateDeviceAndSwapChainFunction = decltype(&D3D11CreateDeviceAndSwapChain);
+
+static CreateDeviceAndSwapChainFunction LoadCreateDeviceAndSwapChain() {
+    HMODULE d3d11 = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!d3d11)
+        return nullptr;
+    return reinterpret_cast<CreateDeviceAndSwapChainFunction>(
+        GetProcAddress(d3d11, "D3D11CreateDeviceAndSwapChain"));
+}
+
 bool CreateD3DDevice(HWND hWnd) {
+    const CreateDeviceAndSwapChainFunction createDeviceAndSwapChain =
+        LoadCreateDeviceAndSwapChain();
+    if (!createDeviceAndSwapChain)
+        return false;
+
     DXGI_SWAP_CHAIN_DESC swapChainDesc;
     ZeroMemory(&swapChainDesc, sizeof(swapChainDesc));
     swapChainDesc.BufferCount = 2;
@@ -25,15 +40,15 @@ bool CreateD3DDevice(HWND hWnd) {
     UINT createDeviceFlags = 0;
     D3D_FEATURE_LEVEL featureLevel;
     const D3D_FEATURE_LEVEL featureLevels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
-    HRESULT result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                                   createDeviceFlags, featureLevels, 2,
-                                                   D3D11_SDK_VERSION, &swapChainDesc, &g_swapChain,
-                                                   &g_d3dDevice, &featureLevel, &g_d3dDeviceContext);
+    HRESULT result = createDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+                                              createDeviceFlags, featureLevels, 2,
+                                              D3D11_SDK_VERSION, &swapChainDesc, &g_swapChain,
+                                              &g_d3dDevice, &featureLevel, &g_d3dDeviceContext);
     if (result == DXGI_ERROR_UNSUPPORTED)
-        result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
-                                               createDeviceFlags, featureLevels, 2,
-                                               D3D11_SDK_VERSION, &swapChainDesc, &g_swapChain,
-                                               &g_d3dDevice, &featureLevel, &g_d3dDeviceContext);
+        result = createDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
+                                          createDeviceFlags, featureLevels, 2,
+                                          D3D11_SDK_VERSION, &swapChainDesc, &g_swapChain,
+                                          &g_d3dDevice, &featureLevel, &g_d3dDeviceContext);
     if (result != S_OK)
         return false;
 

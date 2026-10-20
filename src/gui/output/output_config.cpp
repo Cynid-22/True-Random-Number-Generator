@@ -132,10 +132,11 @@ static void RenderEntropyRequirementRow() {
   ImGui::TextColored(UiColor::Highlight, "%.0f bits",
                      g_state.targetEntropyBits);
 
-  if (g_state.targetEntropyBits <= 512.0f) {
+  if (g_state.targetEntropyBits <= AppConfig::MINIMUM_ENTROPY_BITS) {
     ImGui::SameLine();
     ImGui::TextColored(UiColor::DimText, "(Minimum Base Security)");
   }
+  HelpMarker(PIPELINE_STATE_NOTE);
 }
 
 void RenderOutputConfigSection() {

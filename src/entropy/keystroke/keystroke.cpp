@@ -25,6 +25,10 @@ void KeystrokeCollector::Start() {
         return;
     }
 
+    m_keysDown.reset();
+    m_lastKeyDownTime = 0;
+    m_lastKeyUpTime = 0;
+
     Logger::Log(Logger::Level::INFO, "Keystroke", "Installing keyboard hook...");
 
     m_hook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
@@ -58,13 +62,13 @@ bool KeystrokeCollector::IsRunning() const {
     return m_running;
 }
 
-std::vector<EntropyDataPoint> KeystrokeCollector::Harvest() {
+EntropyDataVector KeystrokeCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_buffer.empty()) {
         return {};
     }
 
-    std::vector<EntropyDataPoint> harvested;
+    EntropyDataVector harvested;
     harvested.swap(m_buffer);
     m_buffer.shrink_to_fit();
     return harvested;
@@ -75,19 +79,47 @@ void KeystrokeCollector::SecureClearBuffer() {
     Crypto::SecureClearVector(m_buffer);
 }
 
+static bool IsOwnWindowInForeground() {
+    HWND foregroundWindow = GetForegroundWindow();
+    if (!foregroundWindow) {
+        return false;
+    }
+    DWORD processId = 0;
+    GetWindowThreadProcessId(foregroundWindow, &processId);
+    return processId == GetCurrentProcessId();
+}
+
 LRESULT CALLBACK KeystrokeCollector::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && s_instance && s_instance->IsRunning()) {
-        s_instance->ProcessKeyMessage(wParam);
+        s_instance->ProcessKeyMessage(wParam, *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam));
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-void KeystrokeCollector::ProcessKeyMessage(WPARAM message) {
+void KeystrokeCollector::ProcessKeyMessage(WPARAM message, const KBDLLHOOKSTRUCT& keyEvent) {
     uint64_t now = GetNanosecondTimestamp();
 
-    if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
+    if (keyEvent.flags & LLKHF_INJECTED) {
+        return;
+    }
+
+    const bool isKeyDown = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+    const bool isKeyUp = (message == WM_KEYUP || message == WM_SYSKEYUP);
+    const size_t virtualKey = keyEvent.vkCode % VIRTUAL_KEY_COUNT;
+    const bool isAutoRepeat = isKeyDown && m_keysDown[virtualKey];
+    if (isKeyDown) {
+        m_keysDown[virtualKey] = true;
+    } else if (isKeyUp) {
+        m_keysDown[virtualKey] = false;
+    }
+
+    if (isAutoRepeat || !IsOwnWindowInForeground()) {
+        return;
+    }
+
+    if (isKeyDown) {
         OnKeyDown(now);
-    } else if (message == WM_KEYUP || message == WM_SYSKEYUP) {
+    } else if (isKeyUp) {
         OnKeyUp(now);
     }
 }

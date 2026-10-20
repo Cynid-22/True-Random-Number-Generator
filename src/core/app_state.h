@@ -14,6 +14,7 @@
 #include "../crypto/secure_mem.h"
 #include "../../config/AppConfig.h"
 #include "output_format.h"
+#include "output_settings.h"
 
 #ifndef APP_VERSION
 #define APP_VERSION "dev"
@@ -34,12 +35,8 @@ struct GeneratedOutputDetails {
     bool numberedItems = false;
 };
 
-struct AppState {
+struct AppState : OutputSettings {
     AppState() {
-        passphraseSeparator.assign(AppConfig::PASSPHRASE_SEPARATOR_MAX_BYTES, '\0');
-        passphraseSeparator[0] = '-';
-        oneTimePadMessage.assign(AppConfig::ONE_TIME_PAD_MESSAGE_MAX_BYTES, '\0');
-        oneTimePadFilePath.assign(AppConfig::ONE_TIME_PAD_FILE_PATH_MAX_BYTES, '\0');
         keystrokePreview.reserve(AppConfig::KEYSTROKE_PREVIEW_MAX_CHARACTERS);
     }
 
@@ -58,63 +55,14 @@ struct AppState {
     bool mouseMovementEnabled = true;
 
     bool isCollecting = false;
-    float collectedEntropyBits = 0.0f;
-
-    float microphoneEntropyBits = 0.0f;
-    float keystrokeEntropyBits = 0.0f;
-    float clockDriftEntropyBits = 0.0f;
-    float cpuJitterEntropyBits = 0.0f;
-    float mouseEntropyBits = 0.0f;
+    double availableEntropyBits = 0.0;
+    double usedEntropyBits = 0.0;
 
     struct TrailPoint { float x, y; };
     std::vector<TrailPoint> mouseTrail;
     std::vector<char> keystrokePreview;
 
-    float targetEntropyBits = 512.0f;
-
-    int outputFormat = FORMAT_DECIMAL;
-
-    int outputQuantity = 1;
-    bool blankLineBetweenItems = false;
-    bool numberListItems = false;
-
-    int decimalDigits = 16;
-    long long integerMin = 0;
-    long long integerMax = 100;
-    int randomCharactersLength = 16;
-    bool includeNumbers = true;
-    bool includeUppercase = true;
-    bool includeLowercase = true;
-    bool includeSpecial = false;
-    int rawDataAmount = 256;
-    int rawDataUnit = RAW_DATA_UNIT_BITS;
-    int rawDataEncoding = 0;
-    // Indexed by CSPRNG::RawEncoding
-    static constexpr int RAW_DATA_ENCODING_COUNT = 14;
-    static constexpr std::array<bool, RAW_DATA_ENCODING_COUNT> DEFAULT_RAW_DATA_GROUPING_ENABLED = {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
-    static constexpr std::array<int, RAW_DATA_ENCODING_COUNT>  DEFAULT_RAW_DATA_GROUP_SIZE       = {4,     4,     8,    4,     4,     4,     8,     4,     4,     3,     4,     4,     4,     5};
-    static constexpr std::array<bool, RAW_DATA_ENCODING_COUNT> DEFAULT_RAW_DATA_UPPERCASE        = {true,  false, false, false, false, false, true,  true,  false, true,  false, false, false, false};
-    std::array<bool, RAW_DATA_ENCODING_COUNT> rawDataGroupingEnabled = DEFAULT_RAW_DATA_GROUPING_ENABLED;
-    std::array<int, RAW_DATA_ENCODING_COUNT> rawDataGroupSize = DEFAULT_RAW_DATA_GROUP_SIZE;
-    std::array<bool, RAW_DATA_ENCODING_COUNT> rawDataUppercase = DEFAULT_RAW_DATA_UPPERCASE;
-
-    bool uuidUppercase = false;
-    bool uuidHyphens = true;
-    int uuidV7Ordering = UUIDV7_DEDICATED_COUNTER;
-    int uuidV7CounterBits = 12;
-    int uuidV7IncrementBits = 32;
-
-    int passphraseWordList = WORD_LIST_NORDPASS;
-    int passphraseWordCount = 6;
-    int passphraseNumberCount = 0;
-    std::vector<char> passphraseSeparator;
-
-    std::vector<char> oneTimePadMessage;
-    std::vector<char> oneTimePadFilePath;
-    long long oneTimePadFileSize = 0;
-    uint64_t oneTimePadFileLastWriteTime = 0;
-    int oneTimePadMessageLength = 16;
-    int oneTimePadInputMode = ONE_TIME_PAD_TEXT_INPUT;
+    float targetEntropyBits = AppConfig::MINIMUM_ENTROPY_BITS;
 
     int oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
     std::vector<char> oneTimePadKey;
@@ -128,18 +76,27 @@ struct AppState {
     std::string generationTimeText = "";
 
     bool truncateOutputView = true;
-    volatile bool cancelGenerationRequested{false};
+    std::atomic<bool> cancelGenerationRequested{false};
     std::atomic<bool> generationInCryptoPass{false};
 
     bool closeRequested = false;
     double closeRequestedTime = 0.0;
 
-    bool showDataLockWarning = true;
+    bool showUsedDataWarning = true;
 
     bool showAboutModal = false;
 
+    std::string exportStatusText;
+    std::string errorModalHeading;
+    std::string errorModalText;
+    bool showErrorModal = false;
+
+    bool hasMinimumEntropy() const {
+        return availableEntropyBits + usedEntropyBits >= AppConfig::MINIMUM_ENTROPY_BITS;
+    }
+
     bool hasReachedTargetEntropy() const {
-        return collectedEntropyBits >= targetEntropyBits;
+        return availableEntropyBits >= targetEntropyBits;
     }
 
     std::set<Entropy::EntropySource> enabledEntropySources() const {
@@ -176,8 +133,6 @@ struct AppState {
 
     ~AppState() {
         wipeGeneratedOutput();
-        Crypto::SecureClearVector(oneTimePadMessage);
-        Crypto::SecureClearVector(passphraseSeparator);
         wipeOneTimePadResult();
     }
 };

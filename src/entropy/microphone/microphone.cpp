@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 #include "../../crypto/secure_mem.h"
 
@@ -13,8 +14,100 @@
 // Not provided by MinGW
 static const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID =
 { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
+static const GUID KSDATAFORMAT_SUBTYPE_PCM_GUID =
+{ 0x00000001, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 
 namespace Entropy {
+
+enum class SampleEncoding { Unsupported, Int16, Int24, Int32, Float32 };
+
+struct SampleFormat {
+    SampleEncoding encoding;
+    unsigned paddingBits;
+    double fullScale;
+};
+
+struct MicrophoneSample {
+    double level;
+    uint64_t leastSignificantBit;
+};
+
+static const double FLOAT_SAMPLE_SCALE = 32767.0;
+static const double MINIMUM_RMS_LEVEL = 2.0 / 32768.0;
+static const int LSB_BITS_PER_POINT = 64;
+static const uint32_t INT24_SIGN_BIT = 0x800000;
+static const int32_t INT24_RANGE = 0x1000000;
+
+static SampleFormat SampleFormatOf(const WAVEFORMATEX* format) {
+    const size_t extensibleExtraBytes = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    const WAVEFORMATEXTENSIBLE* extensible =
+        (format->wFormatTag == WAVE_FORMAT_EXTENSIBLE && format->cbSize >= extensibleExtraBytes)
+            ? reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(format)
+            : nullptr;
+    const bool isFloat = format->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+                         (extensible && extensible->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID);
+    const bool isInteger = format->wFormatTag == WAVE_FORMAT_PCM ||
+                           (extensible && extensible->SubFormat == KSDATAFORMAT_SUBTYPE_PCM_GUID);
+    const unsigned containerBits = format->wBitsPerSample;
+
+    if (isFloat && containerBits == 32)
+        return {SampleEncoding::Float32, 0, FLOAT_SAMPLE_SCALE};
+    if (!isInteger)
+        return {SampleEncoding::Unsupported, 0, 1.0};
+
+    unsigned validBits = containerBits;
+    if (extensible && extensible->Samples.wValidBitsPerSample > 0 &&
+        extensible->Samples.wValidBitsPerSample <= containerBits)
+        validBits = extensible->Samples.wValidBitsPerSample;
+    const unsigned paddingBits = containerBits - validBits;
+    const double fullScale = std::ldexp(1.0, static_cast<int>(containerBits) - 1);
+
+    switch (containerBits) {
+    case 16:
+        return {SampleEncoding::Int16, paddingBits, fullScale};
+    case 24:
+        return {SampleEncoding::Int24, paddingBits, fullScale};
+    case 32:
+        return {SampleEncoding::Int32, paddingBits, fullScale};
+    }
+    return {SampleEncoding::Unsupported, 0, 1.0};
+}
+
+static MicrophoneSample ReadFirstChannelSample(const BYTE* frame, const SampleFormat& format) {
+    int32_t value = 0;
+    switch (format.encoding) {
+    case SampleEncoding::Int16: {
+        int16_t sample;
+        memcpy(&sample, frame, sizeof(sample));
+        value = sample;
+        break;
+    }
+    case SampleEncoding::Int24: {
+        const uint32_t raw = static_cast<uint32_t>(frame[0]) |
+                             (static_cast<uint32_t>(frame[1]) << 8) |
+                             (static_cast<uint32_t>(frame[2]) << 16);
+        value = (raw & INT24_SIGN_BIT) ? static_cast<int32_t>(raw) - INT24_RANGE
+                                       : static_cast<int32_t>(raw);
+        break;
+    }
+    case SampleEncoding::Int32:
+        memcpy(&value, frame, sizeof(value));
+        break;
+    case SampleEncoding::Float32: {
+        float sample;
+        memcpy(&sample, frame, sizeof(sample));
+        const double clamped =
+            std::isfinite(sample) ? std::max(-1.0, std::min(1.0, static_cast<double>(sample))) : 0.0;
+        value = static_cast<int32_t>(std::lrint(clamped * FLOAT_SAMPLE_SCALE));
+        break;
+    }
+    case SampleEncoding::Unsupported:
+        break;
+    }
+    const uint32_t bits = static_cast<uint32_t>(value);
+    return {std::fabs(static_cast<double>(value)) / format.fullScale,
+            (bits >> format.paddingBits) & 1u};
+}
 
 MicrophoneCollector::MicrophoneCollector() {}
 
@@ -87,13 +180,13 @@ void MicrophoneCollector::MarkCaptureFailed() {
     m_running = false;
 }
 
-std::vector<EntropyDataPoint> MicrophoneCollector::Harvest() {
+EntropyDataVector MicrophoneCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_buffer.empty()) {
         return {};
     }
 
-    std::vector<EntropyDataPoint> harvested;
+    EntropyDataVector harvested;
     harvested.swap(m_buffer);
     m_buffer.shrink_to_fit();
     return harvested;
@@ -159,6 +252,19 @@ void MicrophoneCollector::CaptureLoop() {
         return;
     }
 
+    const SampleFormat sampleFormat = SampleFormatOf(mixFormat);
+    if (sampleFormat.encoding == SampleEncoding::Unsupported) {
+        Logger::Log(Logger::Level::ERR, "Microphone", "Unsupported audio format: %u-bit samples",
+                    static_cast<unsigned>(mixFormat->wBitsPerSample));
+        CoTaskMemFree(mixFormat);
+        audioClient->Release();
+        captureDevice->Release();
+        deviceEnumerator->Release();
+        MarkCaptureFailed();
+        CoUninitialize();
+        return;
+    }
+
     hr = audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         0,
@@ -210,13 +316,6 @@ void MicrophoneCollector::CaptureLoop() {
     m_lastFailureMs = 0;
     m_capturing = true;
 
-    const bool isFloatFormat =
-        mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
-        (mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
-         ((WAVEFORMATEXTENSIBLE*)mixFormat)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID);
-    const double fullScaleAmplitude =
-        (mixFormat->wBitsPerSample == 32 && !isFloatFormat) ? (double)INT32_MAX : (double)INT16_MAX;
-
     UINT32 packetLength = 0;
     BYTE *frameData;
     UINT32 frameCount;
@@ -231,7 +330,7 @@ void MicrophoneCollector::CaptureLoop() {
         hr = captureClient->GetNextPacketSize(&packetLength);
         if (FAILED(hr)) continue;
 
-        double pollPeakAmplitude = 0.0;
+        double pollPeakLevel = 0.0;
         while (packetLength != 0) {
             hr = captureClient->GetBuffer(
                 &frameData,
@@ -243,41 +342,26 @@ void MicrophoneCollector::CaptureLoop() {
             if (FAILED(hr)) break;
 
             if (!(bufferFlags & AUDCLNT_BUFFERFLAGS_SILENT)) {
-                int bytesPerFrame = mixFormat->nBlockAlign;
-                int bitsPerSample = mixFormat->wBitsPerSample;
+                const size_t bytesPerFrame = mixFormat->nBlockAlign;
 
                 double sumOfSquares = 0.0;
                 int sampleCount = 0;
 
-                std::vector<EntropyDataPoint> newPoints;
-                newPoints.reserve(frameCount / 64 + 1);
+                EntropyDataVector newPoints;
+                newPoints.reserve(frameCount / LSB_BITS_PER_POINT + 1);
 
                 for (UINT32 i = 0; i < frameCount; i++) {
-                    int32_t sampleValue = 0;
+                    const MicrophoneSample sample =
+                        ReadFirstChannelSample(frameData + i * bytesPerFrame, sampleFormat);
 
-                    if (bitsPerSample == 16) {
-                        int16_t* sample = (int16_t*)(frameData + i * bytesPerFrame);
-                        sampleValue = *sample;
-                    } else if (bitsPerSample == 32) {
-                        if (isFloatFormat) {
-                            float* sample = (float*)(frameData + i * bytesPerFrame);
-                            sampleValue = (int32_t)(*sample * 32767.0f);
-                        } else {
-                            int32_t* sample = (int32_t*)(frameData + i * bytesPerFrame);
-                            sampleValue = *sample;
-                        }
-                    }
-
-                    pollPeakAmplitude = std::max(pollPeakAmplitude, std::fabs((double)sampleValue));
-                    sumOfSquares += (double)sampleValue * sampleValue;
+                    pollPeakLevel = std::max(pollPeakLevel, sample.level);
+                    sumOfSquares += sample.level * sample.level;
                     sampleCount++;
 
-                    uint64_t leastSignificantBit = (std::abs(sampleValue) & 1);
-
-                    lsbAccumulator = (lsbAccumulator << 1) | leastSignificantBit;
+                    lsbAccumulator = (lsbAccumulator << 1) | sample.leastSignificantBit;
                     accumulatedBitCount++;
 
-                    if (accumulatedBitCount >= 64) {
+                    if (accumulatedBitCount >= LSB_BITS_PER_POINT) {
                         EntropyDataPoint dataPoint;
                         dataPoint.timestamp = GetNanosecondTimestamp();
                         dataPoint.value = lsbAccumulator;
@@ -294,7 +378,7 @@ void MicrophoneCollector::CaptureLoop() {
                     rms = std::sqrt(sumOfSquares / sampleCount);
                 }
 
-                if (rms > 2.0) {
+                if (rms > MINIMUM_RMS_LEVEL) {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     m_buffer.insert(m_buffer.end(), newPoints.begin(), newPoints.end());
                 }
@@ -307,7 +391,7 @@ void MicrophoneCollector::CaptureLoop() {
 
             hr = captureClient->GetNextPacketSize(&packetLength);
         }
-        m_inputPeakLevel = (float)std::min(pollPeakAmplitude / fullScaleAmplitude, 1.0);
+        m_inputPeakLevel = (float)std::min(pollPeakLevel, 1.0);
     }
 
     m_capturing = false;

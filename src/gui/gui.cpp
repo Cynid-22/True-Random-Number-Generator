@@ -4,6 +4,7 @@
 #include "../logic/logic.h"
 #include "../logic/output_export.h"
 #include "widgets.h"
+#include "../platform/secure_clipboard.h"
 #include "../platform/unicode_path.h"
 #include "output/generation_task.h"
 #include "output/one_time_pad_result.h"
@@ -121,17 +122,33 @@ static bool ShowSaveFileDialog(OPENFILENAMEW &dialog, wchar_t *filePath,
   return GetSaveFileNameW(&dialog);
 }
 
+static void ShowErrorModal(const char *heading, const std::string &message) {
+  g_state.errorModalHeading = heading;
+  g_state.errorModalText = message;
+  g_state.showErrorModal = true;
+}
+
+static const char *const EXPORT_FAILED_HEADING = "Export failed";
+
+static std::string FileNameOfPath(const std::string &path) {
+  const size_t separator = path.find_last_of("\\/");
+  return separator == std::string::npos ? path : path.substr(separator + 1);
+}
+
 void WriteExportFile(const wchar_t *filePath, const char *data, size_t size,
                      const char *exportName) {
-  std::string logPath = Platform::WideToUtf8(filePath);
+  const std::string pathText = Platform::WideToUtf8(filePath);
   if (Platform::WriteWholeFile(filePath, data, size)) {
-    Logger::Log(Logger::Level::INFO, "GUI", "%s exported to %s", exportName,
-                logPath.c_str());
-  } else {
-    Logger::Log(Logger::Level::ERR, "GUI",
-                "Failed to export %s to %s. Error code: %lu", exportName,
-                logPath.c_str(), GetLastError());
+    g_state.exportStatusText =
+        std::string(exportName) + " saved to " + FileNameOfPath(pathText);
+    return;
   }
+  const unsigned long errorCode = GetLastError();
+  g_state.exportStatusText.clear();
+  ShowErrorModal(EXPORT_FAILED_HEADING,
+                 std::string("Could not save ") + exportName + " to:\n" +
+                     pathText + "\n\n" + Platform::SystemErrorText(errorCode) +
+                     "\n\nThe file was not saved.");
 }
 
 template <typename Byte>
@@ -158,10 +175,50 @@ void WriteAndWipeExportFile(const wchar_t *filePath,
   WriteAndWipe(filePath, content, exportName);
 }
 
-void LogExportOutOfMemory(const char *exportName) {
-  Logger::Log(Logger::Level::ERR, "GUI",
-              "Not enough memory to export %s. The file was not saved.",
-              exportName);
+void ReportExportOutOfMemory(const char *exportName) {
+  g_state.exportStatusText.clear();
+  ShowErrorModal(EXPORT_FAILED_HEADING,
+                 std::string("Not enough memory to export ") + exportName +
+                     ".\n\nThe file was not saved.");
+}
+
+void CopySecretText(const char *text, size_t length) {
+  if (!Platform::CopySecretTextToClipboard(text, length))
+    ShowErrorModal("Copy failed",
+                   "Could not copy to the clipboard. Another program may be "
+                   "using it,\nor the text is too large. Try again, or use "
+                   "File > Export Output.");
+}
+
+void RenderSecretCopyTooltip() {
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Copied text is kept out of Windows clipboard history "
+                      "and cloud sync.\nTRNG clears it from the clipboard "
+                      "after %u seconds or when it closes,\nunless something "
+                      "else has been copied since.",
+                      Platform::SECRET_CLIPBOARD_LIFETIME_SECONDS);
+}
+
+void RenderErrorModal() {
+  if (g_state.showErrorModal) {
+    ImGui::OpenPopup("Error");
+    g_state.showErrorModal = false;
+  }
+
+  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+  if (ImGui::BeginPopupModal("Error", nullptr,
+                             ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextColored(UiColor::StatusUnavailable, "%s",
+                       g_state.errorModalHeading.c_str());
+    ImGui::Separator();
+    ImGui::TextUnformatted(g_state.errorModalText.c_str());
+    ImGui::Spacing();
+    if (ImGui::Button("OK", ImVec2(120, 0)))
+      ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
 }
 
 void ExportWithSaveDialog(const std::wstring &defaultName,
@@ -300,7 +357,7 @@ static void ExportOutput() {
   try {
     SaveOutputAs(fileType, filePath);
   } catch (const std::bad_alloc &) {
-    LogExportOutOfMemory("the output");
+    ReportExportOutOfMemory("the output");
   }
 }
 
@@ -341,7 +398,7 @@ void RenderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Options")) {
-      ImGui::MenuItem("Show Locked Data Warning", nullptr, &g_state.showDataLockWarning);
+      ImGui::MenuItem("Show Used Data Warning", nullptr, &g_state.showUsedDataWarning);
       ImGui::Separator();
       if (ImGui::MenuItem("Reset Settings", nullptr, false,
                           !IsGenerationRunning() && !g_state.isCollecting)) {
@@ -363,31 +420,21 @@ void RenderMenuBar() {
 static void ClearAllEntropyData() {
   g_state.isCollecting = false;
 
-  (void)g_state.clockDriftCollector.Harvest();
-
   g_state.entropyPool.SecureWipe();
 
-  g_state.microphoneEntropyBits = 0.0f;
-  g_state.keystrokeEntropyBits = 0.0f;
-  g_state.clockDriftEntropyBits = 0.0f;
-  g_state.cpuJitterEntropyBits = 0.0f;
-  g_state.mouseEntropyBits = 0.0f;
-  g_state.collectedEntropyBits = 0.0f;
+  g_state.availableEntropyBits = 0.0;
+  g_state.usedEntropyBits = 0.0;
 
   Logger::Log(Logger::Level::INFO, "GUI",
               "All recorded entropy data cleared by user");
 }
 
-static void RenderEntropyProgressBar(float lockedBits, float newBits) {
+static void RenderEntropyProgressBar() {
   const float barHeight = 30.0f;
 
-  float totalProgress = g_state.collectedEntropyBits / g_state.targetEntropyBits;
-  if (totalProgress > 1.0f)
-    totalProgress = 1.0f;
-
-  float lockedProgress = lockedBits / g_state.targetEntropyBits;
-  if (lockedProgress > 1.0f)
-    lockedProgress = 1.0f;
+  const float progress = std::min(
+      1.0f, static_cast<float>(g_state.availableEntropyBits /
+                               g_state.targetEntropyBits));
 
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.9f, 1.0f));
 
@@ -399,28 +446,23 @@ static void RenderEntropyProgressBar(float lockedBits, float newBits) {
   ImDrawList *drawList = ImGui::GetWindowDrawList();
   drawList->AddRectFilled(barMin, barMax, ImGui::GetColorU32(ImGuiCol_FrameBg));
 
-  if (lockedProgress > 0.0f) {
-    ImVec2 lockedMax = ImVec2(barMin.x + barWidth * lockedProgress, barMax.y);
-    drawList->AddRectFilled(barMin, lockedMax, IM_COL32(40, 100, 160, 255));
-  }
-
-  if (totalProgress > lockedProgress) {
-    ImVec2 newStart = ImVec2(barMin.x + barWidth * lockedProgress, barMin.y);
-    ImVec2 newEnd = ImVec2(barMin.x + barWidth * totalProgress, barMax.y);
-    drawList->AddRectFilled(newStart, newEnd,
+  if (progress > 0.0f) {
+    ImVec2 progressEnd = ImVec2(barMin.x + barWidth * progress, barMax.y);
+    drawList->AddRectFilled(barMin, progressEnd,
                             ImGui::GetColorU32(ImGuiCol_PlotHistogram));
   }
 
   drawList->AddRect(barMin, barMax, ImGui::GetColorU32(ImGuiCol_Border));
 
-  char overlay[64];
-  if (g_state.entropyPool.IsDataLocked() && lockedBits > 0) {
+  char overlay[96];
+  if (g_state.usedEntropyBits > 0.0) {
     snprintf(overlay, sizeof(overlay),
-             "Entropy: %.0f (Locked) + %.0f (New) / %.0f", lockedBits, newBits,
-             g_state.targetEntropyBits);
+             "Entropy: %.0f / %.0f bits available (%.0f used)",
+             g_state.availableEntropyBits, g_state.targetEntropyBits,
+             g_state.usedEntropyBits);
   } else {
     snprintf(overlay, sizeof(overlay), "Entropy: %.0f / %.0f bits",
-             g_state.collectedEntropyBits, g_state.targetEntropyBits);
+             g_state.availableEntropyBits, g_state.targetEntropyBits);
   }
 
   ImVec2 textSize = ImGui::CalcTextSize(overlay);
@@ -430,6 +472,16 @@ static void RenderEntropyProgressBar(float lockedBits, float newBits) {
 
   ImGui::Dummy(ImVec2(barWidth, barHeight));
   ImGui::PopStyleColor();
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Available: entropy credited to new data from the ticked sources.\n"
+        "Credit is conservative (at most 1 or 2 bits per timing or "
+        "movement, 8 bits per\n64 microphone samples) and stops for a "
+        "source that fails an SP 800-90B health test.\n\n"
+        "A generation uses up all available entropy. Used data is kept only "
+        "as a hash,\nwhich is mixed into every later output but doesn't "
+        "count toward the bar again.");
+  }
 }
 
 static void RenderSecurityMode() {
@@ -438,21 +490,21 @@ static void RenderSecurityMode() {
   ImGui::SameLine();
 
   if (g_state.hasReachedTargetEntropy()) {
-    ImGui::TextColored(UiColor::StatusActive,
-                       "TRUE RANDOMNESS (Consolidation)");
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip("Collected entropy is at least the output size. \nThe "
-                        "raw data is condensed into the output by the "
-                        "cryptographic pipeline. \nSecurity is computational, "
-                        "from that pipeline.");
-    }
-  } else {
-    ImGui::TextColored(UiColor::Warning,
-                       "PSEUDO-RANDOM (Expansion)");
+    ImGui::TextColored(UiColor::StatusActive, "ENTROPY-BACKED");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "Input Entropy < Target Output. \nWe must use a CSPRNG to expand the "
-          "key. \nComputationally Secure, but not 'True' Random for OTP.");
+          "Unused collected entropy (as estimated) covers the bits the "
+          "output needs.\nThe output is still the pipeline's ChaCha20 "
+          "stream, so security is computational,\nnot "
+          "information-theoretic.");
+    }
+  } else {
+    ImGui::TextColored(UiColor::Warning, "EXPANDED");
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Unused collected entropy is below the bits the output needs.\nThe "
+          "pipeline's ChaCha20 stream stretches the seed to the output size. "
+          "\nSecurity is computational. One-Time Pad needs ENTROPY-BACKED.");
     }
   }
 }
@@ -462,7 +514,7 @@ static void RenderClearConfirmation() {
                              ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text(
         "Warning: You are about to clear %.0f bits of collected entropy.\n\n",
-        g_state.collectedEntropyBits);
+        g_state.entropyPool.GetTotalCreditedBits());
     ImGui::Text("This action cannot be undone.\n\n");
     ImGui::Separator();
 
@@ -479,6 +531,8 @@ static void RenderClearConfirmation() {
     ImGui::EndPopup();
   }
 }
+
+static constexpr double CLEAR_CONFIRMATION_MIN_BITS = 2048.0;
 
 static void RenderCollectionControls() {
   const float clearButtonWidth = 80.0f;
@@ -513,7 +567,7 @@ static void RenderCollectionControls() {
                         ImVec4(0.60f, 0.35f, 0.25f, 1.00f));
   ImGui::PushItemFlag(ImGuiItemFlags_NoNav, g_state.isCollecting);
   if (ImGui::Button("Clear", ImVec2(clearButtonWidth, 0))) {
-    if (g_state.collectedEntropyBits >= 2048.0f) {
+    if (g_state.entropyPool.GetTotalCreditedBits() >= CLEAR_CONFIRMATION_MIN_BITS) {
       ImGui::OpenPopup("Clear Data Confirmation");
     } else {
       ClearAllEntropyData();
@@ -531,13 +585,11 @@ static void RenderCollectionControls() {
 }
 
 void RenderEntropyPoolBar() {
-  float lockedBits = g_state.entropyPool.GetLockedEntropyBits();
-  float newBits =
-      g_state.entropyPool.GetNewEntropyBits(g_state.enabledEntropySources());
+  g_state.availableEntropyBits =
+      g_state.entropyPool.GetAvailableBits(g_state.enabledEntropySources());
+  g_state.usedEntropyBits = g_state.entropyPool.GetUsedBits();
 
-  g_state.collectedEntropyBits = lockedBits + newBits;
-
-  RenderEntropyProgressBar(lockedBits, newBits);
+  RenderEntropyProgressBar();
   RenderSecurityMode();
   RenderCollectionControls();
 }
@@ -615,6 +667,19 @@ void RenderStatusBar() {
     status.Text(UiColor::LabelText, text);
   }
 
+  if (!g_state.exportStatusText.empty()) {
+    status.Divider();
+    status.Text(UiColor::LabelText, g_state.exportStatusText.c_str());
+  }
+
+  const int clipboardClearSeconds = Platform::SecondsUntilSecretClipboardClear();
+  if (clipboardClearSeconds >= 0) {
+    snprintf(text, sizeof(text), "Clipboard clears in %d s",
+             clipboardClearSeconds);
+    status.Divider();
+    status.Text(UiColor::LabelText, text);
+  }
+
   drawList->PopClipRect();
 }
 
@@ -636,6 +701,10 @@ void RenderAboutModal() {
     ImGui::BulletText("Layer 2: Entropy Injection (XOR Fold)");
     ImGui::BulletText("Layer 3: AES-256 Transformation");
     ImGui::BulletText("Layer 4: ChaCha20 Final Whitening");
+    ImGui::Text("Every output, in both security modes, is this pipeline's "
+                "ChaCha20 stream");
+    ImGui::Text("seeded from the collected entropy. Security is "
+                "computational.");
     ImGui::Spacing();
     ImGui::Text("Entropy sources: Clock Drift, CPU Jitter, Keystrokes, Mouse, Mic.");
     ImGui::Separator();

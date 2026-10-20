@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <chrono>
+#include <vector>
+#include "../crypto/secure_mem.h"
 
 namespace Entropy {
 
@@ -28,6 +30,8 @@ struct EntropyDataPoint {
     uint64_t value;
     EntropySource source;
 };
+
+using EntropyDataVector = std::vector<EntropyDataPoint, Crypto::SecureAllocator<EntropyDataPoint>>;
 
 class SampleRateCounter {
 public:

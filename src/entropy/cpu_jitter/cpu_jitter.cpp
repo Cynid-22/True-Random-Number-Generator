@@ -20,7 +20,6 @@ void CpuJitterCollector::Start() {
 
     Logger::Log(Logger::Level::INFO, "CpuJitter", "Starting collector threads...");
 
-    m_counterPaused = false;
     m_counter = 0;
     m_samples.Reset();
 
@@ -39,6 +38,8 @@ void CpuJitterCollector::Stop() {
     if (m_samplerThread.joinable()) m_samplerThread.join();
 
     Logger::Log(Logger::Level::INFO, "CpuJitter", "Collection stopped.");
+
+    SecureClearBuffer();
 }
 
 bool CpuJitterCollector::IsRunning() const {
@@ -47,16 +48,12 @@ bool CpuJitterCollector::IsRunning() const {
 
 void CpuJitterCollector::CounterLoop() {
     while (m_running) {
-        if (!m_counterPaused) {
-            m_counter.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            std::this_thread::yield();
-        }
+        m_counter.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
 void CpuJitterCollector::SamplerLoop() {
-    Logger::Log(Logger::Level::INFO, "CpuJitter", "Referee thread started (Race Condition Active)");
+    Logger::Log(Logger::Level::INFO, "CpuJitter", "Sampler thread started");
     uint64_t previousCount = 0;
 
     HighResolutionSleeper sleeper;
@@ -71,11 +68,7 @@ void CpuJitterCollector::SamplerLoop() {
 
         if (!m_running) break;
 
-        m_counterPaused = true;
-
         uint64_t currentCount = m_counter.load(std::memory_order_relaxed);
-
-        m_counterPaused = false;
 
         uint64_t countDelta = currentCount - previousCount;
         previousCount = currentCount;
@@ -100,9 +93,9 @@ uint64_t CpuJitterCollector::GetSampleCount() const {
     return m_samples.Count();
 }
 
-std::vector<EntropyDataPoint> CpuJitterCollector::Harvest() {
+EntropyDataVector CpuJitterCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    std::vector<EntropyDataPoint> harvested;
+    EntropyDataVector harvested;
     harvested.swap(m_buffer);
     m_buffer.shrink_to_fit();
     return harvested;

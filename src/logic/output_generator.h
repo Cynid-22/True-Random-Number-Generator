@@ -4,13 +4,14 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../core/output_settings.h"
 #include "../entropy/entropy_common.h"
 
 namespace CSPRNG {
 
 enum class GenerationMode {
-    Consolidation,
-    Expansion
+    EntropyBacked,
+    Expanded
 };
 
 struct GenerationResult {
@@ -30,6 +31,7 @@ struct GenerationResult {
 };
 
 GenerationResult GenerateOutput(GenerationMode mode,
-                                const std::set<Entropy::EntropySource>& includedSources);
+                                const std::set<Entropy::EntropySource>& includedSources,
+                                const OutputSettings& settings);
 
 }

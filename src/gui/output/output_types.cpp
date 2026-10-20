@@ -3,6 +3,7 @@
 #include "../../logging/logger.h"
 #include "../../logic/formats/raw_data_format.h"
 #include "../../logic/logic.h"
+#include "../widgets.h"
 #include "imgui.h"
 
 static const OutputType NUMBER_TYPES[] = {
@@ -95,6 +96,7 @@ void SelectOutputType(int category, int type) {
                      g_state.oneTimePadMessage.size());
     SecureZeroMemory(g_state.oneTimePadFilePath.data(),
                      g_state.oneTimePadFilePath.size());
+    WipeTextInputBuffers();
     g_state.oneTimePadFileSize = 0;
     g_state.oneTimePadFileLastWriteTime = 0;
     if (g_state.hasOneTimePadResult()) {

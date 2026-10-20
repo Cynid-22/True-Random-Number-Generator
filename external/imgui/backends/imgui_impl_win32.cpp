@@ -957,27 +957,40 @@ void ImGui_ImplWin32_EnableAlphaCompositing(void* hwnd)
     if (!_IsWindowsVistaOrGreater())
         return;
 
+    // TRNG: load dwmapi from System32 only, so a dwmapi.dll next to the exe is never loaded.
+    typedef HRESULT(WINAPI* PFN_DwmIsCompositionEnabled)(BOOL*);
+    typedef HRESULT(WINAPI* PFN_DwmGetColorizationColor)(DWORD*, BOOL*);
+    typedef HRESULT(WINAPI* PFN_DwmEnableBlurBehindWindow)(HWND, const DWM_BLURBEHIND*);
+    static HMODULE dwmapi_dll = ::LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (dwmapi_dll == nullptr)
+        return;
+    PFN_DwmIsCompositionEnabled DwmIsCompositionEnabledFn = (PFN_DwmIsCompositionEnabled)(void*)::GetProcAddress(dwmapi_dll, "DwmIsCompositionEnabled");
+    PFN_DwmGetColorizationColor DwmGetColorizationColorFn = (PFN_DwmGetColorizationColor)(void*)::GetProcAddress(dwmapi_dll, "DwmGetColorizationColor");
+    PFN_DwmEnableBlurBehindWindow DwmEnableBlurBehindWindowFn = (PFN_DwmEnableBlurBehindWindow)(void*)::GetProcAddress(dwmapi_dll, "DwmEnableBlurBehindWindow");
+    if (DwmIsCompositionEnabledFn == nullptr || DwmGetColorizationColorFn == nullptr || DwmEnableBlurBehindWindowFn == nullptr)
+        return;
+
     BOOL composition;
-    if (FAILED(::DwmIsCompositionEnabled(&composition)) || !composition)
+    if (FAILED(DwmIsCompositionEnabledFn(&composition)) || !composition)
         return;
 
     BOOL opaque;
     DWORD color;
-    if (_IsWindows8OrGreater() || (SUCCEEDED(::DwmGetColorizationColor(&color, &opaque)) && !opaque))
+    if (_IsWindows8OrGreater() || (SUCCEEDED(DwmGetColorizationColorFn(&color, &opaque)) && !opaque))
     {
         HRGN region = ::CreateRectRgn(0, 0, -1, -1);
         DWM_BLURBEHIND bb = {};
         bb.dwFlags = DWM_BB_ENABLE | DWM_BB_BLURREGION;
         bb.hRgnBlur = region;
         bb.fEnable = TRUE;
-        ::DwmEnableBlurBehindWindow((HWND)hwnd, &bb);
+        DwmEnableBlurBehindWindowFn((HWND)hwnd, &bb);
         ::DeleteObject(region);
     }
     else
     {
         DWM_BLURBEHIND bb = {};
         bb.dwFlags = DWM_BB_ENABLE;
-        ::DwmEnableBlurBehindWindow((HWND)hwnd, &bb);
+        DwmEnableBlurBehindWindowFn((HWND)hwnd, &bb);
     }
 }
 

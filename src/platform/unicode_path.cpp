@@ -114,14 +114,40 @@ bool WriteWholeFile(const wchar_t *path, const char *data, size_t size) {
     DWORD bytesWritten = 0;
     if (!WriteFile(file, data + offset, chunk, &bytesWritten, nullptr) ||
         bytesWritten == 0) {
+      const DWORD writeError = GetLastError();
       CloseHandle(file);
+      DeleteFileW(path);
+      SetLastError(writeError);
       return false;
     }
     offset += bytesWritten;
   }
 
-  CloseHandle(file);
+  if (!CloseHandle(file)) {
+    const DWORD closeError = GetLastError();
+    DeleteFileW(path);
+    SetLastError(closeError);
+    return false;
+  }
   return true;
+}
+
+std::string SystemErrorText(unsigned long errorCode) {
+  wchar_t *message = nullptr;
+  const DWORD length = FormatMessageW(
+      FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+          FORMAT_MESSAGE_IGNORE_INSERTS,
+      nullptr, errorCode, 0, reinterpret_cast<wchar_t *>(&message), 0,
+      nullptr);
+  std::string text = (length > 0 && message) ? WideToUtf8(message) : "";
+  if (message)
+    LocalFree(message);
+  while (!text.empty() && (text.back() == '\n' || text.back() == '\r' ||
+                           text.back() == ' ' || text.back() == '.'))
+    text.pop_back();
+  if (text.empty())
+    text = "Unknown error";
+  return text + " (error " + std::to_string(errorCode) + ").";
 }
 
 }

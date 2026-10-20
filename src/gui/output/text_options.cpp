@@ -168,10 +168,13 @@ static void RenderPassphraseStrength() {
   const double totalBits = wordCount * wordList.bitsPerWord +
                            CSPRNG::PassphraseNumberBits(wordCount, numberCount);
   ImGui::TextColored(UiColor::LabelText,
-                     "(%s: %s words, %.2f bits/word; %s = %.1f bits)",
+                     "(%s: %s words, %.2f bits/word; %s = %.1f bits of "
+                     "choices)",
                      wordList.name,
                      WithThousandsSeparators(wordList.words.size()).c_str(),
                      wordList.bitsPerWord, parts.c_str(), totalBits);
+  if (totalBits > AppConfig::PIPELINE_STATE_BITS)
+    HelpMarker(PIPELINE_STATE_NOTE);
 }
 
 static bool ListUsesDigits(const WordLists::WordList &wordList) {

@@ -4,11 +4,9 @@
 #include "formats/text_formats.h"
 #include "word_lists.h"
 #include "../core/app_state.h"
-#include "../entropy/pool.h"
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <vector>
 
 float CalculateRequiredEntropy() {
     float bits = 0.0f;
@@ -81,23 +79,9 @@ float CalculateRequiredEntropy() {
     if (g_state.outputFormat != FORMAT_ONE_TIME_PAD && g_state.outputQuantity > 1)
         bits *= (float)g_state.outputQuantity;
 
-    return (bits < 512.0f) ? 512.0f : bits;
+    return (bits < AppConfig::MINIMUM_ENTROPY_BITS) ? AppConfig::MINIMUM_ENTROPY_BITS : bits;
 }
 
 void UpdateTargetEntropy() {
     g_state.targetEntropyBits = CalculateRequiredEntropy();
-}
-
-float CalculateEntropyFromDeltas(const std::vector<uint64_t>& deltas) {
-    std::vector<uint8_t> bytes;
-    bytes.reserve(deltas.size() * 2);
-
-    for (uint64_t delta : deltas) {
-        if (delta != 0) {
-            bytes.push_back(static_cast<uint8_t>(delta & 0xFF));
-            bytes.push_back(static_cast<uint8_t>((delta >> 8) & 0xFF));
-        }
-    }
-
-    return Entropy::CalculateShannonEntropyBits(bytes);
 }

@@ -1,4 +1,10 @@
 #include "widgets.h"
+#include "imgui_internal.h"
+#include <windows.h>
+
+namespace ImStb {
+#include "imstb_textedit.h"
+}
 
 float ComboWidthForText(float textWidth) {
   return textWidth + ImGui::GetFrameHeight() +
@@ -48,4 +54,32 @@ void RenderTruncatableText(const char *text, size_t length,
   } else {
     RenderWrappedText(text, text + length);
   }
+}
+
+static void WipeTextBuffer(ImVector<char> &text) {
+  if (text.Data)
+    SecureZeroMemory(text.Data, static_cast<size_t>(text.Capacity));
+  text.clear();
+}
+
+void WipeTextInputBuffers() {
+  if (!ImGui::GetCurrentContext())
+    return;
+  ImGuiContext &context = *ImGui::GetCurrentContext();
+  ImGuiInputTextState &state = context.InputTextState;
+  if (context.ActiveId != 0 && context.ActiveId == state.ID)
+    ImGui::ClearActiveID();
+
+  WipeTextBuffer(state.TextA);
+  WipeTextBuffer(state.TextToRevertTo);
+  WipeTextBuffer(state.CallbackTextBackup);
+  if (state.Stb)
+    SecureZeroMemory(&state.Stb->undostate, sizeof(state.Stb->undostate));
+  state.TextSrc = nullptr;
+  state.TextLen = 0;
+  state.ID = 0;
+
+  WipeTextBuffer(context.InputTextDeactivatedState.TextA);
+  context.InputTextDeactivatedState.ID = 0;
+  WipeTextBuffer(context.ClipboardHandlerData);
 }

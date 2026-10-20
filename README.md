@@ -8,11 +8,13 @@ A desktop application for generating cryptographically secure random numbers usi
 
 ## Overview
 
-TRNG collects entropy from physical and system sources to generate high-quality random output. Unlike pseudo-random number generators that rely on deterministic algorithms, TRNG harvests genuine randomness from hardware imperfections, user behavior, and operating system chaos.
+TRNG collects entropy from physical and system sources (hardware timing, user input and operating system scheduling) and uses it to seed a cryptographic pipeline. Every output, in both security modes, is that pipeline's ChaCha20 stream: cryptographically secure pseudorandom output seeded from physical sources. Its security is computational.
 
 The application supports two security modes:
-- **TRUE RANDOMNESS (Consolidation)**: When collected entropy is at least the output size, the raw data is condensed into the output by the cryptographic pipeline. Security is computational, from that pipeline: TRUE RANDOMNESS means the output is backed by at least as much collected entropy as it has bits, not that it is information-theoretically secure.
-- **PSEUDO-RANDOM (Expansion)**: When collected entropy is less than required, a CSPRNG (ChaCha20) is seeded via HKDF to expand the available entropy. This provides Computational Security.
+- **ENTROPY-BACKED**: When the unused collected entropy (as estimated) is at least what the output needs, the raw data is condensed into the seed of the cryptographic pipeline. ENTROPY-BACKED means the output is backed by at least as much fresh collected entropy as it has bits, not that it is information-theoretically secure.
+- **EXPANDED**: When the unused collected entropy is less than required, the pipeline's ChaCha20 stream, seeded via HKDF, stretches the seed to the output size. This provides computational security.
+
+Each generation uses up the available entropy. The data it used is kept only as a hash, which is mixed into later outputs but doesn't count toward the next ENTROPY-BACKED output or One-Time Pad (see [Entropy Accounting](#entropy-accounting-and-carry-over)).
 
 ---
 
@@ -22,9 +24,9 @@ The application supports two security modes:
 
 | Source | Method | Data Collected |
 |--------|--------|----------------|
-| **Microphone** | Thermal Noise | Least Significant Bit (LSB) of 16-bit audio samples at 44.1kHz |
-| **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds |
-| **Mouse** | Movement Tracking | X/Y coordinates with nanosecond timestamps, filtered for sensor drift |
+| **Microphone** | Thermal Noise | Least Significant Bit (LSB) of each audio sample of the first channel, in the device's shared-mode format (16, 24 or 32-bit integer, or 32-bit float scaled to 16 bits) |
+| **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds, only while the TRNG window is in front; auto-repeat and keys sent by software are ignored |
+| **Mouse** | Movement Tracking | X/Y coordinates with nanosecond timestamps, filtered for sensor drift; movement sent by software is ignored |
 
 ### System Input Sources
 
@@ -32,6 +34,20 @@ The application supports two security modes:
 |--------|--------|----------------|
 | **Clock Drift** | Hardware Entropy | CPU cycle count delta during fixed OS timer windows; variations caused by thermal noise |
 | **CPU Jitter** | Race Condition | Counter value from parallel thread races; influenced by OS scheduling and cache contention |
+
+### Entropy Estimate
+
+The entropy bar credits each source conservatively, per sample:
+
+| Source | Credit (at most) | Based on |
+|--------|------------------|----------|
+| **Microphone** | 8 bits per 64 LSBs | How balanced the ones and zeros are, and how balanced the bit changes are |
+| **Keystroke** | 2 bits per flight or dwell time | The smallest of the time, its change from the last one, and the change of that change |
+| **Mouse** | 1 bit per recorded movement | The smallest of the movement, its change and the change of that change; absolute coordinates are not credited, so a steady straight line counts for nothing |
+| **Clock Drift** | 1 bit per sample | The smallest of the change in the measured cycle count from one sample to the next, and the change of that change |
+| **CPU Jitter** | 1 bit per sample | The smallest of the count, its change and the change of that change |
+
+A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window). A source that fails gets no more credit and shows **Failed** until collection is stopped and started again; its data is still hashed into the seed. Timestamps are hashed into the seed but never credited.
 
 ---
 
@@ -58,7 +74,7 @@ Pick a category, then a type within it:
   - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
-  - One-Time Pad (Vernam cipher)
+  - One-Time Pad (Vernam cipher with a key from the ChaCha20 pipeline, so its security is computational; see [Generation Modes](#generation-modes)). Needs ENTROPY-BACKED mode, and each pad needs new entropy
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
     - Message Length: a pad (key) of a given number of characters, without typing the message
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
@@ -88,7 +104,7 @@ In .txt, .csv and .json, One-Time Pad File results are written as hex.
     "uppercase": false,
     "hyphens": true
   },
-  "securityMode": "TRUE RANDOMNESS",
+  "securityMode": "ENTROPY-BACKED",
   "generatedAt": "2026-10-19 14:03:22 (UTC+0700)",
   "items": [
     "0f8e2c4a-6b1d-4e3f-9a7c-5d2b8e1f4a6c",
@@ -158,14 +174,15 @@ TRNG/
 │   │   └── output/           # Output type selector, per-format options,
 │   │                         # background generation, result panel
 │   ├── logic/
-│   │   ├── logic.h/.cpp      # Entropy requirement and estimates
+│   │   ├── logic.h/.cpp      # Entropy requirement
 │   │   ├── word_lists.h/.cpp # Embedded passphrase word lists
 │   │   ├── csprng.h/.cpp     # Random bytes from the entropy pool
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
 │   │   ├── output_export.h/.cpp     # CSV and JSON export
 │   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
 │   ├── crypto/               # SHA-512, HKDF, ChaCha20, AES-256, quad layer
-│   ├── entropy/              # Entropy collectors and pool
+│   ├── entropy/              # Entropy collectors, pool, per-source credit
+│   │                         # and health tests
 │   ├── logging/              # Logger
 │   └── platform/
 │       ├── dx11.h            # DirectX declarations
@@ -188,13 +205,13 @@ TRNG/
 
 ### Minimum Entropy Requirement
 
-The application enforces a **512-bit minimum** for all output generation, regardless of the selected format. This ensures a baseline level of security even for small outputs.
+The application enforces a **512-bit minimum** for all output generation, regardless of the selected format: the seed must hold at least 512 bits of credited entropy (unused entropy plus entropy carried over from earlier generations). This ensures a baseline level of security even for small outputs.
 
-### Cryptographic Architecture: Quad-Layer "National Security Grade"
+### Cryptographic Architecture: Quad-Layer Pipeline
 
-All output generation uses a sophisticated four-layer pipeline designed to exceed NIST and NSA security recommendations:
+All output generation uses a four-layer pipeline:
 
-1.  **Layer 1 (Masking)**: `ChaCha20` (RFC 8439) stream seeded by a `SHA-512` hash of the pool + context.
+1.  **Layer 1 (Masking)**: `ChaCha20` (RFC 8439) stream seeded by a `SHA-512` hash of the seed material (carry-over hash and new data points) + context (settings, time and a generation counter).
 2.  **Layer 2 (Injection)**: **XOR Information Fold**. The raw entropy pool is XORed directly into the stream, which Layer 3 then encrypts with a key hashed from it.
 3.  **Layer 3 (Transformation)**: `AES-256` (FIPS 197) in CTR mode, using a dynamic key derived from the stream itself. This adds robust non-linearity.
 4.  **Layer 4 (Whitening)**: Final `ChaCha20` whitening pass to remove any potential structural artifacts.
@@ -203,11 +220,19 @@ All output generation uses a sophisticated four-layer pipeline designed to excee
 
 | Collected Entropy | Mode | Security Level |
 |-------------------|------|----------------|
-| < 512 bits | Blocked | Generation disabled |
-| >= 512, < target | PSEUDO-RANDOM | Computational (3-Primitive Hardened CSPRNG) |
-| >= target | TRUE RANDOMNESS | Computational (Quad-Layer pipeline); collected entropy is at least the output size |
+| Unused + used < 512 bits | Blocked | Generation disabled |
+| Unused + used >= 512, unused < target | EXPANDED | Computational (Quad-Layer pipeline) |
+| Unused >= target | ENTROPY-BACKED | Computational (Quad-Layer pipeline); unused collected entropy is at least the output size |
 
-Both modes are computationally secure. The last layer is a ChaCha20 stream keyed from a SHA-512 hash, so the output is only as strong as the pipeline. TRUE RANDOMNESS means the collected entropy (as estimated) is at least the output size, not that the output is information-theoretically secure.
+Both modes run the same pipeline and are computationally secure. The last layer is a ChaCha20 stream whose 256-bit key and 96-bit nonce come from a SHA-512 hash, so every output is set by 352 bits of state and is only as strong as the pipeline. ENTROPY-BACKED means the unused collected entropy (as estimated) is at least the output size, not that the output is information-theoretically secure. The One-Time Pad is a Vernam cipher with such a key, so its security is computational too: without the key the ciphertext can't be decrypted in practice, but it is not a true one-time pad.
+
+### Entropy Accounting and Carry-Over
+
+- **Available** entropy is the credit of new data from the ticked sources. Only available entropy counts toward ENTROPY-BACKED mode and the One-Time Pad.
+- A successful generation uses up all available entropy of the ticked sources. Its data points are replaced by a 64-byte carry-over value (HMAC-SHA-512 keyed by the SHA-512 of the seed material) and wiped. The carry-over is mixed into every later seed, but reading memory later doesn't reveal the data behind earlier outputs.
+- A cancelled or failed generation uses nothing up.
+- **Clear** wipes the data, the credit and the carry-over.
+- The key derivation info holds the current time and a per-process generation counter, so two generations never share it.
 
 ## Documentation & Standards
 
@@ -368,7 +393,7 @@ Across every single one of the 160 intensive statistics, the CSPRNG produced pra
 
 All entropy events are timestamped with 64-bit nanosecond precision:
 - Full timestamp for chronological sorting
-- Last 6-9 digits (micro/nanoseconds) contribute additional hardware jitter entropy
+- The timestamp is hashed into the seed with each value, but the entropy estimate never credits it
 
 ---
 
@@ -376,7 +401,7 @@ All entropy events are timestamped with 64-bit nanosecond precision:
 
 1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
 2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
-3. **Monitor Progress**: Watch the entropy bar fill; security mode indicator shows consolidation vs. expansion. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
+3. **Monitor Progress**: Watch the entropy bar fill with available entropy; the security mode shows ENTROPY-BACKED or EXPANDED. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
 4. **Configure Output**: Select output format and parameters in the Output tab
 5. **Generate**: Click Generate when sufficient entropy is collected
 

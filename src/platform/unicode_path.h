@@ -30,4 +30,6 @@ FileReadStatus ReadWholeFileIfUnchanged(const char *utf8Path,
 
 bool WriteWholeFile(const wchar_t *path, const char *data, size_t size);
 
+std::string SystemErrorText(unsigned long errorCode);
+
 }

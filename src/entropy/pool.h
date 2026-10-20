@@ -5,41 +5,63 @@
 #include <mutex>
 #include <cstdint>
 #include "entropy_common.h"
+#include "source_credit.h"
 
 namespace Entropy {
 
-using ByteCounts = std::array<uint64_t, 256>;
+constexpr size_t CARRY_OVER_BYTES = 64;
+using CarryOver = std::array<uint8_t, CARRY_OVER_BYTES>;
 
-float CalculateShannonEntropyBits(const ByteCounts& byteCounts);
+struct GenerationInput {
+    EntropyDataVector newPoints;
+    std::array<size_t, ENTROPY_SOURCE_COUNT> newPointCountBySource{};
+    std::array<double, ENTROPY_SOURCE_COUNT> creditBitsBySource{};
+    CarryOver carryOver{};
+    bool hasCarryOver = false;
+    uint64_t poolClearCount = 0;
 
-float CalculateShannonEntropyBits(const std::vector<uint8_t>& bytes);
+    double CreditBits() const;
+
+    void SecureWipe();
+};
 
 class EntropyPool {
 public:
     EntropyPool();
     ~EntropyPool();
 
-    void AddDataPoints(const std::vector<EntropyDataPoint>& points);
+    void AddDataPoints(const EntropyDataVector& points);
 
-    std::vector<EntropyDataPoint> LockAndCopyDataForGeneration(
-        const std::set<EntropySource>& includedSources);
+    void RestartSourceTracking();
 
-    bool IsDataLocked() const;
+    GenerationInput CopyGenerationInput(const std::set<EntropySource>& includedSources) const;
 
-    float GetLockedEntropyBits() const;
+    void UseGenerationInput(const GenerationInput& input, const CarryOver& nextCarryOver);
 
-    float GetNewEntropyBits(const std::set<EntropySource>& includedSources) const;
+    bool HasCarryOver() const;
+
+    double GetAvailableBits(const std::set<EntropySource>& includedSources) const;
+
+    double GetUsedBits() const;
+
+    double GetCreditedBits(EntropySource source) const;
+
+    double GetTotalCreditedBits() const;
+
+    bool HealthTestFailed(EntropySource source) const;
 
     void SecureWipe();
 
 private:
     mutable std::mutex m_mutex;
-    std::array<std::vector<EntropyDataPoint>, ENTROPY_SOURCE_COUNT> m_dataBySource;
-    std::array<size_t, ENTROPY_SOURCE_COUNT> m_lockedPointCountBySource{};
-    ByteCounts m_lockedByteCounts{};
-    std::array<ByteCounts, ENTROPY_SOURCE_COUNT> m_newByteCountsBySource{};
-
-    void WipeByteCounts();
+    std::array<EntropyDataVector, ENTROPY_SOURCE_COUNT> m_newDataBySource;
+    std::array<SourceCreditEstimator, ENTROPY_SOURCE_COUNT> m_creditEstimators{};
+    std::array<double, ENTROPY_SOURCE_COUNT> m_availableBitsBySource{};
+    std::array<double, ENTROPY_SOURCE_COUNT> m_creditedBitsBySource{};
+    double m_usedBits = 0.0;
+    CarryOver m_carryOver{};
+    bool m_hasCarryOver = false;
+    uint64_t m_clearCount = 0;
 };
 
 }

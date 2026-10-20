@@ -27,7 +27,7 @@ public:
 
     float GetInputPeakLevel() const;
 
-    std::vector<EntropyDataPoint> Harvest();
+    EntropyDataVector Harvest();
 
 private:
     void CaptureLoop();
@@ -40,7 +40,7 @@ private:
     std::atomic<float> m_inputPeakLevel{0.0f};
     std::thread m_captureThread;
     std::mutex m_mutex;
-    std::vector<EntropyDataPoint> m_buffer;
+    EntropyDataVector m_buffer;
 };
 
 }

@@ -64,17 +64,12 @@ static GeneratedOutputDetails CaptureOutputDetails() {
   return details;
 }
 
-void StartGeneration(CSPRNG::GenerationMode mode) {
-  s_runningGenerationDetails = CaptureOutputDetails();
-  s_generationRunning.store(true);
-  s_resultReady.store(false);
-  g_state.cancelGenerationRequested = false;
-  g_state.generationTimeText = "";
-
-  std::thread([mode, includedSources = g_state.enabledEntropySources()]() {
+static void StartGenerationThread(CSPRNG::GenerationMode mode) {
+  std::thread([mode, includedSources = g_state.enabledEntropySources(),
+               settings = OutputSettings(g_state)]() {
     auto startTime = std::chrono::steady_clock::now();
     CSPRNG::GenerationResult result =
-        CSPRNG::GenerateOutput(mode, includedSources);
+        CSPRNG::GenerateOutput(mode, includedSources, settings);
     long long elapsedMilliseconds =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime)
@@ -88,6 +83,22 @@ void StartGeneration(CSPRNG::GenerationMode mode) {
     }
     s_resultReady.store(true);
   }).detach();
+}
+
+void StartGeneration(CSPRNG::GenerationMode mode) {
+  s_generationRunning.store(true);
+  s_resultReady.store(false);
+  g_state.cancelGenerationRequested = false;
+  g_state.generationTimeText = "";
+
+  try {
+    s_runningGenerationDetails = CaptureOutputDetails();
+    StartGenerationThread(mode);
+  } catch (const std::exception &error) {
+    s_generationRunning.store(false);
+    ShowOutputText(std::string("[ERROR] The generation could not start: ") +
+                   error.what());
+  }
 }
 
 void CollectFinishedGeneration() {
@@ -118,13 +129,13 @@ void CollectFinishedGeneration() {
     g_state.generationTimeText = FormatElapsedTime(s_finishedElapsedMs);
 
     const char *modeName =
-        (s_finishedResult.mode == CSPRNG::GenerationMode::Consolidation)
-            ? "TRUE RANDOMNESS"
-            : "PSEUDO-RANDOM";
+        (s_finishedResult.mode == CSPRNG::GenerationMode::EntropyBacked)
+            ? "ENTROPY-BACKED"
+            : "EXPANDED";
     g_state.generatedOutputDetails = std::move(s_runningGenerationDetails);
     g_state.generatedOutputDetails.securityMode = modeName;
     Logger::Log(Logger::Level::INFO, "GUI",
-                "Generated output using %s mode, consumed %.1f bits",
+                "Generated output using %s mode, used %.1f bits",
                 modeName, s_finishedResult.entropyConsumed);
   } else if (s_finishedResult.cancelled) {
     ShowOutputText(s_finishedResult.errorMessage);

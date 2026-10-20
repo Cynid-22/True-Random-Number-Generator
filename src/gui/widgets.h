@@ -29,3 +29,5 @@ std::string WithThousandsSeparators(uint64_t value);
 
 void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText);
+
+void WipeTextInputBuffers();

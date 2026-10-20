@@ -1,6 +1,7 @@
 #include "csprng.h"
 #include "../core/app_state.h"
 #include "../crypto/quad_layer.h"
+#include "../crypto/sha512.h"
 #include "../logging/logger.h"
 #include <sstream>
 #include <string>
@@ -8,12 +9,18 @@
 
 namespace CSPRNG {
 
-static std::vector<uint8_t>
-SerializeEntropyData(const std::vector<Entropy::EntropyDataPoint> &data) {
-  std::vector<uint8_t> bytes;
-  bytes.reserve(data.size() * 16);
+static const char CARRY_OVER_LABEL[] = "TRNG-CARRY-OVER";
+static constexpr size_t BYTES_PER_DATA_POINT = 16;
 
-  for (const auto &point : data) {
+Crypto::SecureBytes BuildSeedMaterial(const Entropy::GenerationInput &input) {
+  Crypto::SecureBytes bytes;
+  bytes.reserve((input.hasCarryOver ? input.carryOver.size() : 0) +
+                input.newPoints.size() * BYTES_PER_DATA_POINT);
+
+  if (input.hasCarryOver)
+    bytes.insert(bytes.end(), input.carryOver.begin(), input.carryOver.end());
+
+  for (const auto &point : input.newPoints) {
     for (int i = 0; i < 8; i++) {
       bytes.push_back(static_cast<uint8_t>(point.timestamp >> (i * 8)));
     }
@@ -25,37 +32,51 @@ SerializeEntropyData(const std::vector<Entropy::EntropyDataPoint> &data) {
   return bytes;
 }
 
-static std::string BuildLayerOneInfo(size_t byteCount, uint32_t attempt) {
+Entropy::CarryOver DeriveCarryOver(const Crypto::SecureBytes &seedMaterial) {
+  Crypto::SHA512::Hash seedHash =
+      Crypto::SHA512::Compute(seedMaterial.data(), seedMaterial.size());
+  const Entropy::CarryOver carryOver = Crypto::SHA512::HMAC(
+      seedHash.data(), seedHash.size(),
+      reinterpret_cast<const uint8_t *>(CARRY_OVER_LABEL),
+      sizeof(CARRY_OVER_LABEL) - 1);
+  SecureZeroMemory(seedHash.data(), seedHash.size());
+  return carryOver;
+}
+
+static std::string BuildLayerOneInfo(const OutputSettings &settings,
+                                     size_t byteCount, uint64_t generationNumber,
+                                     uint32_t attempt) {
   std::ostringstream info;
-  info << "TRNG-L1|Len:" << byteCount << "|Fmt:" << g_state.outputFormat << "|";
-  switch (g_state.outputFormat) {
+  info << "TRNG-L1|Len:" << byteCount << "|Fmt:" << settings.outputFormat << "|";
+  switch (settings.outputFormat) {
   case FORMAT_DECIMAL:
-    info << "D:" << g_state.decimalDigits;
+    info << "D:" << settings.decimalDigits;
     break;
   case FORMAT_INTEGER:
-    info << "I:" << g_state.integerMin << ":" << g_state.integerMax;
+    info << "I:" << settings.integerMin << ":" << settings.integerMax;
     break;
   case FORMAT_RANDOM_CHARACTERS:
-    info << "C:" << g_state.randomCharactersLength;
+    info << "C:" << settings.randomCharactersLength;
     break;
   case FORMAT_RAW_DATA:
-    info << "U:" << g_state.rawDataUnit << "A:" << g_state.rawDataAmount
-         << "E:" << g_state.rawDataEncoding;
+    info << "U:" << settings.rawDataUnit << "A:" << settings.rawDataAmount
+         << "E:" << settings.rawDataEncoding;
     break;
   case FORMAT_PASSPHRASE:
-    info << "W:" << g_state.passphraseWordCount
-         << "L:" << g_state.passphraseWordList
-         << "N:" << g_state.passphraseNumberCount;
+    info << "W:" << settings.passphraseWordCount
+         << "L:" << settings.passphraseWordList
+         << "N:" << settings.passphraseNumberCount;
     break;
   case FORMAT_ONE_TIME_PAD:
-    info << "O:" << g_state.oneTimePadInputMode;
-    if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT)
-      info << "L:" << g_state.oneTimePadMessageLength;
+    info << "O:" << settings.oneTimePadInputMode;
+    if (settings.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT)
+      info << "L:" << settings.oneTimePadMessageLength;
     break;
   }
-  if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)
-    info << "|Q:" << g_state.outputQuantity;
+  if (settings.outputFormat != FORMAT_ONE_TIME_PAD)
+    info << "|Q:" << settings.outputQuantity;
   info << "|T:" << Entropy::GetNanosecondTimestamp();
+  info << "|G:" << generationNumber;
   if (attempt > 0)
     info << "|R:" << attempt;
   return info.str();
@@ -66,26 +87,24 @@ struct ScopedCryptoPassFlag {
   ~ScopedCryptoPassFlag() { g_state.generationInCryptoPass = false; }
 };
 
-std::vector<uint8_t>
-GenerateRandomBytes(const std::vector<Entropy::EntropyDataPoint> &entropyData,
-                    size_t byteCount, uint32_t attempt) {
+std::vector<uint8_t> GenerateRandomBytes(const OutputSettings &settings,
+                                         const Crypto::SecureBytes &seedMaterial,
+                                         uint64_t generationNumber,
+                                         size_t byteCount, uint32_t attempt) {
   ScopedCryptoPassFlag cryptoPassFlag;
-  std::vector<uint8_t> entropyBytes = SerializeEntropyData(entropyData);
 
   Logger::Log(Logger::Level::INFO, "CSPRNG",
-              "GenerateRandomBytes: %zu data points, %zu entropy bytes, "
-              "requesting %zu output bytes (attempt %u)",
-              entropyData.size(), entropyBytes.size(), byteCount, attempt);
+              "GenerateRandomBytes: %zu seed bytes, requesting %zu output "
+              "bytes (generation %llu, attempt %u)",
+              seedMaterial.size(), byteCount,
+              static_cast<unsigned long long>(generationNumber), attempt);
 
-  const std::string infoText = BuildLayerOneInfo(byteCount, attempt);
+  const std::string infoText =
+      BuildLayerOneInfo(settings, byteCount, generationNumber, attempt);
   const std::vector<uint8_t> info(infoText.begin(), infoText.end());
 
-  std::vector<uint8_t> result =
-      Crypto::GenerateQuadLayerStream(entropyBytes, info, byteCount);
-
-  SecureZeroMemory(entropyBytes.data(), entropyBytes.size());
-
-  return result;
+  return Crypto::GenerateQuadLayerStream(seedMaterial.data(), seedMaterial.size(),
+                                         info, byteCount);
 }
 
 }

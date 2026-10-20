@@ -1,146 +1,171 @@
 #include "pool.h"
+#include "../crypto/secure_mem.h"
 #include <algorithm>
-#include <cmath>
 #include <windows.h>
 
 namespace Entropy {
 
-float CalculateShannonEntropyBits(const ByteCounts& byteCounts) {
-    uint64_t totalBytes = 0;
-    for (uint64_t count : byteCounts) {
-        totalBytes += count;
+double GenerationInput::CreditBits() const {
+    double bits = 0.0;
+    for (double sourceBits : creditBitsBySource) {
+        bits += sourceBits;
     }
-    if (totalBytes == 0) return 0.0f;
-
-    float entropyPerByte = 0.0f;
-    float byteCount = static_cast<float>(totalBytes);
-
-    for (uint64_t count : byteCounts) {
-        float probability = static_cast<float>(count) / byteCount;
-        if (probability > 0) {
-            entropyPerByte -= probability * std::log2(probability);
-        }
-    }
-
-    return entropyPerByte * byteCount;
+    return bits;
 }
 
-float CalculateShannonEntropyBits(const std::vector<uint8_t>& bytes) {
-    ByteCounts byteCounts{};
-    for (uint8_t byte : bytes) {
-        byteCounts[byte]++;
-    }
-    return CalculateShannonEntropyBits(byteCounts);
-}
-
-static void AddValueBytes(ByteCounts& byteCounts, uint64_t value) {
-    for (int i = 0; i < 8; i++) {
-        byteCounts[(value >> (i * 8)) & 0xFF]++;
-    }
+void GenerationInput::SecureWipe() {
+    Crypto::SecureClearVector(newPoints);
+    SecureZeroMemory(carryOver.data(), carryOver.size());
+    newPointCountBySource.fill(0);
+    creditBitsBySource.fill(0.0);
+    hasCarryOver = false;
 }
 
 EntropyPool::EntropyPool() {}
 
 EntropyPool::~EntropyPool() { SecureWipe(); }
 
-void EntropyPool::AddDataPoints(const std::vector<EntropyDataPoint>& points) {
+void EntropyPool::AddDataPoints(const EntropyDataVector& points) {
     if (points.empty())
         return;
 
     std::lock_guard<std::mutex> lock(m_mutex);
     for (const auto& point : points) {
         const size_t sourceIndex = static_cast<size_t>(point.source);
-        m_dataBySource[sourceIndex].push_back(point);
-        AddValueBytes(m_newByteCountsBySource[sourceIndex], point.value);
+        m_newDataBySource[sourceIndex].push_back(point);
+        const double creditBits =
+            m_creditEstimators[sourceIndex].Credit(point.source, point.value);
+        m_availableBitsBySource[sourceIndex] += creditBits;
+        m_creditedBitsBySource[sourceIndex] += creditBits;
     }
 }
 
-std::vector<EntropyDataPoint> EntropyPool::LockAndCopyDataForGeneration(
-    const std::set<EntropySource>& includedSources) {
-    std::vector<EntropyDataPoint> generationData;
+void EntropyPool::RestartSourceTracking() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& estimator : m_creditEstimators) {
+        estimator.Reset();
+    }
+}
+
+GenerationInput EntropyPool::CopyGenerationInput(
+    const std::set<EntropySource>& includedSources) const {
+    GenerationInput input;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
-        std::array<size_t, ENTROPY_SOURCE_COUNT> lockedPointCountAfterLock =
-            m_lockedPointCountBySource;
+        size_t newPointCount = 0;
+        for (EntropySource source : includedSources) {
+            newPointCount += m_newDataBySource[static_cast<size_t>(source)].size();
+        }
+        input.newPoints.reserve(newPointCount);
+
         for (EntropySource source : includedSources) {
             const size_t sourceIndex = static_cast<size_t>(source);
-            lockedPointCountAfterLock[sourceIndex] = m_dataBySource[sourceIndex].size();
+            const auto& sourceData = m_newDataBySource[sourceIndex];
+            input.newPoints.insert(input.newPoints.end(), sourceData.begin(), sourceData.end());
+            input.newPointCountBySource[sourceIndex] = sourceData.size();
+            input.creditBitsBySource[sourceIndex] = m_availableBitsBySource[sourceIndex];
         }
 
-        size_t generationPointCount = 0;
-        for (size_t count : lockedPointCountAfterLock) {
-            generationPointCount += count;
-        }
-        generationData.reserve(generationPointCount);
-
-        for (size_t sourceIndex = 0; sourceIndex < ENTROPY_SOURCE_COUNT; sourceIndex++) {
-            const auto& sourceData = m_dataBySource[sourceIndex];
-            generationData.insert(generationData.end(), sourceData.begin(),
-                                  sourceData.begin() + lockedPointCountAfterLock[sourceIndex]);
-        }
-
-        for (EntropySource source : includedSources) {
-            ByteCounts& newByteCounts = m_newByteCountsBySource[static_cast<size_t>(source)];
-            for (size_t byteValue = 0; byteValue < newByteCounts.size(); byteValue++) {
-                m_lockedByteCounts[byteValue] += newByteCounts[byteValue];
-            }
-            SecureZeroMemory(newByteCounts.data(), sizeof(newByteCounts));
-        }
-        m_lockedPointCountBySource = lockedPointCountAfterLock;
+        input.carryOver = m_carryOver;
+        input.hasCarryOver = m_hasCarryOver;
+        input.poolClearCount = m_clearCount;
     }
 
-    std::sort(generationData.begin(), generationData.end(),
+    std::sort(input.newPoints.begin(), input.newPoints.end(),
               [](const EntropyDataPoint& a, const EntropyDataPoint& b) {
                   return a.timestamp < b.timestamp;
               });
-    return generationData;
+    return input;
 }
 
-bool EntropyPool::IsDataLocked() const {
+void EntropyPool::UseGenerationInput(const GenerationInput& input,
+                                     const CarryOver& nextCarryOver) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    for (size_t lockedPointCount : m_lockedPointCountBySource) {
-        if (lockedPointCount > 0) return true;
+    if (input.poolClearCount != m_clearCount)
+        return;
+
+    std::array<EntropyDataVector, ENTROPY_SOURCE_COUNT> unusedDataBySource;
+    for (size_t sourceIndex = 0; sourceIndex < ENTROPY_SOURCE_COUNT; sourceIndex++) {
+        const auto& sourceData = m_newDataBySource[sourceIndex];
+        const size_t usedCount =
+            std::min(input.newPointCountBySource[sourceIndex], sourceData.size());
+        if (usedCount > 0)
+            unusedDataBySource[sourceIndex].assign(sourceData.begin() + usedCount,
+                                                   sourceData.end());
     }
-    return false;
+
+    for (size_t sourceIndex = 0; sourceIndex < ENTROPY_SOURCE_COUNT; sourceIndex++) {
+        if (input.newPointCountBySource[sourceIndex] == 0)
+            continue;
+        m_newDataBySource[sourceIndex].swap(unusedDataBySource[sourceIndex]);
+
+        const double usedBits = input.creditBitsBySource[sourceIndex];
+        m_availableBitsBySource[sourceIndex] =
+            std::max(0.0, m_availableBitsBySource[sourceIndex] - usedBits);
+        m_usedBits += usedBits;
+    }
+
+    m_carryOver = nextCarryOver;
+    m_hasCarryOver = true;
 }
 
-float EntropyPool::GetLockedEntropyBits() const {
+bool EntropyPool::HasCarryOver() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return CalculateShannonEntropyBits(m_lockedByteCounts);
+    return m_hasCarryOver;
 }
 
-float EntropyPool::GetNewEntropyBits(const std::set<EntropySource>& includedSources) const {
+double EntropyPool::GetAvailableBits(const std::set<EntropySource>& includedSources) const {
     std::lock_guard<std::mutex> lock(m_mutex);
-
-    ByteCounts includedByteCounts{};
+    double bits = 0.0;
     for (EntropySource source : includedSources) {
-        const ByteCounts& sourceByteCounts =
-            m_newByteCountsBySource[static_cast<size_t>(source)];
-        for (size_t byteValue = 0; byteValue < includedByteCounts.size(); byteValue++) {
-            includedByteCounts[byteValue] += sourceByteCounts[byteValue];
-        }
+        bits += m_availableBitsBySource[static_cast<size_t>(source)];
     }
+    return bits;
+}
 
-    return CalculateShannonEntropyBits(includedByteCounts);
+double EntropyPool::GetUsedBits() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_usedBits;
+}
+
+double EntropyPool::GetCreditedBits(EntropySource source) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_creditedBitsBySource[static_cast<size_t>(source)];
+}
+
+double EntropyPool::GetTotalCreditedBits() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    double bits = 0.0;
+    for (double sourceBits : m_creditedBitsBySource) {
+        bits += sourceBits;
+    }
+    return bits;
+}
+
+bool EntropyPool::HealthTestFailed(EntropySource source) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_creditEstimators[static_cast<size_t>(source)].HealthTestFailed();
 }
 
 void EntropyPool::SecureWipe() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& sourceData : m_dataBySource) {
+    for (auto& sourceData : m_newDataBySource) {
         if (!sourceData.empty()) {
             SecureZeroMemory(sourceData.data(), sourceData.size() * sizeof(EntropyDataPoint));
             sourceData.clear();
             sourceData.shrink_to_fit();
         }
     }
-    m_lockedPointCountBySource.fill(0);
-    WipeByteCounts();
-}
-
-void EntropyPool::WipeByteCounts() {
-    SecureZeroMemory(m_lockedByteCounts.data(), sizeof(m_lockedByteCounts));
-    SecureZeroMemory(m_newByteCountsBySource.data(), sizeof(m_newByteCountsBySource));
+    for (auto& estimator : m_creditEstimators) {
+        estimator.Reset();
+    }
+    m_availableBitsBySource.fill(0.0);
+    m_creditedBitsBySource.fill(0.0);
+    m_usedBits = 0.0;
+    SecureZeroMemory(m_carryOver.data(), m_carryOver.size());
+    m_hasCarryOver = false;
+    m_clearCount++;
 }
 
 }

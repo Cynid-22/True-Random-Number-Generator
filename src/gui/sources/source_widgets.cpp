@@ -4,15 +4,15 @@
 #include "../widgets.h"
 #include <cstdarg>
 
-void RenderDataLockWarning() {
-  if (g_state.entropyPool.IsDataLocked() && g_state.showDataLockWarning) {
+void RenderUsedDataWarning() {
+  if (g_state.entropyPool.HasCarryOver() && g_state.showUsedDataWarning) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
-    ImGui::TextWrapped("WARNING: Data is locked! Source selection only affects NEW data, which no generation has used yet.");
-    ImGui::TextWrapped("Due to security requirements, locked entropy (used by a previous generation) cannot be excluded.");
+    ImGui::TextWrapped("WARNING: Data used by earlier generations is kept only as a hash, which is mixed into every later output. Source selection only affects NEW data, which no generation has used yet.");
+    ImGui::TextWrapped("Used data no longer counts toward the entropy bar. Clear wipes it.");
     ImGui::PopStyleColor();
 
     if (ImGui::Button("Dismiss Warning")) {
-      g_state.showDataLockWarning = false;
+      g_state.showUsedDataWarning = false;
     }
 
     ImGui::Spacing();

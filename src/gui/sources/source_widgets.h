@@ -4,7 +4,7 @@
 
 inline constexpr float INPUT_COLUMN_GAP = 24.0f;
 
-void RenderDataLockWarning();
+void RenderUsedDataWarning();
 
 void RenderSourceToggle(const char *checkboxLabel, bool *enabled,
                         const char *sourceName);

@@ -13,12 +13,15 @@
 #include "formats/uuid_formats.h"
 #include "word_lists.h"
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <new>
 #include <windows.h>
 
 namespace CSPRNG {
+
+static std::atomic<uint64_t> s_generationCount{0};
 
 static void AppendListItem(std::vector<char> &output, size_t index,
                            size_t quantity, const std::vector<char> &item,
@@ -57,44 +60,44 @@ static void AppendBinaryItem(std::vector<uint8_t> &binaryOutput, size_t index,
   binaryOutput.insert(binaryOutput.end(), itemBinary.begin(), itemBinary.end());
 }
 
-static size_t CalculateBytesPerItem(int format) {
+static size_t CalculateBytesPerItem(const OutputSettings &settings, int format) {
   size_t bytesPerItem = 0;
 
   switch (format) {
   case FORMAT_DECIMAL:
-    bytesPerItem = static_cast<size_t>(g_state.decimalDigits) * 4;
+    bytesPerItem = static_cast<size_t>(settings.decimalDigits) * 4;
     break;
   case FORMAT_INTEGER:
     bytesPerItem = 8;
     break;
   case FORMAT_RANDOM_CHARACTERS:
-    bytesPerItem = static_cast<size_t>(g_state.randomCharactersLength) * 4;
+    bytesPerItem = static_cast<size_t>(settings.randomCharactersLength) * 4;
     break;
   case FORMAT_RAW_DATA:
     bytesPerItem = static_cast<size_t>(
-        GetRawDataLayout(g_state.rawDataEncoding,
-                         RawDataBitCount(g_state.rawDataAmount,
-                                         g_state.rawDataUnit))
+        GetRawDataLayout(settings.rawDataEncoding,
+                         RawDataBitCount(settings.rawDataAmount,
+                                         settings.rawDataUnit))
             .randomByteCount);
     break;
   case FORMAT_PASSPHRASE: {
     const size_t DRAWS_PER_NUMBER = 2;
     const size_t drawCount =
-        static_cast<size_t>(g_state.passphraseWordCount) +
-        static_cast<size_t>(g_state.passphraseNumberCount) * DRAWS_PER_NUMBER;
+        static_cast<size_t>(settings.passphraseWordCount) +
+        static_cast<size_t>(settings.passphraseNumberCount) * DRAWS_PER_NUMBER;
     const size_t drawBytes = drawCount * 3;
     bytesPerItem = drawBytes + drawBytes / 4 +
                    AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
     break;
   }
   case FORMAT_ONE_TIME_PAD:
-    if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
-      bytesPerItem = strlen(g_state.oneTimePadMessage.data()) * 2;
-    } else if (g_state.oneTimePadInputMode ==
+    if (settings.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
+      bytesPerItem = strlen(settings.oneTimePadMessage.data()) * 2;
+    } else if (settings.oneTimePadInputMode ==
                ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
-      bytesPerItem = static_cast<size_t>(g_state.oneTimePadMessageLength) * 2;
+      bytesPerItem = static_cast<size_t>(settings.oneTimePadMessageLength) * 2;
     } else {
-      bytesPerItem = static_cast<size_t>(g_state.oneTimePadFileSize);
+      bytesPerItem = static_cast<size_t>(settings.oneTimePadFileSize);
     }
     break;
   case FORMAT_UUID_V4:
@@ -120,12 +123,13 @@ static const char *FileNameOfPath(const char *path) {
   return name;
 }
 
-static bool WriteOneTimePadFileOutput(const std::vector<uint8_t> &randomBytes,
+static bool WriteOneTimePadFileOutput(const OutputSettings &settings,
+                                      const std::vector<uint8_t> &randomBytes,
                                       GenerationResult &result) {
-  const char *path = g_state.oneTimePadFilePath.data();
+  const char *path = settings.oneTimePadFilePath.data();
   std::vector<uint8_t> fileData;
-  const Platform::FileStamp selectedStamp{g_state.oneTimePadFileSize,
-                                          g_state.oneTimePadFileLastWriteTime};
+  const Platform::FileStamp selectedStamp{settings.oneTimePadFileSize,
+                                          settings.oneTimePadFileLastWriteTime};
   switch (Platform::ReadWholeFileIfUnchanged(path, selectedStamp, fileData)) {
   case Platform::FileReadStatus::Ok:
     break;
@@ -140,9 +144,15 @@ static bool WriteOneTimePadFileOutput(const std::vector<uint8_t> &randomBytes,
     return false;
   }
 
-  const bool encrypted =
-      GenerateOneTimePadFile(randomBytes, fileData, result.oneTimePadKey,
-                             result.oneTimePadCiphertext);
+  bool encrypted = false;
+  try {
+    encrypted = GenerateOneTimePadFile(randomBytes, fileData,
+                                       result.oneTimePadKey,
+                                       result.oneTimePadCiphertext);
+  } catch (...) {
+    Crypto::SecureClearVector(fileData);
+    throw;
+  }
   Crypto::SecureClearVector(fileData);
   if (!encrypted) {
     result.errorMessage = "Not enough random data for the file. Please retry.";
@@ -154,10 +164,11 @@ static bool WriteOneTimePadFileOutput(const std::vector<uint8_t> &randomBytes,
   return true;
 }
 
-static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
+static bool WriteOneTimePadOutput(const OutputSettings &settings,
+                                  const std::vector<uint8_t> &randomBytes,
                                   GenerationResult &result) {
-  if (g_state.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
-    const char *message = g_state.oneTimePadMessage.data();
+  if (settings.oneTimePadInputMode == ONE_TIME_PAD_TEXT_INPUT) {
+    const char *message = settings.oneTimePadMessage.data();
     if (!GenerateOneTimePadText(randomBytes, message, strlen(message),
                                 result.oneTimePadKey,
                                 result.oneTimePadCiphertext,
@@ -167,10 +178,10 @@ static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
     return true;
   }
 
-  if (g_state.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
+  if (settings.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT) {
     if (!GenerateOneTimePadKey(
             randomBytes,
-            static_cast<size_t>(g_state.oneTimePadMessageLength),
+            static_cast<size_t>(settings.oneTimePadMessageLength),
             result.output)) {
       result.errorMessage = "Insufficient entropy (rejection sampling "
                             "exhausted). Please retry.";
@@ -181,30 +192,32 @@ static bool WriteOneTimePadOutput(const std::vector<uint8_t> &randomBytes,
     return true;
   }
 
-  return WriteOneTimePadFileOutput(randomBytes, result);
+  return WriteOneTimePadFileOutput(settings, randomBytes, result);
 }
 
-static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
+static bool WriteListOutput(const OutputSettings &settings, int format,
+                            size_t quantity, size_t bytesPerItem,
                             const std::vector<uint8_t> &randomBytes,
                             std::vector<uint8_t> &itemBytes,
-                            const std::vector<Entropy::EntropyDataPoint> &pooledData,
+                            const Crypto::SecureBytes &seedMaterial,
+                            uint64_t generationNumber,
                             GenerationResult &result) {
   const WordLists::WordList &wordList =
-      WordLists::Get(g_state.passphraseWordList);
+      WordLists::Get(settings.passphraseWordList);
   if (format == FORMAT_PASSPHRASE && !wordList.IsUsable()) {
     result.errorMessage = wordList.loadError;
     return false;
   }
   const std::string separator =
       (format == FORMAT_PASSPHRASE)
-          ? std::string(g_state.passphraseSeparator.data())
+          ? std::string(settings.passphraseSeparator.data())
           : std::string();
 
   UUIDv7State uuidV7State;
   UUIDv7Options uuidV7Options;
-  uuidV7Options.ordering = g_state.uuidV7Ordering;
-  uuidV7Options.counterBits = g_state.uuidV7CounterBits;
-  uuidV7Options.incrementBits = g_state.uuidV7IncrementBits;
+  uuidV7Options.ordering = settings.uuidV7Ordering;
+  uuidV7Options.counterBits = settings.uuidV7CounterBits;
+  uuidV7Options.incrementBits = settings.uuidV7IncrementBits;
   uint32_t attempt = 0;
 
   for (size_t i = 0; i < quantity; i++) {
@@ -218,13 +231,13 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
 
     switch (format) {
     case FORMAT_DECIMAL:
-      item = GenerateDecimal(itemBytes, g_state.decimalDigits, itemBinary);
+      item = GenerateDecimal(itemBytes, settings.decimalDigits, itemBinary);
       break;
 
     case FORMAT_INTEGER: {
       bool allDrawsRejected = false;
-      item = GenerateInteger(itemBytes, g_state.integerMin,
-                             g_state.integerMax, allDrawsRejected, itemBinary);
+      item = GenerateInteger(itemBytes, settings.integerMin,
+                             settings.integerMax, allDrawsRejected, itemBinary);
 
       for (unsigned retry = 1;
            allDrawsRejected && retry <= AppConfig::INTEGER_MAX_RETRIES; retry++) {
@@ -234,9 +247,10 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
                     "(attempt %u)",
                     i + 1, attempt);
         Crypto::SecureClearVector(itemBytes);
-        itemBytes = GenerateRandomBytes(pooledData, bytesPerItem, attempt);
-        item = GenerateInteger(itemBytes, g_state.integerMin,
-                               g_state.integerMax, allDrawsRejected,
+        itemBytes = GenerateRandomBytes(settings, seedMaterial, generationNumber,
+                                        bytesPerItem, attempt);
+        item = GenerateInteger(itemBytes, settings.integerMin,
+                               settings.integerMax, allDrawsRejected,
                                itemBinary);
       }
 
@@ -250,45 +264,45 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
     }
 
     case FORMAT_RANDOM_CHARACTERS:
-      item = GenerateRandomCharacters(itemBytes, g_state.randomCharactersLength,
-                                      g_state.includeNumbers,
-                                      g_state.includeUppercase,
-                                      g_state.includeLowercase,
-                                      g_state.includeSpecial, itemBinary);
+      item = GenerateRandomCharacters(itemBytes, settings.randomCharactersLength,
+                                      settings.includeNumbers,
+                                      settings.includeUppercase,
+                                      settings.includeLowercase,
+                                      settings.includeSpecial, itemBinary);
       break;
 
     case FORMAT_RAW_DATA: {
-      const int encoding = g_state.rawDataEncoding;
+      const int encoding = settings.rawDataEncoding;
       const bool validEncoding = encoding >= 0 && encoding < RAW_ENCODING_COUNT;
-      const bool grouped = validEncoding && g_state.rawDataGroupingEnabled[encoding];
-      item = GenerateRawData(itemBytes, g_state.rawDataAmount,
-                             g_state.rawDataUnit, encoding,
-                             grouped ? g_state.rawDataGroupSize[encoding] : 0,
-                             validEncoding && g_state.rawDataUppercase[encoding],
+      const bool grouped = validEncoding && settings.rawDataGroupingEnabled[encoding];
+      item = GenerateRawData(itemBytes, settings.rawDataAmount,
+                             settings.rawDataUnit, encoding,
+                             grouped ? settings.rawDataGroupSize[encoding] : 0,
+                             validEncoding && settings.rawDataUppercase[encoding],
                              itemBinary);
       break;
     }
 
     case FORMAT_PASSPHRASE:
-      item = GeneratePassphrase(itemBytes, g_state.passphraseWordCount,
-                                g_state.passphraseNumberCount, separator,
+      item = GeneratePassphrase(itemBytes, settings.passphraseWordCount,
+                                settings.passphraseNumberCount, separator,
                                 wordList.words, itemBinary);
       break;
 
     case FORMAT_UUID_V4:
-      item = GenerateUUIDv4(itemBytes, g_state.uuidUppercase,
-                            g_state.uuidHyphens, itemBinary);
+      item = GenerateUUIDv4(itemBytes, settings.uuidUppercase,
+                            settings.uuidHyphens, itemBinary);
       break;
 
     case FORMAT_UUID_V7:
-      item = GenerateUUIDv7(itemBytes, g_state.uuidUppercase,
-                            g_state.uuidHyphens, uuidV7Options, uuidV7State,
+      item = GenerateUUIDv7(itemBytes, settings.uuidUppercase,
+                            settings.uuidHyphens, uuidV7Options, uuidV7State,
                             itemBinary);
       break;
     }
 
-    AppendListItem(result.output, i, quantity, item, g_state.numberListItems,
-                   g_state.blankLineBetweenItems);
+    AppendListItem(result.output, i, quantity, item, settings.numberListItems,
+                   settings.blankLineBetweenItems);
     AppendBinaryItem(result.binaryOutput, i, quantity, itemBinary);
     Crypto::SecureClearVector(item);
     Crypto::SecureClearVector(itemBinary);
@@ -298,7 +312,8 @@ static bool WriteListOutput(int format, size_t quantity, size_t bytesPerItem,
 
 GenerationResult GenerateOutput(
     GenerationMode mode,
-    const std::set<Entropy::EntropySource> &includedSources) {
+    const std::set<Entropy::EntropySource> &includedSources,
+    const OutputSettings &settings) {
   GenerationResult result;
   result.success = false;
   result.cancelled = false;
@@ -307,12 +322,12 @@ GenerationResult GenerateOutput(
   result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
 
-  const int format = g_state.outputFormat;
+  const int format = settings.outputFormat;
   const bool isList = (format != FORMAT_ONE_TIME_PAD);
   const size_t quantity =
-      isList ? static_cast<size_t>(std::max(g_state.outputQuantity, 1)) : 1;
+      isList ? static_cast<size_t>(std::max(settings.outputQuantity, 1)) : 1;
 
-  const size_t bytesPerItem = CalculateBytesPerItem(format);
+  const size_t bytesPerItem = CalculateBytesPerItem(settings, format);
 
   if (bytesPerItem > 0 && quantity > SIZE_MAX / bytesPerItem) {
     result.errorMessage =
@@ -332,30 +347,18 @@ GenerationResult GenerateOutput(
     return result;
   }
 
-  std::vector<Entropy::EntropyDataPoint> pooledData =
-      g_state.entropyPool.LockAndCopyDataForGeneration(includedSources);
-  Logger::Log(Logger::Level::INFO, "CSPRNG",
-              "Entropy locked: %zu data points used for this generation",
-              pooledData.size());
-
-  if (pooledData.empty()) {
-    result.errorMessage = "No entropy data available";
-    return result;
-  }
-
-  Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
-              mode == GenerationMode::Consolidation
-                  ? "CONSOLIDATION (TRUE RANDOMNESS) - collected entropy met "
-                    "the target"
-                  : "EXPANSION (PSEUDO-RANDOM) - collected entropy below the "
-                    "target");
-
+  const uint64_t generationNumber = ++s_generationCount;
+  Entropy::GenerationInput input;
+  Entropy::CarryOver nextCarryOver{};
+  Crypto::SecureBytes seedMaterial;
   std::vector<uint8_t> randomBytes;
   std::vector<uint8_t> itemBytes;
   auto wipeAll = [&]() {
+    input.SecureWipe();
+    SecureZeroMemory(nextCarryOver.data(), nextCarryOver.size());
+    Crypto::SecureClearVector(seedMaterial);
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
-    Crypto::SecureClearVector(pooledData);
     Crypto::SecureClearVector(result.output);
     Crypto::SecureClearVector(result.binaryOutput);
     Crypto::SecureClearVector(result.oneTimePadKey);
@@ -363,14 +366,36 @@ GenerationResult GenerateOutput(
     result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
   };
   try {
-    randomBytes = GenerateRandomBytes(pooledData, bytesNeeded);
+    input = g_state.entropyPool.CopyGenerationInput(includedSources);
+    Logger::Log(Logger::Level::INFO, "CSPRNG",
+                "Generation %llu: %zu new data points, %.1f bits credited, "
+                "carry-over %s",
+                static_cast<unsigned long long>(generationNumber),
+                input.newPoints.size(), input.CreditBits(),
+                input.hasCarryOver ? "included" : "none");
+
+    if (input.newPoints.empty() && !input.hasCarryOver) {
+      wipeAll();
+      result.errorMessage = "No entropy data available";
+      return result;
+    }
+
+    Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
+                mode == GenerationMode::EntropyBacked
+                    ? "ENTROPY-BACKED - unused entropy met the target"
+                    : "EXPANDED - unused entropy below the target");
+
+    seedMaterial = BuildSeedMaterial(input);
+    randomBytes =
+        GenerateRandomBytes(settings, seedMaterial, generationNumber, bytesNeeded);
     result.rawBytesGenerated = randomBytes.size();
     ThrowIfGenerationCancelled();
 
     const bool written =
-        isList ? WriteListOutput(format, quantity, bytesPerItem, randomBytes,
-                                 itemBytes, pooledData, result)
-               : WriteOneTimePadOutput(randomBytes, result);
+        isList ? WriteListOutput(settings, format, quantity, bytesPerItem, randomBytes,
+                                 itemBytes, seedMaterial, generationNumber,
+                                 result)
+               : WriteOneTimePadOutput(settings, randomBytes, result);
     if (!written) {
       wipeAll();
       return result;
@@ -381,23 +406,23 @@ GenerationResult GenerateOutput(
       result.output.push_back('\0');
     }
 
-    result.entropyConsumed = static_cast<float>(randomBytes.size()) * 8.0f;
-    if (mode == GenerationMode::Consolidation) {
-      result.entropyConsumed =
-          std::min(result.entropyConsumed, g_state.collectedEntropyBits);
-    }
+    nextCarryOver = DeriveCarryOver(seedMaterial);
+    g_state.entropyPool.UseGenerationInput(input, nextCarryOver);
+    result.entropyConsumed = static_cast<float>(input.CreditBits());
 
+    input.SecureWipe();
+    SecureZeroMemory(nextCarryOver.data(), nextCarryOver.size());
+    Crypto::SecureClearVector(seedMaterial);
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
-    Crypto::SecureClearVector(pooledData);
 
     result.success = true;
     Logger::Log(Logger::Level::INFO, "CSPRNG",
                 "Output generated successfully. Format: %d, Items: %zu, Mode: "
                 "%s, Bytes: %zu",
                 format, quantity,
-                mode == GenerationMode::Consolidation ? "CONSOLIDATION"
-                                                      : "EXPANSION",
+                mode == GenerationMode::EntropyBacked ? "ENTROPY-BACKED"
+                                                      : "EXPANDED",
                 result.rawBytesGenerated);
 
   } catch (const GenerationCancelled &cancelled) {

@@ -18,7 +18,7 @@ public:
 
     bool IsRunning() const;
 
-    std::vector<EntropyDataPoint> Harvest();
+    EntropyDataVector Harvest();
 
     double GetSamplesPerSecond() const;
     uint64_t GetSampleCount() const;
@@ -29,7 +29,7 @@ private:
     std::atomic<bool> m_running{false};
     std::thread m_thread;
     std::mutex m_mutex;
-    std::vector<EntropyDataPoint> m_buffer;
+    EntropyDataVector m_buffer;
     SampleRateCounter m_samples;
 
     void SecureClearBuffer();

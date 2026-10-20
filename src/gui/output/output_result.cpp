@@ -66,13 +66,19 @@ static void RenderOutputText() {
 static void RenderEntropyWarning(bool hasMinimumEntropy, bool hasTargetEntropy) {
   if (!hasMinimumEntropy) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-    ImGui::Text("BLOCKED: Collect at least 512 bits before generating.");
+    ImGui::Text("BLOCKED: Collect at least %.0f bits before generating.",
+                AppConfig::MINIMUM_ENTROPY_BITS);
     ImGui::PopStyleColor();
     ImGui::Spacing();
   } else if (!hasTargetEntropy) {
     ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-    ImGui::Text("WARNING: Using PSEUDO-RANDOM mode (CSPRNG expansion). Collect "
-                "more for TRUE RANDOMNESS.");
+    if (g_state.usedEntropyBits > 0.0)
+      ImGui::Text("WARNING: Using EXPANDED mode. Entropy used by earlier "
+                  "outputs doesn't count again; collect more for "
+                  "ENTROPY-BACKED.");
+    else
+      ImGui::Text("WARNING: Using EXPANDED mode (CSPRNG expansion). Collect "
+                  "more for ENTROPY-BACKED.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
   }
@@ -141,8 +147,10 @@ static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
   if (const char *inputError = FindOneTimePadInputError())
     return inputError;
   if (!hasTargetEntropy)
-    return "One-Time Pad requires TRUE RANDOMNESS mode.\n"
-           "Collect more entropy until the bar reaches 100%.";
+    return "One-Time Pad requires ENTROPY-BACKED mode.\n"
+           "Collect more entropy until the bar reaches 100%.\n"
+           "Each pad needs new entropy: data used by earlier outputs doesn't "
+           "count.";
   return nullptr;
 }
 
@@ -154,8 +162,8 @@ static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) 
     if (const char *error = FindErrorPreventingGeneration(hasTargetEntropy)) {
       ShowOutputText(std::string("[ERROR] ") + error);
     } else {
-      StartGeneration(hasTargetEntropy ? CSPRNG::GenerationMode::Consolidation
-                                       : CSPRNG::GenerationMode::Expansion);
+      StartGeneration(hasTargetEntropy ? CSPRNG::GenerationMode::EntropyBacked
+                                       : CSPRNG::GenerationMode::Expanded);
     }
   }
 
@@ -172,8 +180,12 @@ static void RenderCopyAndClearButtons() {
   if (!canCopy)
     ImGui::BeginDisabled();
   if (ImGui::Button("Copy", ImVec2(80, 0))) {
-    ImGui::SetClipboardText(g_state.generatedOutput.data());
+    size_t length = g_state.generatedOutput.size();
+    if (length > 0 && g_state.generatedOutput.back() == '\0')
+      length--;
+    CopySecretText(g_state.generatedOutput.data(), length);
   }
+  RenderSecretCopyTooltip();
   if (!canCopy)
     ImGui::EndDisabled();
 
@@ -192,6 +204,7 @@ static void RenderCopyAndClearButtons() {
     // Zero in place: ImGui needs the buffer size
     SecureZeroMemory(g_state.oneTimePadMessage.data(),
                      g_state.oneTimePadMessage.size());
+    WipeTextInputBuffers();
     UpdateTargetEntropy();
   }
   if (!canClear)
@@ -207,12 +220,13 @@ static void RenderCopyAndClearButtons() {
 static void RenderOutputFooter() {
   ImGui::TextColored(
       UiColor::DimText,
-      "Note: The current time is mixed into the seed for uniqueness.");
+      "Note: The current time and a generation counter are mixed into the "
+      "seed for uniqueness.");
 }
 
 void RenderOutputSection() {
-  bool hasMinimumEntropy = g_state.collectedEntropyBits >= 512.0f;
-  bool hasTargetEntropy = g_state.collectedEntropyBits >= g_state.targetEntropyBits;
+  bool hasMinimumEntropy = g_state.hasMinimumEntropy();
+  bool hasTargetEntropy = g_state.hasReachedTargetEntropy();
 
   ImGui::Spacing();
   ImGui::Separator();

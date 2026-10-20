@@ -2,12 +2,20 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
-#include "../entropy/entropy_common.h"
+#include "../core/output_settings.h"
+#include "../crypto/secure_mem.h"
+#include "../entropy/pool.h"
 
 namespace CSPRNG {
 
+Crypto::SecureBytes BuildSeedMaterial(const Entropy::GenerationInput& input);
+
+Entropy::CarryOver DeriveCarryOver(const Crypto::SecureBytes& seedMaterial);
+
 std::vector<uint8_t> GenerateRandomBytes(
-    const std::vector<Entropy::EntropyDataPoint>& entropyData,
+    const OutputSettings& settings,
+    const Crypto::SecureBytes& seedMaterial,
+    uint64_t generationNumber,
     size_t byteCount,
     uint32_t attempt = 0);
 

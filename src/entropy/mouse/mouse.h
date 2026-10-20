@@ -9,6 +9,11 @@ namespace Entropy {
 
 class MouseCollector {
 public:
+    static constexpr int PACKED_X_SHIFT = 48;
+    static constexpr int PACKED_Y_SHIFT = 32;
+    static constexpr int PACKED_DX_SHIFT = 16;
+    static constexpr uint64_t PACKED_FIELD_MASK = 0xFFFF;
+
     MouseCollector();
     ~MouseCollector();
 
@@ -20,7 +25,7 @@ public:
 
     void SetCanvasHovered(bool hovered);
 
-    std::vector<EntropyDataPoint> Harvest();
+    EntropyDataVector Harvest();
 
 private:
     static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
@@ -31,7 +36,7 @@ private:
     std::atomic<bool> m_running{false};
     HHOOK m_hook = nullptr;
     std::mutex m_mutex;
-    std::vector<EntropyDataPoint> m_buffer;
+    EntropyDataVector m_buffer;
 
     std::atomic<bool> m_canvasHovered{false};
 
@@ -39,7 +44,7 @@ private:
     int m_lastY = -1;
 
     static const size_t BATCH_SIZE = 128;
-    std::vector<EntropyDataPoint> m_localBuffer;
+    EntropyDataVector m_localBuffer;
 
     std::atomic<uint64_t> m_lastFlushTime{0};
 

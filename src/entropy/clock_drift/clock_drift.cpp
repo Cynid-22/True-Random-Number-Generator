@@ -46,13 +46,13 @@ bool ClockDriftCollector::IsRunning() const {
     return m_running;
 }
 
-std::vector<EntropyDataPoint> ClockDriftCollector::Harvest() {
+EntropyDataVector ClockDriftCollector::Harvest() {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_buffer.empty()) {
         return {};
     }
 
-    std::vector<EntropyDataPoint> harvested;
+    EntropyDataVector harvested;
     harvested.swap(m_buffer);
     m_buffer.shrink_to_fit();
     return harvested;
