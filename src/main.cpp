@@ -128,43 +128,64 @@ static void LogTabSwitch(int& activeTab, int tab, const char* tabName) {
     }
 }
 
+static void RenderTabBody(const char* id, void (*renderContents)()) {
+    if (ImGui::BeginChild(id, ImVec2(0, -StatusBarReservedHeight()),
+                          ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground)) {
+        ImGui::Spacing();
+        renderContents();
+    }
+    ImGui::EndChild();
+}
+
+static void RenderOutputTab() {
+    RenderOutputConfigSection();
+    RenderOutputSection();
+}
+
+static void RenderMainTabs() {
+    static int activeTab = 0;
+    static bool wasCollecting = false;
+    const bool collectionJustStarted = g_state.isCollecting && !wasCollecting;
+    wasCollecting = g_state.isCollecting;
+    if (collectionJustStarted)
+        FocusCollectionPadWhenShown();
+
+    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
+        if (ImGui::BeginTabItem("Input", nullptr,
+                                collectionJustStarted ? ImGuiTabItemFlags_SetSelected : 0)) {
+            LogTabSwitch(activeTab, 0, "Input");
+            RenderTabBody("##InputTabBody", RenderInputTab);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Output")) {
+            LogTabSwitch(activeTab, 1, "Output");
+            RenderTabBody("##OutputTabBody", RenderOutputTab);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
 static void RenderMainWindow(ImGuiIO& io) {
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::Begin("TRNG", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_MenuBar);
+                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_MenuBar |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     CollectFinishedGeneration();
+    BeginCollectionPadFrame();
 
     RenderMenuBar();
 
     RenderEntropyPoolBar();
+    ImGui::Spacing();
 
-    static int activeTab = 0;
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        if (ImGui::BeginTabItem("User Input")) {
-            LogTabSwitch(activeTab, 0, "User Input");
-            RenderUserInputTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("System Input")) {
-            LogTabSwitch(activeTab, 1, "System Input");
-            RenderSystemInputTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Output")) {
-            LogTabSwitch(activeTab, 2, "Output");
-            ImGui::Spacing();
-            RenderOutputConfigSection();
-            RenderOutputSection();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
-    }
+    RenderMainTabs();
 
-    RenderCollectionWindow();
+    RenderStatusBar();
 
     RenderAboutModal();
 

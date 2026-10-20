@@ -147,9 +147,9 @@ TRNG/
 │   │   └── output_format.h   # Output format, unit and mode ids
 │   ├── gui/
 │   │   ├── gui.h             # GUI declarations
-│   │   ├── gui.cpp           # Style, menu, entropy bar, modals
+│   │   ├── gui.cpp           # Style, menu, entropy bar, status bar, modals
 │   │   ├── widgets.h/.cpp    # Shared colors and small widgets
-│   │   ├── sources/          # Input tabs, Collection Window
+│   │   ├── sources/          # Input tab: source list, collection pad
 │   │   └── output/           # Output type selector, per-format options,
 │   │                         # background generation, result panel
 │   ├── logic/
@@ -364,8 +364,8 @@ All entropy events are timestamped with 64-bit nanosecond precision:
 
 ## Usage
 
-1. **Configure Sources**: Select which entropy sources to include in the User Input and System Input tabs
-2. **Start Collection**: Click "Start Collection" to begin gathering entropy
+1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
+2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
 3. **Monitor Progress**: Watch the entropy bar fill; security mode indicator shows consolidation vs. expansion
 4. **Configure Output**: Select output format and parameters in the Output tab
 5. **Generate**: Click Generate when sufficient entropy is collected

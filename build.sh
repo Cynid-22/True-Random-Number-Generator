@@ -50,9 +50,8 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/gui/gui.cpp \
     src/gui/widgets.cpp \
     src/gui/sources/source_widgets.cpp \
-    src/gui/sources/user_input_tab.cpp \
-    src/gui/sources/system_input_tab.cpp \
-    src/gui/sources/collection_window.cpp \
+    src/gui/sources/input_tab.cpp \
+    src/gui/sources/collection_pad.cpp \
     src/gui/output/output_types.cpp \
     src/gui/output/output_config.cpp \
     src/gui/output/number_options.cpp \

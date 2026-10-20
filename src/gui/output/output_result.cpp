@@ -7,10 +7,14 @@
 #include "generation_task.h"
 #include "one_time_pad_result.h"
 #include "imgui.h"
+#include <algorithm>
 #include <string>
+
+static const int OUTPUT_BOX_MIN_LINES = 6;
 
 static void RenderOutputHeader() {
   ImGui::Spacing();
+  ImGui::AlignTextToFramePadding();
   ImGui::Text("Generated Output:");
   ImGui::SameLine();
   ImGui::TextColored(UiColor::DimText, "(Result is NOT logged)");
@@ -19,7 +23,7 @@ static void RenderOutputHeader() {
   float availableWidth = ImGui::GetContentRegionAvail().x;
   float labelWidth = ImGui::CalcTextSize("Truncate display (Prevent UI Lag)").x;
   float boxAndPaddingWidth =
-      ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + 15.0f;
+      ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x;
   float checkboxWidth = labelWidth + boxAndPaddingWidth;
   if (availableWidth > checkboxWidth) {
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
@@ -33,13 +37,16 @@ static void RenderOutputHeader() {
         "500 characters to prevent UI freezing.\nCopy/Export will still "
         "retrieve the FULL generated output intact.");
   }
-  ImGui::Separator();
 }
 
 static void RenderOutputText() {
   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.10f, 0.10f, 1.00f));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-  if (ImGui::BeginChild("##OutputChild", ImVec2(-1, -160.0f), true)) {
+  const float footerHeight = ImGui::GetTextLineHeightWithSpacing();
+  const float boxHeight =
+      std::max(ImGui::GetContentRegionAvail().y - footerHeight,
+               ImGui::GetTextLineHeightWithSpacing() * OUTPUT_BOX_MIN_LINES);
+  if (ImGui::BeginChild("##OutputChild", ImVec2(-1, boxHeight), true)) {
     if (g_state.hasOneTimePadResult()) {
       RenderOneTimePadResult();
     } else if (!g_state.generatedOutput.empty()) {
@@ -86,7 +93,7 @@ static void RenderGenerationProgress() {
     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                        "Cancelling generation, please wait... ");
   } else {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
+    ImGui::TextColored(UiColor::InProgress,
                        "Generation in progress, please wait... ");
   }
   ImGui::SameLine();
@@ -193,22 +200,15 @@ static void RenderOutputFooter() {
   ImGui::TextColored(
       UiColor::DimText,
       "Note: The current time is mixed into the seed for uniqueness.");
-
-  if (!g_state.generatedAtText.empty()) {
-    ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Generated at: %s",
-                       g_state.generatedAtText.c_str());
-  }
 }
 
 void RenderOutputSection() {
-  RenderOutputHeader();
-  RenderOutputText();
-
   bool hasMinimumEntropy = g_state.collectedEntropyBits >= 512.0f;
   bool hasTargetEntropy = g_state.collectedEntropyBits >= g_state.targetEntropyBits;
 
-  RenderEntropyWarning(hasMinimumEntropy, hasTargetEntropy);
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Spacing();
 
   if (IsGenerationRunning())
     RenderGenerationProgress();
@@ -219,5 +219,9 @@ void RenderOutputSection() {
 
   RenderCopyAndClearButtons();
 
+  RenderEntropyWarning(hasMinimumEntropy, hasTargetEntropy);
+
+  RenderOutputHeader();
+  RenderOutputText();
   RenderOutputFooter();
 }

@@ -97,6 +97,10 @@ void SelectOutputType(int category, int type) {
                      g_state.oneTimePadFilePath.size());
     g_state.oneTimePadFileSize = 0;
     g_state.oneTimePadFileLastWriteTime = 0;
+    if (g_state.hasOneTimePadResult()) {
+      g_state.generatedAtText = "";
+      g_state.generationTimeText = "";
+    }
     g_state.wipeOneTimePadResult();
   }
 

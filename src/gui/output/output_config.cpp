@@ -9,6 +9,13 @@
 #include "output_types.h"
 #include <algorithm>
 
+static const char *const LONGEST_OPTION_LABEL = "Entropy required:";
+
+static float OptionLabelColumnWidth() {
+  return ImGui::CalcTextSize(LONGEST_OPTION_LABEL).x +
+         ImGui::GetStyle().IndentSpacing;
+}
+
 void BeginOptionRow(const char *label, bool alignToInput) {
   ImGui::TableNextRow();
   ImGui::TableSetColumnIndex(0);
@@ -120,9 +127,8 @@ static bool RenderListOptions() {
   return changed;
 }
 
-static void RenderEntropyRequirement() {
-  ImGui::Text("Current Entropy Requirement:");
-  ImGui::SameLine();
+static void RenderEntropyRequirementRow() {
+  BeginOptionRow(LONGEST_OPTION_LABEL, false);
   ImGui::TextColored(UiColor::Highlight, "%.0f bits",
                      g_state.targetEntropyBits);
 
@@ -136,35 +142,29 @@ void RenderOutputConfigSection() {
   const bool generationRunning = IsGenerationRunning();
   if (generationRunning)
     ImGui::BeginDisabled();
-  ImGui::Text("Output Configuration");
-  ImGui::Separator();
-  ImGui::Spacing();
-
-  RenderOutputTypeSelectors();
-
-  ImGui::Spacing();
 
   if (ImGui::BeginTable("OutputConfigTable", 2,
                         ImGuiTableFlags_SizingStretchProp)) {
-    ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+    ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed,
+                            OptionLabelColumnWidth());
     ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_None);
+
+    BeginOptionRow("Output type:");
+    RenderOutputTypeSelectors();
 
     bool parametersChanged = RenderSelectedFormatOptions();
 
     if (g_state.outputFormat != FORMAT_ONE_TIME_PAD && RenderListOptions())
       parametersChanged = true;
 
-    ImGui::EndTable();
-
     if (parametersChanged) {
       UpdateTargetEntropy();
     }
+
+    RenderEntropyRequirementRow();
+
+    ImGui::EndTable();
   }
-
-  ImGui::Spacing();
-  ImGui::Separator();
-
-  RenderEntropyRequirement();
 
   if (generationRunning)
     ImGui::EndDisabled();

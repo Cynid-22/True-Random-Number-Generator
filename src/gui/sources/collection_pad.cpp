@@ -2,11 +2,18 @@
 #include "../gui.h"
 #include "../widgets.h"
 #include "imgui.h"
+#include "source_widgets.h"
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
 static const size_t MOUSE_TRAIL_MAX_POINTS = 4000;
 static const float TRAIL_INTERPOLATION_STEP = 0.002f;
+static const float KEYSTROKE_PREVIEW_HEIGHT = 60.0f;
+static const float MOUSE_CANVAS_MIN_HEIGHT = 100.0f;
+static const float MOUSE_CANVAS_MIN_WIDTH = 1.0f;
+
+static bool s_focusPadWhenShown = false;
 
 static void AppendToKeystrokePreview(char character) {
   std::vector<char> &preview = g_state.keystrokePreview;
@@ -28,36 +35,28 @@ static void CaptureTypedCharacters() {
   }
 }
 
-static void RenderCollectionStatus(const char *label, bool enabled, bool active) {
-  ImGui::Text("%s:", label);
-  ImGui::SameLine();
-  if (!enabled) ImGui::TextColored(UiColor::DimText, "OFF");
-  else if (active) ImGui::TextColored(UiColor::StatusActive, "ACTIVE");
-  else ImGui::TextColored(UiColor::StatusReady, "WAIT");
+static void ReportCanvasHovered(bool hovered) {
+  if (g_state.mouseMovementEnabled && g_state.mouseCollector.IsRunning()) {
+    g_state.mouseCollector.SetCanvasHovered(hovered);
+  }
 }
 
-static void RenderCollectionStatusRow() {
-  ImGui::Text("Status:");
+void FocusCollectionPadWhenShown() { s_focusPadWhenShown = true; }
 
-  ImGui::Columns(3, "status_columns", false);
+void BeginCollectionPadFrame() {
+  if (!g_state.isCollecting) {
+    s_focusPadWhenShown = false;
+    return;
+  }
 
-  RenderCollectionStatus("Mic", g_state.microphoneEnabled, g_state.microphoneCollector.IsCapturing());
-  ImGui::NextColumn();
-  RenderCollectionStatus("Keys", g_state.keystrokeEnabled, true);
-  ImGui::NextColumn();
-  RenderCollectionStatus("Mouse", g_state.mouseMovementEnabled, true);
-  ImGui::NextColumn();
-  RenderCollectionStatus("Clock", g_state.clockDriftEnabled, g_state.clockDriftCollector.IsRunning());
-  ImGui::NextColumn();
-  RenderCollectionStatus("Jitter", g_state.cpuJitterEnabled, g_state.cpuJitterCollector.IsRunning());
-
-  ImGui::Columns(1);
+  CaptureTypedCharacters();
+  ReportCanvasHovered(false);
 }
 
 static void RenderKeyboardPreview() {
-  ImGui::Text("Keyboard Output:");
+  ImGui::SeparatorText("Keystroke Preview");
 
-  ImGui::BeginChild("KeyOutputBox", ImVec2(0, 60), true);
+  ImGui::BeginChild("KeyOutputBox", ImVec2(0, KEYSTROKE_PREVIEW_HEIGHT), true);
   if (g_state.keystrokePreview.empty()) {
     ImGui::TextDisabled(" [ Keystrokes will appear here ] ");
   } else {
@@ -113,26 +112,30 @@ static void CaptureMouseTrail(const ImVec2 &canvasMin, const ImVec2 &canvasSize)
   }
 }
 
+static const char *MouseCanvasPlaceholder() {
+  if (!g_state.mouseMovementEnabled)
+    return "Mouse Movement is excluded";
+  if (!g_state.isCollecting)
+    return "Press Start Collection, then move the mouse here";
+  return "Move mouse to generate trail...";
+}
+
 static void RenderMouseCanvas() {
-  ImGui::Text("Mouse Path:");
+  ImGui::SeparatorText("Mouse Path");
 
   ImVec2 canvasMin = ImGui::GetCursorScreenPos();
   ImVec2 canvasSize = ImGui::GetContentRegionAvail();
-
-  canvasSize.y -= 60.0f;
-
-  if (canvasSize.y < 100.0f) canvasSize.y = 100.0f;
+  canvasSize.x = std::max(canvasSize.x, MOUSE_CANVAS_MIN_WIDTH);
+  canvasSize.y = std::max(canvasSize.y, MOUSE_CANVAS_MIN_HEIGHT);
 
   ImGui::InvisibleButton("canvas", canvasSize);
 
   ImVec2 canvasMax = ImVec2(canvasMin.x + canvasSize.x, canvasMin.y + canvasSize.y);
 
   bool isHovered = ImGui::IsItemHovered();
-  if (g_state.mouseMovementEnabled && g_state.mouseCollector.IsRunning()) {
-    g_state.mouseCollector.SetCanvasHovered(isHovered);
-  }
+  ReportCanvasHovered(isHovered);
 
-  if (isHovered) {
+  if (g_state.isCollecting && g_state.mouseMovementEnabled && isHovered) {
     CaptureMouseTrail(canvasMin, canvasSize);
   }
 
@@ -149,7 +152,7 @@ static void RenderMouseCanvas() {
       drawList->AddCircleFilled(ImVec2(x, y), 2.0f, IM_COL32(0, 255, 0, 150));
     }
   } else {
-    const char *placeholder = "Move mouse to generate trail...";
+    const char *placeholder = MouseCanvasPlaceholder();
     ImVec2 textSize = ImGui::CalcTextSize(placeholder);
     drawList->AddText(ImVec2(canvasMin.x + (canvasSize.x - textSize.x) * 0.5f, canvasMin.y + (canvasSize.y - textSize.y) * 0.5f), IM_COL32(100, 100, 100, 255), placeholder);
   }
@@ -157,51 +160,16 @@ static void RenderMouseCanvas() {
   drawList->PopClipRect();
 }
 
-void RenderCollectionWindow() {
-  if (!g_state.isCollecting)
-    return;
-
-  CaptureTypedCharacters();
-
-  ImGuiViewport *viewport = ImGui::GetMainViewport();
-  ImVec2 workSize = viewport->WorkSize;
-
-  ImVec2 windowSize = ImVec2(workSize.x * 0.8f, workSize.y * 0.82f);
-
-  if (windowSize.x < 1000.0f) windowSize.x = 1000.0f;
-  if (windowSize.y < 700.0f) windowSize.y = 700.0f;
-
-  ImGui::SetNextWindowSize(windowSize, ImGuiCond_Appearing);
-
-  ImVec2 windowCenter = viewport->GetCenter();
-  windowCenter.y += workSize.y * 0.05f;
-
-  ImGui::SetNextWindowPos(windowCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  if (ImGui::Begin("Collection Window", &g_state.isCollecting,
-                   ImGuiWindowFlags_NoCollapse)) {
-    RenderCollectionStatusRow();
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    RenderKeyboardPreview();
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    RenderMouseCanvas();
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    ImGui::PushStyleColor(ImGuiCol_Button, UiColor::StopButton);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, UiColor::StopButtonHovered);
-    if (ImGui::Button("Stop Collection", ImVec2(180, 0))) {
-      g_state.isCollecting = false;
-    }
-    ImGui::PopStyleColor(2);
+void RenderCollectionPad() {
+  if (s_focusPadWhenShown) {
+    ImGui::SetNextWindowFocus();
+    s_focusPadWhenShown = false;
   }
-  ImGui::End();
+  if (ImGui::BeginChild("##CollectionColumn", ImVec2(0.0f, 0.0f),
+                        ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+    RenderKeyboardPreview();
+    ImGui::Spacing();
+    RenderMouseCanvas();
+  }
+  ImGui::EndChild();
 }

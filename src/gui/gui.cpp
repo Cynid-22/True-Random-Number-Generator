@@ -9,6 +9,8 @@
 #include "output/one_time_pad_result.h"
 #include "output/output_types.h"
 #include "imgui.h"
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cwchar>
 #include <iterator>
@@ -39,6 +41,7 @@ void SetupNativeStyle() {
   style.FrameBorderSize = 1.0f;
   style.PopupBorderSize = 1.0f;
   style.TabBorderSize = 1.0f;
+  style.SeparatorTextBorderSize = 1.0f;
 
   style.ScrollbarSize = 14.0f;
   style.GrabMinSize = 10.0f;
@@ -338,10 +341,10 @@ void RenderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Options")) {
-      ImGui::MenuItem("Auto-start collection", nullptr, &g_state.isCollecting);
       ImGui::MenuItem("Show Locked Data Warning", nullptr, &g_state.showDataLockWarning);
       ImGui::Separator();
-      if (ImGui::MenuItem("Reset Settings", nullptr, false, !IsGenerationRunning())) {
+      if (ImGui::MenuItem("Reset Settings", nullptr, false,
+                          !IsGenerationRunning() && !g_state.isCollecting)) {
         ResetSettings();
       }
       ImGui::EndMenu();
@@ -430,6 +433,7 @@ static void RenderEntropyProgressBar(float lockedBits, float newBits) {
 }
 
 static void RenderSecurityMode() {
+  ImGui::AlignTextToFramePadding();
   ImGui::Text("Security Mode:");
   ImGui::SameLine();
 
@@ -462,10 +466,12 @@ static void RenderClearConfirmation() {
     ImGui::Text("This action cannot be undone.\n\n");
     ImGui::Separator();
 
+    ImGui::PushItemFlag(ImGuiItemFlags_NoNavDefaultFocus, true);
     if (ImGui::Button("Confirm Clear", ImVec2(140, 0))) {
       ClearAllEntropyData();
       ImGui::CloseCurrentPopup();
     }
+    ImGui::PopItemFlag();
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(140, 0))) {
       ImGui::CloseCurrentPopup();
@@ -475,30 +481,15 @@ static void RenderClearConfirmation() {
 }
 
 static void RenderCollectionControls() {
-  const float rightMargin = 24.0f;
   const float clearButtonWidth = 80.0f;
   const float collectionButtonWidth = 160.0f;
-  const float spacing = ImGui::GetStyle().ItemSpacing.x;
-  const float buttonStartX = ImGui::GetWindowWidth() - rightMargin -
-                             clearButtonWidth - spacing - collectionButtonWidth;
-  const float statusEndX = buttonStartX - spacing;
+  const float buttonsWidth = collectionButtonWidth +
+                             ImGui::GetStyle().ItemSpacing.x + clearButtonWidth;
 
-  ImGui::SameLine(buttonStartX - 120.0f);
-  const char *statusText =
-      g_state.isCollecting ? "[Collecting...]" : "[Stopped]";
-  ImVec2 statusSize = ImGui::CalcTextSize(statusText);
-  ImGui::SetCursorPosX(statusEndX - statusSize.x);
-  if (g_state.isCollecting) {
-    ImGui::TextColored(UiColor::StatusActive, "%s", statusText);
-  } else {
-    ImGui::TextColored(UiColor::DimText, "%s", statusText);
-  }
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("%s", g_state.isCollecting ? "Collection in progress."
-                                                 : "Collection stopped.");
-  }
-
-  ImGui::SameLine(buttonStartX);
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                       std::max(0.0f, ImGui::GetContentRegionAvail().x -
+                                          buttonsWidth));
   if (g_state.isCollecting) {
     ImGui::PushStyleColor(ImGuiCol_Button, UiColor::StopButton);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, UiColor::StopButtonHovered);
@@ -520,6 +511,7 @@ static void RenderCollectionControls() {
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.30f, 0.20f, 1.00f));
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
                         ImVec4(0.60f, 0.35f, 0.25f, 1.00f));
+  ImGui::PushItemFlag(ImGuiItemFlags_NoNav, g_state.isCollecting);
   if (ImGui::Button("Clear", ImVec2(clearButtonWidth, 0))) {
     if (g_state.collectedEntropyBits >= 2048.0f) {
       ImGui::OpenPopup("Clear Data Confirmation");
@@ -527,6 +519,7 @@ static void RenderCollectionControls() {
       ClearAllEntropyData();
     }
   }
+  ImGui::PopItemFlag();
   ImGui::PopStyleColor(2);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Clear all collected entropy data from all sources.\n"
@@ -547,6 +540,82 @@ void RenderEntropyPoolBar() {
   RenderEntropyProgressBar(lockedBits, newBits);
   RenderSecurityMode();
   RenderCollectionControls();
+}
+
+static float StatusBarHeight() { return ImGui::GetFrameHeight(); }
+
+float StatusBarReservedHeight() {
+  const ImGuiStyle &style = ImGui::GetStyle();
+  return std::max(0.0f, StatusBarHeight() + style.ItemSpacing.y -
+                            style.WindowPadding.y);
+}
+
+struct StatusBarWriter {
+  ImDrawList *drawList;
+  ImVec2 textPosition;
+  float top;
+  float bottom;
+
+  void Text(const ImVec4 &color, const char *text) {
+    drawList->AddText(textPosition, ImGui::GetColorU32(color), text);
+    textPosition.x += ImGui::CalcTextSize(text).x;
+  }
+
+  void Divider() {
+    const ImGuiStyle &style = ImGui::GetStyle();
+    textPosition.x += style.WindowPadding.x;
+    const float lineX = std::floor(textPosition.x) + 0.5f;
+    drawList->AddLine(ImVec2(lineX, top + style.FramePadding.y),
+                      ImVec2(lineX, bottom - style.FramePadding.y),
+                      ImGui::GetColorU32(ImGuiCol_Separator));
+    textPosition.x += style.WindowPadding.x;
+  }
+};
+
+void RenderStatusBar() {
+  const ImVec2 windowPos = ImGui::GetWindowPos();
+  const ImVec2 windowSize = ImGui::GetWindowSize();
+  const float barHeight = StatusBarHeight();
+  const ImVec2 barMin(windowPos.x, windowPos.y + windowSize.y - barHeight);
+  const ImVec2 barMax(windowPos.x + windowSize.x, windowPos.y + windowSize.y);
+
+  ImDrawList *drawList = ImGui::GetWindowDrawList();
+  drawList->PushClipRect(barMin, barMax, false);
+  drawList->AddRectFilled(barMin, barMax, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+  drawList->AddLine(barMin, ImVec2(barMax.x, barMin.y),
+                    ImGui::GetColorU32(ImGuiCol_Border));
+
+  StatusBarWriter status{
+      drawList,
+      ImVec2(barMin.x + ImGui::GetStyle().WindowPadding.x,
+             barMin.y + (barHeight - ImGui::GetTextLineHeight()) * 0.5f),
+      barMin.y, barMax.y};
+
+  if (g_state.isCollecting)
+    status.Text(UiColor::StatusActive, "Collecting...");
+  else
+    status.Text(UiColor::DimText, "Stopped");
+
+  char text[128];
+  snprintf(text, sizeof(text), "%d of %d sources included",
+           static_cast<int>(g_state.enabledEntropySources().size()),
+           static_cast<int>(Entropy::ENTROPY_SOURCE_COUNT));
+  status.Divider();
+  status.Text(UiColor::LabelText, text);
+
+  if (IsGenerationRunning()) {
+    snprintf(text, sizeof(text), "Generating output...  %s",
+             CurrentSpinnerFrame());
+    status.Divider();
+    status.Text(UiColor::InProgress, text);
+  } else if (!g_state.generatedAtText.empty()) {
+    snprintf(text, sizeof(text), "Output generated at: %s",
+             g_state.generatedAtText.c_str());
+    status.Divider();
+    status.Text(UiColor::LabelText, text);
+  }
+
+  drawList->PopClipRect();
 }
 
 void RenderAboutModal() {

@@ -17,13 +17,8 @@ void RenderDataLockWarning() {
 
     ImGui::Spacing();
     ImGui::Separator();
+    ImGui::Spacing();
   }
-}
-
-void RenderSourceSeparator() {
-  ImGui::Spacing();
-  ImGui::Separator();
-  ImGui::Spacing();
 }
 
 void RenderSourceToggle(const char *checkboxLabel, bool *enabled,
@@ -45,10 +40,4 @@ void RenderSourceBadge(const ImVec4 &color, const char *label,
     ImGui::SetTooltipV(tooltipFormat, args);
     va_end(args);
   }
-}
-
-void RenderExcludedBadge() {
-  RenderSourceBadge(UiColor::DimText, "[Excluded]",
-                    "This source is disabled by the user and will not "
-                    "contribute to entropy collection.");
 }

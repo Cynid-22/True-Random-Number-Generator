@@ -36,11 +36,14 @@ void SetupNativeStyle();
 
 void RenderMenuBar();
 
-void RenderUserInputTab();
-void RenderSystemInputTab();
-void RenderCollectionWindow();
+void BeginCollectionPadFrame();
+void FocusCollectionPadWhenShown();
+void RenderInputTab();
 
 void RenderEntropyPoolBar();
+
+float StatusBarReservedHeight();
+void RenderStatusBar();
 
 void RenderOutputConfigSection();
 void RenderOutputSection();

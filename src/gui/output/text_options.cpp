@@ -43,7 +43,7 @@ bool RenderRandomCharactersOptions() {
   if (RenderCharacterSetToggle("Special", &g_state.includeSpecial))
     changed = true;
   ImGui::SameLine();
-  ImGui::TextDisabled("(!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~)");
+  ImGui::TextDisabled("%s", "(!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~)");
 
   return changed;
 }
