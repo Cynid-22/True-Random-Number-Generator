@@ -5,6 +5,7 @@
 #include "source_widgets.h"
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 static const size_t MOUSE_TRAIL_MAX_POINTS = 4000;
@@ -13,7 +14,19 @@ static const float KEYSTROKE_PREVIEW_HEIGHT = 60.0f;
 static const float MOUSE_CANVAS_MIN_HEIGHT = 100.0f;
 static const float MOUSE_CANVAS_MIN_WIDTH = 1.0f;
 
+static const int LEVEL_METER_BLOCK_COUNT = 10;
+static const int LEVEL_METER_RED_BLOCK_COUNT = 2;
+static const float LEVEL_METER_FLOOR_DB = -60.0f;
+static const float LEVEL_METER_FALL_DB_PER_SECOND = 24.0f;
+static const float LEVEL_METER_BLOCK_WIDTH_EM = 0.6f;
+static const float LEVEL_METER_BLOCK_HEIGHT_EM = 0.8f;
+static const float LEVEL_METER_BLOCK_GAP_EM = 0.2f;
+static const float LEVEL_METER_UNLIT_ALPHA = 0.18f;
+
+static const char *const MICROPHONE_READOUT_TITLE = "Microphone";
+
 static bool s_focusPadWhenShown = false;
+static float s_microphoneMeterDb = LEVEL_METER_FLOOR_DB;
 
 static void AppendToKeystrokePreview(char character) {
   std::vector<char> &preview = g_state.keystrokePreview;
@@ -41,9 +54,32 @@ static void ReportCanvasHovered(bool hovered) {
   }
 }
 
+static bool MicrophoneIsCapturing() {
+  return g_state.isCollecting && g_state.microphoneEnabled &&
+         g_state.microphoneCollector.IsCapturing();
+}
+
+static float AmplitudeToDecibels(float amplitude) {
+  return 20.0f * std::log10(amplitude);
+}
+
+static void UpdateMicrophoneMeter() {
+  if (!MicrophoneIsCapturing()) {
+    s_microphoneMeterDb = LEVEL_METER_FLOOR_DB;
+    return;
+  }
+  const float peakLevel = g_state.microphoneCollector.GetInputPeakLevel();
+  const float peakDb =
+      peakLevel > 0.0f ? AmplitudeToDecibels(peakLevel) : LEVEL_METER_FLOOR_DB;
+  const float fallenDb = s_microphoneMeterDb - LEVEL_METER_FALL_DB_PER_SECOND *
+                                                   ImGui::GetIO().DeltaTime;
+  s_microphoneMeterDb = std::max({peakDb, fallenDb, LEVEL_METER_FLOOR_DB});
+}
+
 void FocusCollectionPadWhenShown() { s_focusPadWhenShown = true; }
 
 void BeginCollectionPadFrame() {
+  UpdateMicrophoneMeter();
   if (!g_state.isCollecting) {
     s_focusPadWhenShown = false;
     return;
@@ -160,6 +196,135 @@ static void RenderMouseCanvas() {
   drawList->PopClipRect();
 }
 
+struct LevelMeterMetrics {
+  float blockWidth;
+  float blockHeight;
+  float blockGap;
+
+  float Width() const {
+    return LEVEL_METER_BLOCK_COUNT * blockWidth +
+           (LEVEL_METER_BLOCK_COUNT - 1) * blockGap;
+  }
+};
+
+static LevelMeterMetrics CurrentLevelMeterMetrics() {
+  const float fontSize = ImGui::GetFontSize();
+  return {std::round(fontSize * LEVEL_METER_BLOCK_WIDTH_EM),
+          std::round(fontSize * LEVEL_METER_BLOCK_HEIGHT_EM),
+          std::round(fontSize * LEVEL_METER_BLOCK_GAP_EM)};
+}
+
+static void RenderMicrophoneLevelMeter() {
+  const LevelMeterMetrics meter = CurrentLevelMeterMetrics();
+  const float rowHeight = ImGui::GetFrameHeight();
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float left = std::floor(origin.x);
+  const float top =
+      std::floor(origin.y + (rowHeight - meter.blockHeight) * 0.5f);
+  const float dbPerBlock = -LEVEL_METER_FLOOR_DB / LEVEL_METER_BLOCK_COUNT;
+
+  ImDrawList *drawList = ImGui::GetWindowDrawList();
+  for (int block = 0; block < LEVEL_METER_BLOCK_COUNT; block++) {
+    const bool isRedBlock =
+        block >= LEVEL_METER_BLOCK_COUNT - LEVEL_METER_RED_BLOCK_COUNT;
+    const bool isLit =
+        s_microphoneMeterDb > LEVEL_METER_FLOOR_DB + dbPerBlock * block;
+    ImVec4 color =
+        isRedBlock ? UiColor::StatusUnavailable : UiColor::StatusActive;
+    if (!isLit)
+      color.w = LEVEL_METER_UNLIT_ALPHA;
+
+    const float blockLeft = left + block * (meter.blockWidth + meter.blockGap);
+    drawList->AddRectFilled(
+        ImVec2(blockLeft, top),
+        ImVec2(blockLeft + meter.blockWidth, top + meter.blockHeight),
+        ImGui::GetColorU32(color));
+  }
+  ImGui::Dummy(ImVec2(meter.Width(), rowHeight));
+}
+
+static float MicrophoneReadoutWidth() {
+  const float separatorPadding = ImGui::GetStyle().SeparatorTextPadding.x;
+  const float trailingLineWidth = separatorPadding;
+  const float headingWidth = separatorPadding * 2.0f + trailingLineWidth +
+                             ImGui::CalcTextSize(MICROPHONE_READOUT_TITLE).x;
+  return std::max(CurrentLevelMeterMetrics().Width(), headingWidth);
+}
+
+static void RenderMicrophoneReadout() {
+  ImGui::SeparatorText(MICROPHONE_READOUT_TITLE);
+  if (g_state.microphoneEnabled) {
+    RenderMicrophoneLevelMeter();
+  } else {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Excluded");
+  }
+}
+
+static std::string WithThousandsSeparators(uint64_t value) {
+  std::string digits = std::to_string(value);
+  for (int insertAt = (int)digits.size() - 3; insertAt > 0; insertAt -= 3)
+    digits.insert((size_t)insertAt, ",");
+  return digits;
+}
+
+static std::string SampleReadoutText(uint64_t sampleCount,
+                                     double samplesPerSecond) {
+  const std::string countText = WithThousandsSeparators(sampleCount) +
+                                (sampleCount == 1 ? " sample" : " samples");
+  if (samplesPerSecond <= 0.0)
+    return countText;
+
+  const std::string countAndRateText =
+      countText + " at " +
+      WithThousandsSeparators((uint64_t)std::llround(samplesPerSecond)) + "/s";
+  const bool rateFits = ImGui::CalcTextSize(countAndRateText.c_str()).x <=
+                        ImGui::GetContentRegionAvail().x;
+  return rateFits ? countAndRateText : countText;
+}
+
+template <typename Collector>
+static void RenderSampleReadout(const char *title, bool enabled,
+                                const Collector &collector) {
+  ImGui::SeparatorText(title);
+  ImGui::AlignTextToFramePadding();
+  if (!enabled) {
+    ImGui::TextDisabled("Excluded");
+  } else if (!g_state.isCollecting) {
+    ImGui::TextDisabled("Idle");
+  } else if (!collector.IsRunning()) {
+    ImGui::TextDisabled("Starting...");
+  } else {
+    const std::string text = SampleReadoutText(
+        collector.GetSampleCount(), collector.GetSamplesPerSecond());
+    ImGui::TextColored(UiColor::StatusActive, "%s", text.c_str());
+  }
+}
+
+static void RenderLiveReadouts() {
+  ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,
+                      ImVec2(INPUT_COLUMN_GAP * 0.5f, 0.0f));
+  if (ImGui::BeginTable("##LiveReadouts", 3)) {
+    ImGui::TableSetupColumn("Microphone", ImGuiTableColumnFlags_WidthFixed,
+                            MicrophoneReadoutWidth());
+    ImGui::TableSetupColumn("Clock Drift", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("CPU Jitter", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableNextRow();
+
+    ImGui::TableNextColumn();
+    RenderMicrophoneReadout();
+    ImGui::TableNextColumn();
+    RenderSampleReadout("Clock Drift", g_state.clockDriftEnabled,
+                        g_state.clockDriftCollector);
+    ImGui::TableNextColumn();
+    RenderSampleReadout("CPU Jitter", g_state.cpuJitterEnabled,
+                        g_state.cpuJitterCollector);
+
+    ImGui::EndTable();
+  }
+  ImGui::PopStyleVar();
+}
+
 void RenderCollectionPad() {
   if (s_focusPadWhenShown) {
     ImGui::SetNextWindowFocus();
@@ -167,6 +332,8 @@ void RenderCollectionPad() {
   }
   if (ImGui::BeginChild("##CollectionColumn", ImVec2(0.0f, 0.0f),
                         ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+    RenderLiveReadouts();
+    ImGui::Spacing();
     RenderKeyboardPreview();
     ImGui::Spacing();
     RenderMouseCanvas();

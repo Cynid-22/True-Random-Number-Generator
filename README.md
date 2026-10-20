@@ -366,7 +366,7 @@ All entropy events are timestamped with 64-bit nanosecond precision:
 
 1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
 2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
-3. **Monitor Progress**: Watch the entropy bar fill; security mode indicator shows consolidation vs. expansion
+3. **Monitor Progress**: Watch the entropy bar fill; security mode indicator shows consolidation vs. expansion. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
 4. **Configure Output**: Select output format and parameters in the Output tab
 5. **Generate**: Click Generate when sufficient entropy is collected
 

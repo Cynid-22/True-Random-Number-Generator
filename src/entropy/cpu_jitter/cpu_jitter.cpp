@@ -21,6 +21,7 @@ void CpuJitterCollector::Start() {
 
     m_counterPaused = false;
     m_counter = 0;
+    m_samples.Reset();
 
     m_counterThread = std::thread(&CpuJitterCollector::CounterLoop, this);
     m_samplerThread = std::thread(&CpuJitterCollector::SamplerLoop, this);
@@ -79,7 +80,16 @@ void CpuJitterCollector::SamplerLoop() {
                 EntropySource::CpuJitter
             });
         }
+        m_samples.CountSample();
     }
+}
+
+double CpuJitterCollector::GetSamplesPerSecond() const {
+    return m_samples.PerSecond();
+}
+
+uint64_t CpuJitterCollector::GetSampleCount() const {
+    return m_samples.Count();
 }
 
 std::vector<EntropyDataPoint> CpuJitterCollector::Harvest() {

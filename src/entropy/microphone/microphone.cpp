@@ -1,7 +1,9 @@
 #include "microphone.h"
 #include "../../logging/logger.h"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include "../../crypto/secure_mem.h"
 
@@ -74,6 +76,10 @@ bool MicrophoneCollector::IsCapturing() const {
 
 bool MicrophoneCollector::HasFailed() const {
     return m_lastFailureMs.load() != 0;
+}
+
+float MicrophoneCollector::GetInputPeakLevel() const {
+    return m_inputPeakLevel;
 }
 
 void MicrophoneCollector::MarkCaptureFailed() {
@@ -204,6 +210,13 @@ void MicrophoneCollector::CaptureLoop() {
     m_lastFailureMs = 0;
     m_capturing = true;
 
+    const bool isFloatFormat =
+        mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+        (mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+         ((WAVEFORMATEXTENSIBLE*)mixFormat)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID);
+    const double fullScaleAmplitude =
+        (mixFormat->wBitsPerSample == 32 && !isFloatFormat) ? (double)INT32_MAX : (double)INT16_MAX;
+
     UINT32 packetLength = 0;
     BYTE *frameData;
     UINT32 frameCount;
@@ -218,6 +231,7 @@ void MicrophoneCollector::CaptureLoop() {
         hr = captureClient->GetNextPacketSize(&packetLength);
         if (FAILED(hr)) continue;
 
+        double pollPeakAmplitude = 0.0;
         while (packetLength != 0) {
             hr = captureClient->GetBuffer(
                 &frameData,
@@ -245,9 +259,7 @@ void MicrophoneCollector::CaptureLoop() {
                         int16_t* sample = (int16_t*)(frameData + i * bytesPerFrame);
                         sampleValue = *sample;
                     } else if (bitsPerSample == 32) {
-                        if (mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
-                            (mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
-                             ((WAVEFORMATEXTENSIBLE*)mixFormat)->SubFormat == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID)) {
+                        if (isFloatFormat) {
                             float* sample = (float*)(frameData + i * bytesPerFrame);
                             sampleValue = (int32_t)(*sample * 32767.0f);
                         } else {
@@ -256,6 +268,7 @@ void MicrophoneCollector::CaptureLoop() {
                         }
                     }
 
+                    pollPeakAmplitude = std::max(pollPeakAmplitude, std::fabs((double)sampleValue));
                     sumOfSquares += (double)sampleValue * sampleValue;
                     sampleCount++;
 
@@ -294,9 +307,11 @@ void MicrophoneCollector::CaptureLoop() {
 
             hr = captureClient->GetNextPacketSize(&packetLength);
         }
+        m_inputPeakLevel = (float)std::min(pollPeakAmplitude / fullScaleAmplitude, 1.0);
     }
 
     m_capturing = false;
+    m_inputPeakLevel = 0.0f;
     if (audioClient) audioClient->Stop();
 
     CoTaskMemFree(mixFormat);

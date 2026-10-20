@@ -30,8 +30,7 @@ private:
     std::thread m_thread;
     std::mutex m_mutex;
     std::vector<EntropyDataPoint> m_buffer;
-    std::atomic<uint64_t> m_sampleCount{0};
-    std::atomic<double> m_samplesPerSecond{0.0};
+    SampleRateCounter m_samples;
 
     void SecureClearBuffer();
 };

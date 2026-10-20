@@ -20,6 +20,7 @@ void ClockDriftCollector::Start() {
     }
 
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Starting collector thread...");
+    m_samples.Reset();
     m_thread = std::thread(&ClockDriftCollector::CollectionLoop, this);
 }
 
@@ -66,18 +67,15 @@ void ClockDriftCollector::SecureClearBuffer() {
 }
 
 double ClockDriftCollector::GetSamplesPerSecond() const {
-    return m_samplesPerSecond;
+    return m_samples.PerSecond();
 }
 
 uint64_t ClockDriftCollector::GetSampleCount() const {
-    return m_sampleCount;
+    return m_samples.Count();
 }
 
 void ClockDriftCollector::CollectionLoop() {
     Logger::Log(Logger::Level::INFO, "ClockDrift", "Thread main loop started");
-
-    auto lastRateCheck = std::chrono::steady_clock::now();
-    uint64_t sampleCountAtLastRateCheck = 0;
 
     while (m_running) {
         uint64_t cyclesBefore = __rdtsc();
@@ -105,18 +103,7 @@ void ClockDriftCollector::CollectionLoop() {
             dataPoint.source = EntropySource::ClockDrift;
             m_buffer.push_back(dataPoint);
         }
-        m_sampleCount++;
-
-        auto now = std::chrono::steady_clock::now();
-        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRateCheck).count();
-        if (elapsedMs >= 1000) {
-            uint64_t sampleCount = m_sampleCount;
-            uint64_t newSamples = sampleCount - sampleCountAtLastRateCheck;
-            m_samplesPerSecond = (double)newSamples * 1000.0 / elapsedMs;
-
-            sampleCountAtLastRateCheck = sampleCount;
-            lastRateCheck = now;
-        }
+        m_samples.CountSample();
     }
 }
 

@@ -20,6 +20,9 @@ public:
 
     std::vector<EntropyDataPoint> Harvest();
 
+    double GetSamplesPerSecond() const;
+    uint64_t GetSampleCount() const;
+
 private:
     void CounterLoop();
     void SamplerLoop();
@@ -35,6 +38,7 @@ private:
 
     std::mutex m_mutex;
     std::vector<EntropyDataPoint> m_buffer;
+    SampleRateCounter m_samples;
 };
 
 }

@@ -7,8 +7,9 @@
 #include <cmath>
 #include <initializer_list>
 
-static const float SOURCES_COLUMN_WIDTH_RATIO = 0.42f;
-static const float COLUMN_GAP = 24.0f;
+static const float SOURCES_COLUMN_WIDTH_RATIO = 0.34f;
+static const float SOURCES_COLUMN_MAX_WIDTH_RATIO = 0.5f;
+static const int SOURCE_TABLE_COLUMN_COUNT = 2;
 
 static const char *const STATUS_LABEL_READY = "Ready";
 static const char *const STATUS_LABEL_ACTIVE = "Active";
@@ -156,17 +157,6 @@ static void RenderCpuJitterStatus() {
   }
 }
 
-static void RenderClockDriftRate() {
-  if (g_state.clockDriftEnabled && g_state.isCollecting &&
-      g_state.clockDriftCollector.IsRunning()) {
-    ImGui::Spacing();
-    ImGui::TextColored(UiColor::LabelText,
-                       "Samples: %llu | Rate: %.0f samples/sec",
-                       g_state.clockDriftCollector.GetSampleCount(),
-                       g_state.clockDriftCollector.GetSamplesPerSecond());
-  }
-}
-
 enum class SourceGroup { UserInput, SystemInput };
 
 struct SourceRow {
@@ -177,7 +167,6 @@ struct SourceRow {
   bool AppState::*enabled;
   const char *howItWorks;
   void (*renderStatus)();
-  void (*renderLiveStats)();
 };
 
 static const SourceRow SOURCE_ROWS[] = {
@@ -188,34 +177,34 @@ static const SourceRow SOURCE_ROWS[] = {
      "determined by thermal noise (electrons bouncing due to heat), not "
      "actual sound. High sample rate (44.1kHz) provides ~44,000 random "
      "bits/sec.",
-     RenderMicrophoneStatus, nullptr},
+     RenderMicrophoneStatus},
     {SourceGroup::UserInput, "Keystroke Dynamics",
      "Keystroke Dynamics (User Entropy)", "Keystroke",
      &AppState::keystrokeEnabled,
      "Captures your unique typing rhythm: Flight Time (gap between keys) and "
      "Dwell Time (how long each key is held). These timings are measured in "
      "nanoseconds and are unique to each person.",
-     RenderKeystrokeStatus, nullptr},
+     RenderKeystrokeStatus},
     {SourceGroup::UserInput, "Mouse Movement", "Mouse Movement (User Entropy)",
      "Mouse", &AppState::mouseMovementEnabled,
      "Records X/Y coordinates and precise timestamps (nanoseconds) of mouse "
      "movements. Your physical motor noise creates unpredictable patterns. "
      "Small movements (under 2 pixels) are filtered to avoid sensor drift.",
-     RenderMouseStatus, nullptr},
+     RenderMouseStatus},
     {SourceGroup::SystemInput, "Clock Drift", "Clock Drift (Hardware Entropy)",
      "Clock Drift", &AppState::clockDriftEnabled,
      "Measures the delta in CPU cycle counts during a fixed System Time "
      "window. A 3GHz CPU should count ~3,000,000 cycles per ms, but due to "
      "heat/voltage, the actual count varies (e.g., 3,000,402 or 2,999,881). "
      "Those fluctuating digits are entropy.",
-     RenderClockDriftStatus, RenderClockDriftRate},
+     RenderClockDriftStatus},
     {SourceGroup::SystemInput, "CPU Jitter", "CPU Jitter (System Entropy)",
      "CPU Jitter", &AppState::cpuJitterEnabled,
      "Creates a 'race condition': Thread A counts up infinitely, Thread B "
      "periodically freezes it and reads the count. The exact count depends "
      "on OS scheduling, background tasks (WiFi, updates), making it "
      "unpredictable.",
-     RenderCpuJitterStatus, nullptr},
+     RenderCpuJitterStatus},
 };
 static constexpr int SOURCE_ROW_COUNT = IM_ARRAYSIZE(SOURCE_ROWS);
 
@@ -228,6 +217,27 @@ static float StatusColumnWidth() {
         STATUS_LABEL_UNAVAILABLE, STATUS_LABEL_EXCLUDED})
     width = std::max(width, ImGui::CalcTextSize(label).x);
   return width;
+}
+
+static float SourceTableMinWidth() {
+  const ImGuiStyle &style = ImGui::GetStyle();
+  float nameWidth = 0.0f;
+  for (const SourceRow &row : SOURCE_ROWS)
+    nameWidth = std::max(nameWidth, ImGui::CalcTextSize(row.name).x);
+  const float sourceColumnWidth = style.IndentSpacing + ImGui::GetFrameHeight() +
+                                  style.ItemSpacing.x + nameWidth;
+  const float cellPaddingWidth = style.CellPadding.x * 2.0f * SOURCE_TABLE_COLUMN_COUNT;
+  const float borderLinesWidth = SOURCE_TABLE_COLUMN_COUNT + 1.0f;
+  return sourceColumnWidth + StatusColumnWidth() + cellPaddingWidth +
+         borderLinesWidth;
+}
+
+static float SourcesColumnWidth() {
+  const float columnsWidth = ImGui::GetContentRegionAvail().x - INPUT_COLUMN_GAP;
+  const float preferredWidth = std::max(
+      columnsWidth * SOURCES_COLUMN_WIDTH_RATIO, SourceTableMinWidth());
+  return std::floor(
+      std::min(preferredWidth, columnsWidth * SOURCES_COLUMN_MAX_WIDTH_RATIO));
 }
 
 static void RenderGroupRow(const char *groupName) {
@@ -300,8 +310,6 @@ static void RenderSelectedSourceDetails() {
   ImGui::Spacing();
   ImGui::SeparatorText(row.title);
   ImGui::TextWrapped("%s", row.howItWorks);
-  if (row.renderLiveStats)
-    row.renderLiveStats();
 
   if (row.group == SourceGroup::SystemInput) {
     ImGui::Spacing();
@@ -315,9 +323,7 @@ static void RenderSelectedSourceDetails() {
 void RenderInputTab() {
   RenderDataLockWarning();
 
-  const float sourcesColumnWidth = std::floor(
-      (ImGui::GetContentRegionAvail().x - COLUMN_GAP) * SOURCES_COLUMN_WIDTH_RATIO);
-  if (ImGui::BeginChild("##SourcesColumn", ImVec2(sourcesColumnWidth, 0.0f),
+  if (ImGui::BeginChild("##SourcesColumn", ImVec2(SourcesColumnWidth(), 0.0f),
                         ImGuiChildFlags_NavFlattened,
                         ImGuiWindowFlags_NoBackground)) {
     RenderSourceTable();
@@ -325,7 +331,7 @@ void RenderInputTab() {
   }
   ImGui::EndChild();
 
-  ImGui::SameLine(0.0f, COLUMN_GAP);
+  ImGui::SameLine(0.0f, INPUT_COLUMN_GAP);
 
   RenderCollectionPad();
 }
