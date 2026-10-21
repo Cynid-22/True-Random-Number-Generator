@@ -24,7 +24,7 @@ Each generation uses up the available entropy. The data it used is kept only as 
 
 | Source | Method | Data Collected |
 |--------|--------|----------------|
-| **Microphone** | Thermal Noise | Least Significant Bit (LSB) of each audio sample of the first channel, in the device's shared-mode format (16, 24 or 32-bit integer, or 32-bit float scaled to 16 bits) |
+| **Microphone** | Thermal Noise | Least Significant Bit (LSB) of each audio sample of the first channel, at the microphone's own bit depth (the device format Windows reports, up to 24 bits), from Windows' raw stream with sound enhancements skipped when the driver supports it |
 | **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds, only while the TRNG window is in front; auto-repeat and keys sent by software are ignored |
 | **Mouse** | Movement Tracking | X/Y coordinates with nanosecond timestamps, filtered for sensor drift; movement sent by software is ignored |
 

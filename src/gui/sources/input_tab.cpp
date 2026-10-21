@@ -44,6 +44,11 @@ static const char *UNAVAILABLE_MICROPHONE_TOOLTIP =
     "Resolve the issue (reconnect device, check permissions, fix "
     "drivers, etc.) to resume collection.";
 
+static const char *RAW_STREAM_LABEL =
+    "raw (Windows sound enhancements skipped)";
+static const char *STANDARD_STREAM_LABEL =
+    "standard (raw mode unavailable, Windows sound enhancements may apply)";
+
 static const char *SYSTEM_SOURCES_INTRO =
     "These sources exploit hardware imperfections and OS scheduling chaos. "
     "They run in parallel to intentionally create CPU 'traffic jams' for "
@@ -86,9 +91,15 @@ static void RenderMicrophoneStatus() {
     if (g_state.microphoneCollector.IsCapturing()) {
       RenderSourceBadge(UiColor::StatusActive, STATUS_LABEL_ACTIVE,
                         "Microphone is actively collecting entropy.\n"
+                        "Stream: %s\n"
+                        "Reading the LSB of %u-bit samples\n"
                         "Credited: %.1f bits (up to %.0f bits per 64 "
                         "audio samples)\n"
                         "Source is working correctly.",
+                        g_state.microphoneCollector.IsRawStream()
+                            ? RAW_STREAM_LABEL
+                            : STANDARD_STREAM_LABEL,
+                        g_state.microphoneCollector.GetResolutionBits(),
                         CreditedBits(source), MaxCreditBits(source));
     } else if (!g_state.microphoneCollector.HasFailed()) {
       RenderSourceBadge(UiColor::StatusReady, STATUS_LABEL_STARTING,
@@ -219,7 +230,8 @@ static const SourceRow SOURCE_ROWS[] = {
     {SourceGroup::UserInput, "Microphone Noise",
      "Microphone Noise (Thermal Entropy)", "Microphone",
      &AppState::microphoneEnabled,
-     "Captures the Least Significant Bit (LSB) of audio samples. This bit is "
+     "Captures the Least Significant Bit (LSB) of audio samples, at the "
+     "microphone's own bit depth. This bit is "
      "determined by thermal noise (electrons bouncing due to heat), not "
      "actual sound. Each block of 64 LSBs is credited at most 8 bits, less "
      "when its bits are unbalanced or too regular.",

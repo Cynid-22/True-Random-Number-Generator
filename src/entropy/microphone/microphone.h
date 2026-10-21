@@ -27,6 +27,10 @@ public:
 
     float GetInputPeakLevel() const;
 
+    bool IsRawStream() const;
+
+    unsigned GetResolutionBits() const;
+
     EntropyDataVector Harvest();
 
 private:
@@ -38,6 +42,8 @@ private:
     std::atomic<bool> m_capturing{false};
     std::atomic<long long> m_lastFailureMs{0};
     std::atomic<float> m_inputPeakLevel{0.0f};
+    std::atomic<bool> m_rawStream{false};
+    std::atomic<unsigned> m_resolutionBits{0};
     std::thread m_captureThread;
     std::mutex m_mutex;
     EntropyDataVector m_buffer;
