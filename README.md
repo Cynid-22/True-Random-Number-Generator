@@ -155,6 +155,33 @@ cd TRNG
 ./build/TRNG.exe
 ```
 
+### Sample Export Test Build
+
+For measuring the entropy sources with the NIST SP 800-90B tool ([SP800-90B_EntropyAssessment](https://github.com/usnistgov/SP800-90B_EntropyAssessment)), a separate test build writes each source's raw values to files:
+
+```bash
+./build.sh --sample-export
+./build/TRNG_samples.exe
+```
+
+It adds **Tools > Sample Export...**. A plain `./build.sh` and the release workflow do not compile any of it, so released builds can never write samples. Use `TRNG_samples.exe` only for measuring, not for real outputs.
+
+- **What it writes:** the value each collector produces, taken before the entropy pool, the credit estimator or any hashing. One file per source (`mic.u64`, `keystroke.u64`, `mouse.u64`, `clockdrift.u64`, `cpujitter.u64`), each value a little-endian 64-bit integer, in collection order, with no header.
+- **Record:** choose a folder, tick the sources on the Input tab, press **Start Recording** and collect as usual. The window counts the values written. Stop Recording, Stop Collection or Clear ends it. Each run appends to the files. Recorded data never reaches the entropy pool, so it cannot back an output.
+- **Restart test:** for Clock Drift, CPU Jitter or Microphone, stops and starts the collector 1,000 times and keeps the first 1,000 values after each start (16 values, 1,024 LSBs, for the microphone) in `<source>_restart.u64`, for `ea_restart`.
+
+The files hold real entropy samples: use them only for testing and delete them afterwards. The NIST tool reads one symbol of at most 8 bits per byte, so each file is converted first:
+
+| Source | Symbol | Bits per symbol | Theoretical max H_I | Current credit needs |
+|---|---|---|---|---|
+| Microphone | One LSB | 1 | 1 | 0.125 |
+| Keystroke | Low 8 bits of the timing | 8 | 8 | 2 |
+| Mouse | 4 bits of dx + 4 bits of dy | 8 | 8 | 1 |
+| Clock Drift | Low 8 bits of the cycle count | 8 | 8 | 1 |
+| CPU Jitter | Low 8 bits of the counter | 8 | 8 | 1 |
+
+A source's credit is justified when the min-entropy NIST measures (`ea_non_iid -i -a <file> <bits per symbol>`) is at least the "Current credit needs" value.
+
 ---
 
 ## Project Structure
@@ -170,6 +197,7 @@ TRNG/
 │   │   ├── gui.h             # GUI declarations
 │   │   ├── gui.cpp           # Style, menu, entropy bar, status bar, modals
 │   │   ├── widgets.h/.cpp    # Shared colors and small widgets
+│   │   ├── sample_export.h/.cpp  # Tools > Sample Export (test build only)
 │   │   ├── sources/          # Input tab: source list, collection pad
 │   │   └── output/           # Output type selector, per-format options,
 │   │                         # background generation, result panel
@@ -182,7 +210,8 @@ TRNG/
 │   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
 │   ├── crypto/               # SHA-512, HKDF, ChaCha20, AES-256, quad layer
 │   ├── entropy/              # Entropy collectors, pool, per-source credit
-│   │                         # and health tests
+│   │                         # and health tests, raw-sample recorder
+│   │                         # (test build only)
 │   ├── logging/              # Logger
 │   └── platform/
 │       ├── dx11.h            # DirectX declarations
@@ -196,7 +225,8 @@ TRNG/
 │   └── Wordlist_specs.md       # Word count, bits per word and use of each list
 ├── external/
 │   └── imgui/                # Dear ImGui (auto-downloaded)
-└── build.sh                  # Build script
+└── build.sh                  # Build script (--sample-export: test build
+                              # that records raw source samples)
 ```
 
 ---

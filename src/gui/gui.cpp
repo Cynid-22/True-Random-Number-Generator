@@ -9,6 +9,9 @@
 #include "output/generation_task.h"
 #include "output/one_time_pad_result.h"
 #include "output/output_types.h"
+#ifdef TRNG_SAMPLE_EXPORT
+#include "sample_export.h"
+#endif
 #include "imgui.h"
 #include <algorithm>
 #include <cmath>
@@ -406,6 +409,9 @@ void RenderMenuBar() {
       }
       ImGui::EndMenu();
     }
+#ifdef TRNG_SAMPLE_EXPORT
+    RenderSampleExportMenu();
+#endif
     if (ImGui::BeginMenu("Help")) {
       if (ImGui::MenuItem("About TRNG")) {
         g_state.showAboutModal = true;

@@ -10,6 +10,9 @@
 #include "platform/dx11.h"
 #include "platform/secure_clipboard.h"
 #include "logging/logger.h"
+#ifdef TRNG_SAMPLE_EXPORT
+#include "gui/sample_export.h"
+#endif
 
 #include <cstdlib>
 #include <malloc.h>
@@ -85,11 +88,20 @@ static void StopAllCollectors() {
 template <typename Collector>
 static void HarvestSource(Collector& collector) {
     const Entropy::EntropyDataVector data = collector.Harvest();
-    if (!data.empty())
-        g_state.entropyPool.AddDataPoints(data);
+    if (data.empty())
+        return;
+#ifdef TRNG_SAMPLE_EXPORT
+    if (RecordSampleExportData(data))
+        return;
+#endif
+    g_state.entropyPool.AddDataPoints(data);
 }
 
 static void UpdateEntropyCollection() {
+#ifdef TRNG_SAMPLE_EXPORT
+    if (UpdateSampleExport())
+        return;
+#endif
     static bool wasCollecting = false;
     if (g_state.isCollecting && !wasCollecting)
         g_state.entropyPool.RestartSourceTracking();
@@ -189,6 +201,10 @@ static void RenderMainWindow(ImGuiIO& io) {
     RenderAboutModal();
 
     RenderErrorModal();
+
+#ifdef TRNG_SAMPLE_EXPORT
+    RenderSampleExportWindow();
+#endif
 
     RenderClosingModal();
 

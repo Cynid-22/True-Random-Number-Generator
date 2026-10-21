@@ -4,6 +4,25 @@ echo "========================================"
 echo "TRNG Build Script (MinGW)"
 echo "========================================"
 
+OUTPUT_EXE="build/TRNG.exe"
+SAMPLE_EXPORT_FLAGS=()
+SAMPLE_EXPORT_SOURCES=()
+
+for argument in "$@"; do
+    case "$argument" in
+        --sample-export)
+            OUTPUT_EXE="build/TRNG_samples.exe"
+            SAMPLE_EXPORT_FLAGS=(-DTRNG_SAMPLE_EXPORT)
+            SAMPLE_EXPORT_SOURCES=(src/entropy/sample_recorder.cpp src/gui/sample_export.cpp)
+            echo "Test build with Sample Export (not for release)"
+            ;;
+        *)
+            echo "ERROR: unknown option $argument (supported: --sample-export)"
+            exit 1
+            ;;
+    esac
+done
+
 if ! command -v g++ &> /dev/null; then
     echo "ERROR: g++ not found"
     exit 1
@@ -43,10 +62,11 @@ g++ -std=c++17 -O2 -s -mwindows \
     -D_WIN32_WINNT=0x0A00 \
     -DIMGUI_USE_WCHAR32 \
     -DIMGUI_IMPL_WIN32_DISABLE_GAMEPAD \
+    "${SAMPLE_EXPORT_FLAGS[@]}" \
     -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
-    -o build/TRNG.exe \
+    -o "$OUTPUT_EXE" \
     src/main.cpp \
     src/gui/gui.cpp \
     src/gui/widgets.cpp \
@@ -89,6 +109,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/crypto/chacha20.cpp \
     src/crypto/aes.cpp \
     src/crypto/quad_layer.cpp \
+    "${SAMPLE_EXPORT_SOURCES[@]}" \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \
     external/imgui/imgui_tables.cpp \
@@ -102,7 +123,7 @@ g++ -std=c++17 -O2 -s -mwindows \
 if [ $? -eq 0 ]; then
     echo "========================================"
     echo "Build successful!"
-    echo "Executable: build/TRNG.exe"
+    echo "Executable: $OUTPUT_EXE"
     echo "========================================"
 else
     echo "========================================"
