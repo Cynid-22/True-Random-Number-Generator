@@ -322,6 +322,12 @@ GenerationResult GenerateOutput(
   result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
 
+  if (g_state.selfTestFailed) {
+    result.errorMessage = "Generating is turned off: the cryptographic "
+                          "self-test failed at launch.";
+    return result;
+  }
+
   const int format = settings.outputFormat;
   const bool isList = (format != FORMAT_ONE_TIME_PAD);
   const size_t quantity =

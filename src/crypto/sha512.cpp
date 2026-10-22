@@ -1,4 +1,5 @@
 #include "sha512.h"
+#include <algorithm>
 #include <cstring>
 #include <windows.h>
 
@@ -108,6 +109,15 @@ SHA512::Hash SHA512::Compute(const uint8_t* data, size_t length) {
         Compress(state, finalBlocks + i * BLOCK_SIZE);
     }
 
+    Hash hash = StateToHash(state);
+
+    SecureZeroMemory(state, sizeof(state));
+    SecureZeroMemory(finalBlocks, sizeof(finalBlocks));
+
+    return hash;
+}
+
+SHA512::Hash SHA512::StateToHash(const uint64_t state[8]) {
     Hash hash;
     for (int i = 0; i < 8; i++) {
         hash[i * 8 + 0] = (uint8_t)(state[i] >> 56);
@@ -119,10 +129,6 @@ SHA512::Hash SHA512::Compute(const uint8_t* data, size_t length) {
         hash[i * 8 + 6] = (uint8_t)(state[i] >> 8);
         hash[i * 8 + 7] = (uint8_t)(state[i]);
     }
-
-    SecureZeroMemory(state, sizeof(state));
-    SecureZeroMemory(finalBlocks, sizeof(finalBlocks));
-
     return hash;
 }
 
@@ -130,43 +136,105 @@ SHA512::Hash SHA512::Compute(const std::vector<uint8_t>& data) {
     return Compute(data.data(), data.size());
 }
 
-SHA512::Hash SHA512::HMAC(const uint8_t* key, size_t keyLength,
-                          const uint8_t* data, size_t dataLength) {
+SHA512::Hasher::Hasher() {
+    memcpy(m_state, INITIAL_STATE, sizeof(m_state));
+}
+
+SHA512::Hasher::~Hasher() {
+    SecureZeroMemory(m_state, sizeof(m_state));
+    SecureZeroMemory(m_buffer, sizeof(m_buffer));
+}
+
+void SHA512::Hasher::Update(const uint8_t* data, size_t length) {
+    if (length == 0)
+        return;
+    m_totalLength += length;
+
+    if (m_bufferLength > 0) {
+        const size_t copied = std::min(length, BLOCK_SIZE - m_bufferLength);
+        memcpy(m_buffer + m_bufferLength, data, copied);
+        m_bufferLength += copied;
+        data += copied;
+        length -= copied;
+        if (m_bufferLength < BLOCK_SIZE)
+            return;
+        Compress(m_state, m_buffer);
+        m_bufferLength = 0;
+    }
+
+    while (length >= BLOCK_SIZE) {
+        Compress(m_state, data);
+        data += BLOCK_SIZE;
+        length -= BLOCK_SIZE;
+    }
+
+    memcpy(m_buffer, data, length);
+    m_bufferLength = length;
+}
+
+SHA512::Hash SHA512::Hasher::Finish() {
+    const uint64_t bitLength = m_totalLength * 8;
+    m_buffer[m_bufferLength++] = 0x80;
+    if (m_bufferLength > BLOCK_SIZE - LENGTH_FIELD_SIZE) {
+        memset(m_buffer + m_bufferLength, 0, BLOCK_SIZE - m_bufferLength);
+        Compress(m_state, m_buffer);
+        m_bufferLength = 0;
+    }
+    memset(m_buffer + m_bufferLength, 0, BLOCK_SIZE - m_bufferLength);
+    for (int i = 0; i < 8; i++) {
+        m_buffer[BLOCK_SIZE - 1 - i] = (uint8_t)(bitLength >> (i * 8));
+    }
+    Compress(m_state, m_buffer);
+    return StateToHash(m_state);
+}
+
+SHA512::HMACKey::HMACKey(const uint8_t* key, size_t keyLength) {
     uint8_t keyBlock[BLOCK_SIZE];
     memset(keyBlock, 0, sizeof(keyBlock));
 
     if (keyLength > BLOCK_SIZE) {
-        Hash keyHash = Compute(key, keyLength);
+        Hash keyHash = SHA512::Compute(key, keyLength);
         memcpy(keyBlock, keyHash.data(), HASH_SIZE);
-    } else {
+        SecureZeroMemory(keyHash.data(), keyHash.size());
+    } else if (keyLength > 0) {
         memcpy(keyBlock, key, keyLength);
     }
 
-    uint8_t innerPad[BLOCK_SIZE];
-    uint8_t outerPad[BLOCK_SIZE];
+    uint8_t pad[BLOCK_SIZE] = {};
     for (size_t i = 0; i < BLOCK_SIZE; i++) {
-        innerPad[i] = keyBlock[i] ^ 0x36;
-        outerPad[i] = keyBlock[i] ^ 0x5c;
+        pad[i] = keyBlock[i] ^ HMAC_INNER_PAD;
     }
-
-    std::vector<uint8_t> innerInput(BLOCK_SIZE + dataLength);
-    memcpy(innerInput.data(), innerPad, BLOCK_SIZE);
-    memcpy(innerInput.data() + BLOCK_SIZE, data, dataLength);
-    Hash innerHash = Compute(innerInput.data(), innerInput.size());
-
-    std::vector<uint8_t> outerInput(BLOCK_SIZE + HASH_SIZE);
-    memcpy(outerInput.data(), outerPad, BLOCK_SIZE);
-    memcpy(outerInput.data() + BLOCK_SIZE, innerHash.data(), HASH_SIZE);
-    Hash result = Compute(outerInput.data(), outerInput.size());
+    m_innerStart.Update(pad, BLOCK_SIZE);
+    for (size_t i = 0; i < BLOCK_SIZE; i++) {
+        pad[i] = keyBlock[i] ^ HMAC_OUTER_PAD;
+    }
+    m_outerStart.Update(pad, BLOCK_SIZE);
 
     SecureZeroMemory(keyBlock, sizeof(keyBlock));
-    SecureZeroMemory(innerPad, sizeof(innerPad));
-    SecureZeroMemory(outerPad, sizeof(outerPad));
-    SecureZeroMemory(innerInput.data(), innerInput.size());
-    SecureZeroMemory(outerInput.data(), outerInput.size());
-    SecureZeroMemory(innerHash.data(), innerHash.size());
+    SecureZeroMemory(pad, sizeof(pad));
+}
 
-    return result;
+SHA512::Hasher SHA512::HMACKey::BeginMessage() const {
+    return m_innerStart;
+}
+
+SHA512::Hash SHA512::HMACKey::FinishMessage(Hasher& message) const {
+    Hash innerHash = message.Finish();
+    Hasher outer = m_outerStart;
+    outer.Update(innerHash.data(), innerHash.size());
+    SecureZeroMemory(innerHash.data(), innerHash.size());
+    return outer.Finish();
+}
+
+SHA512::Hash SHA512::HMACKey::Mac(const uint8_t* data, size_t length) const {
+    Hasher message = BeginMessage();
+    message.Update(data, length);
+    return FinishMessage(message);
+}
+
+SHA512::Hash SHA512::HMAC(const uint8_t* key, size_t keyLength,
+                          const uint8_t* data, size_t dataLength) {
+    return HMACKey(key, keyLength).Mac(data, dataLength);
 }
 
 SHA512::Hash SHA512::HMAC(const std::vector<uint8_t>& key,

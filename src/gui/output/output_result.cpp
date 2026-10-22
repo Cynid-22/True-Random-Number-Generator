@@ -155,7 +155,8 @@ static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
 }
 
 static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) {
-  if (!hasMinimumEntropy)
+  const bool canGenerate = hasMinimumEntropy && !g_state.selfTestFailed;
+  if (!canGenerate)
     ImGui::BeginDisabled();
 
   if (ImGui::Button("Generate", ImVec2(100, 0))) {
@@ -166,8 +167,12 @@ static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) 
                                        : CSPRNG::GenerationMode::Expanded);
     }
   }
+  if (g_state.selfTestFailed &&
+      ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    ImGui::SetTooltip("Generating is turned off: the cryptographic self-test "
+                      "failed at launch.");
 
-  if (!hasMinimumEntropy)
+  if (!canGenerate)
     ImGui::EndDisabled();
 }
 

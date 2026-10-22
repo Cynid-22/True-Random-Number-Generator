@@ -125,7 +125,7 @@ static bool ShowSaveFileDialog(OPENFILENAMEW &dialog, wchar_t *filePath,
   return GetSaveFileNameW(&dialog);
 }
 
-static void ShowErrorModal(const char *heading, const std::string &message) {
+void ShowErrorModal(const char *heading, const std::string &message) {
   g_state.errorModalHeading = heading;
   g_state.errorModalText = message;
   g_state.showErrorModal = true;

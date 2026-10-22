@@ -86,6 +86,8 @@ struct AppState : OutputSettings {
 
     bool showAboutModal = false;
 
+    bool selfTestFailed = false;
+
     std::string exportStatusText;
     std::string errorModalHeading;
     std::string errorModalText;

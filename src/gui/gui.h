@@ -50,6 +50,7 @@ void RenderOutputSection();
 
 void RenderAboutModal();
 
+void ShowErrorModal(const char *heading, const std::string &message);
 void RenderErrorModal();
 
 void CopySecretText(const char *text, size_t length);

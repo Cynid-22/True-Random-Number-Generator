@@ -3,6 +3,7 @@
 #include "imgui_impl_dx11.h"
 
 #include "core/app_state.h"
+#include "crypto/self_test.h"
 #include "gui/gui.h"
 #include "gui/output/generation_task.h"
 #include "logic/word_lists.h"
@@ -254,6 +255,21 @@ static void WipeForSessionEnd() {
     Platform::ClearSecretClipboardNow();
 }
 
+static void RunCryptoSelfTests() {
+    const char* failedTest = Crypto::FindFailingSelfTest();
+    if (!failedTest) {
+        Logger::Log(Logger::Level::INFO, "Main", "Cryptographic self-tests passed");
+        return;
+    }
+    g_state.selfTestFailed = true;
+    Logger::Log(Logger::Level::ERR, "Main", "Cryptographic self-test failed: %s", failedTest);
+    ShowErrorModal("Self-test failed",
+                   std::string("The cryptographic self-test \"") + failedTest +
+                       "\" gave a wrong result.\nThis build of TRNG may be damaged "
+                       "or miscompiled, so generating is turned off.\n\nReinstall "
+                       "TRNG or build it again from the source.");
+}
+
 static void* AllocateImGuiMemory(size_t size, void*) {
     return malloc(size);
 }
@@ -294,6 +310,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
                              WORKING_SET_MAXIMUM_BYTES);
     Logger::Init();
     Logger::Log(Logger::Level::INFO, "Main", "Application starting...");
+    RunCryptoSelfTests();
 
     SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
