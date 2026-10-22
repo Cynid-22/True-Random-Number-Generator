@@ -16,6 +16,16 @@ The application supports two security modes:
 
 Each generation uses up the available entropy. The data it used is kept only as a hash, which is mixed into later outputs but doesn't count toward the next ENTROPY-BACKED output or One-Time Pad (see [Entropy Accounting](#entropy-accounting-and-carry-over)).
 
+### Screenshots
+
+**Input tab:** collecting from all five sources: the source list with each source's status and description, the microphone level, the Clock Drift and CPU Jitter sample rates, the keystroke preview and the mouse path.
+
+![Input tab while collecting](images/input-screen.png)
+
+**Output tab:** 100 UUID v4 identifiers generated in ENTROPY-BACKED mode, with the entropy they required.
+
+![Output tab with generated UUIDs](images/output-screen.png)
+
 ---
 
 ## Entropy Sources
@@ -24,7 +34,7 @@ Each generation uses up the available entropy. The data it used is kept only as 
 
 | Source | Method | Data Collected |
 |--------|--------|----------------|
-| **Microphone** | Thermal Noise | Least Significant Bit (LSB) of each audio sample of the first channel, at the microphone's own bit depth (the device format Windows reports, up to 24 bits), from Windows' raw stream with sound enhancements skipped when the driver supports it |
+| **Microphone** | Electronic Noise | Least Significant Bit (LSB) of each audio sample of the first channel, at the microphone's own bit depth (the device format Windows reports, up to 24 bits), from Windows' raw stream with sound enhancements skipped when the driver supports it |
 | **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds, read through Windows Raw Input on a dedicated thread, so each time is taken the moment the key arrives; Windows only passes keys to TRNG while its window is in front; auto-repeat and keys sent by software are ignored |
 | **Mouse** | Movement Tracking | The sensor's raw movement counts through Windows Raw Input, before pointer speed and acceleration (for a precision touchpad, the movement Windows derives from the finger), summed into at most one sample every 7 ms while the pointer is over the Mouse Path box and TRNG is in front; movement sent by software is ignored, and touchpad movement counts only while the touchpad reports a finger on it |
 
@@ -32,8 +42,10 @@ Each generation uses up the available entropy. The data it used is kept only as 
 
 | Source | Method | Data Collected |
 |--------|--------|----------------|
-| **Clock Drift** | Hardware Entropy | CPU cycle count delta during fixed OS timer windows; variations caused by thermal noise |
-| **CPU Jitter** | Race Condition | Counter value from parallel thread races; influenced by OS scheduling and cache contention |
+| **Clock Drift** | Timer Wake-up Latency | CPU cycle counter ticks that pass while the thread waits for a 1 ms Windows timer; the counter runs at a fixed rate, so the count varies with how late the wake-up comes (timer hardware, interrupts, scheduling, CPU power states) |
+| **CPU Jitter** | Thread Timing | How far a counter, incremented nonstop by one thread, moves between wake-ups of a second thread that samples it about every millisecond; varies with the wake-up time and with how fast the counting thread runs in between (interrupts, other programs, clock speed changes) |
+
+What exactly is unpredictable in each source, what an attacker could observe or influence, and why each credit cap is safe: [Stochastic Models of the Entropy Sources](docs/stochastic_models.md).
 
 ### Entropy Estimate
 
@@ -70,6 +82,7 @@ Each source's raw values (recorded with the [Sample Export test build](#sample-e
 - The microphone discards its first 500 ms after each start: without it, the restart test showed its LSBs correlated for about 175 ms while the input settles.
 - Keystroke and mouse are human input: their recordings are far below the standard's 1,000,000 samples, and the restart test does not apply. Their credit is kept well below the measurement for that reason.
 - These measurements are for this machine. Other hardware, virtual machines and other microphones can measure differently.
+- The model behind each source and the reasoning for each cap are in [docs/stochastic_models.md](docs/stochastic_models.md).
 
 ---
 
@@ -240,6 +253,9 @@ TRNG/
 │       ├── dx11.cpp          # DirectX implementation
 │       ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
 │       └── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+├── docs/
+│   └── stochastic_models.md    # What is unpredictable in each source, attacks, credit caps
+├── images/                     # README screenshots
 ├── assets/
 │   ├── NordPass_wordlist.txt   # Passphrase word lists, embedded in the exe
 │   ├── eff_large_wordlist.txt
@@ -295,6 +311,7 @@ Both modes run the same pipeline and are computationally secure. The last layer 
 | Encryption| FIPS 197 | NIST |
 | Stream | RFC 8439 | IETF |
 | KDF | RFC 5869 | IETF |
+| Entropy sources | SP 800-90B (measurement, health tests), AIS 31 (stochastic models: [docs/stochastic_models.md](docs/stochastic_models.md)) | NIST, BSI |
 
 ## Statistical Validation Results
 
@@ -444,8 +461,8 @@ Across every single one of the 160 intensive statistics, the CSPRNG produced pra
 
 ### Timestamp Strategy
 
-All entropy events are timestamped with 64-bit nanosecond precision:
-- Full timestamp for chronological sorting
+All entropy events are timestamped in 64-bit nanoseconds from a steady clock, which only moves forward and is not changed by clock adjustments or time sync (usually in 100 ns steps):
+- Full timestamp for chronological sorting, and for the keystroke timings and the mouse's 7 ms window
 - The timestamp is hashed into the seed with each value, but the entropy estimate never credits it
 
 ---

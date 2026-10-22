@@ -67,13 +67,17 @@ static const char *STANDARD_STREAM_LABEL =
     "standard (raw mode unavailable, Windows sound enhancements may apply)";
 
 static const char *SYSTEM_SOURCES_INTRO =
-    "These sources exploit hardware imperfections and OS scheduling chaos. "
-    "They run in parallel to intentionally create CPU 'traffic jams' for "
-    "maximum entropy.";
+    "These sources measure timing inside the computer: how late Windows wakes "
+    "a waiting thread, and how much work a busy thread gets done in between. "
+    "Both run at the same time and share the CPU with every other program, so "
+    "interrupts, other programs and the CPU's power saving all shift their "
+    "timing.";
 
-static const char *PARALLEL_EXECUTION_EXPLANATION =
-    "Sequential execution is predictable. Parallel execution forces the CPU "
-    "to context-switch, causing cache contention and thermal variations.";
+static const char *SYSTEM_SOURCES_CREDIT_NOTE =
+    "How much the timing varies depends on the CPU, Windows and what else is "
+    "running, so each sample is credited well below what was measured on a "
+    "real computer. In a virtual machine the host controls this timing, so "
+    "neither source earns credit there.";
 
 static void RenderExcludedStatus() {
   RenderSourceBadge(UiColor::DimText, STATUS_LABEL_EXCLUDED,
@@ -254,8 +258,7 @@ static void RenderClockDriftStatus() {
         UiColor::StatusReady, STATUS_LABEL_READY,
         "Clock Drift collection is enabled and ready.\n"
         "The collector will start automatically when collection begins.\n"
-        "This source uses CPU cycle counter measurements to extract hardware "
-        "entropy.");
+        "This source times Windows' 1 ms timer with the CPU's cycle counter.");
   }
 }
 
@@ -272,18 +275,20 @@ static void RenderCpuJitterStatus() {
       return;
     RenderSourceBadge(
         UiColor::StatusActive, STATUS_LABEL_ACTIVE,
-        "CPU Jitter race condition is actively running.\n"
+        "CPU Jitter threads are actively running.\n"
         "Credited: %.1f bits (up to %.0f bit per sample)\n"
-        "Thread race is generating entropy from OS scheduling jitter.\n"
+        "The counting thread's progress between wake-ups varies with "
+        "interrupts and scheduling.\n"
         "Source is working correctly.",
         CreditedBits(source), MaxCreditBits(source));
   } else {
     RenderSourceBadge(
         UiColor::StatusReady, STATUS_LABEL_READY,
         "CPU Jitter collection is enabled and ready.\n"
-        "The race condition threads will start automatically when collection "
-        "begins.\n"
-        "This source exploits OS scheduling unpredictability for entropy.");
+        "The counting and sampling threads will start automatically when "
+        "collection begins.\n"
+        "This source measures how far a busy thread counts between timer "
+        "wake-ups.");
   }
 }
 
@@ -303,21 +308,28 @@ struct SourceRow {
 static const SourceRow SOURCE_ROWS[] = {
     {SourceGroup::UserInput, Entropy::EntropySource::Microphone,
      "Microphone Noise",
-     "Microphone Noise (Thermal Entropy)", "Microphone",
+     "Microphone Noise (Hardware Entropy)", "Microphone",
      &AppState::microphoneEnabled,
      "Captures the Least Significant Bit (LSB) of audio samples, at the "
-     "microphone's own bit depth. This bit is "
-     "determined by thermal noise (electrons bouncing due to heat), not "
-     "actual sound. Each block of 64 LSBs is credited at most 8 bits, less "
-     "when its bits are unbalanced or too regular.",
+     "microphone's own bit depth. In a quiet room this bit is set mostly by "
+     "electronic noise in the microphone, its amplifier and the converter. "
+     "That noise is normally larger than one step of the converter, so "
+     "the bit changes unpredictably from sample to sample. Sound moves the "
+     "signal too, but the noise stays on top of it; only an input loud "
+     "enough to clip removes it, which the credit rule and health tests "
+     "catch. Each block of 64 LSBs is credited at most 8 bits, less when "
+     "its bits are unbalanced or too regular.",
      RenderMicrophoneStatus},
     {SourceGroup::UserInput, Entropy::EntropySource::Keystroke,
      "Keystroke Dynamics",
      "Keystroke Dynamics (User Entropy)", "Keystroke",
      &AppState::keystrokeEnabled,
-     "Captures your unique typing rhythm: Flight Time (gap between keys) and "
-     "Dwell Time (how long each key is held). These timings are measured in "
-     "nanoseconds and are unique to each person. Keys are read through "
+     "Captures your typing rhythm: Flight Time (gap between keys) and Dwell "
+     "Time (how long each key is held), measured in nanoseconds. Nobody "
+     "types with the same timing to the millisecond, and each key also "
+     "reaches TRNG after a delay that changes by microseconds from key to "
+     "key. The credit rests on that small delay, which watching or recording "
+     "the typing does not reveal. Keys are read through "
      "Windows Raw Input on a dedicated thread, so each time is taken the "
      "moment the key arrives. Windows only passes keys to TRNG while its "
      "window is in front; auto-repeat from a held key and keys sent by "
@@ -338,20 +350,28 @@ static const SourceRow SOURCE_ROWS[] = {
      "it.",
      RenderMouseStatus},
     {SourceGroup::SystemInput, Entropy::EntropySource::ClockDrift,
-     "Clock Drift", "Clock Drift (Hardware Entropy)",
+     "Clock Drift", "Clock Drift (Timer Entropy)",
      "Clock Drift", &AppState::clockDriftEnabled,
-     "Measures the delta in CPU cycle counts during a fixed System Time "
-     "window. A 3GHz CPU should count ~3,000,000 cycles per ms, but due to "
-     "heat/voltage, the actual count varies (e.g., 3,000,402 or 2,999,881). "
-     "Those fluctuating digits are entropy.",
+     "Asks Windows to wake this thread after 1 ms and counts how many ticks "
+     "of the CPU's cycle counter actually passed. On modern CPUs this "
+     "counter ticks at a fixed rate, so heat and voltage do not change it. "
+     "The count varies because the wake-up always comes a little late, by "
+     "an amount set by the timer hardware, other interrupts, the scheduler "
+     "and the CPU waking from power saving. The lowest digits of the count "
+     "are the entropy. The name comes from comparing two clocks: Windows' "
+     "timer and the CPU's counter.",
      RenderClockDriftStatus},
     {SourceGroup::SystemInput, Entropy::EntropySource::CpuJitter, "CPU Jitter",
-     "CPU Jitter (System Entropy)",
+     "CPU Jitter (Scheduling Entropy)",
      "CPU Jitter", &AppState::cpuJitterEnabled,
-     "Creates a 'race condition': Thread A counts up as fast as it can, and "
-     "Thread B wakes about every 1.5 ms and reads how far it got. The count "
-     "depends on OS scheduling and background tasks (WiFi, updates), making "
-     "it unpredictable. Thread A keeps one CPU core busy while collecting.",
+     "Two threads run at once. One adds to a counter as fast as it can; the "
+     "other wakes about every millisecond and records how far the counter "
+     "moved since its last look. Neither thread pauses the other. The amount "
+     "depends on when the second thread actually wakes and on how fast the "
+     "first one ran in between: interrupts, other programs sharing its "
+     "core, clock speed changes and the counter's memory moving between the "
+     "two cores all change it. The counting thread keeps one CPU core busy "
+     "while collecting.",
      RenderCpuJitterStatus},
 };
 static constexpr int SOURCE_ROW_COUNT = IM_ARRAYSIZE(SOURCE_ROWS);
@@ -479,10 +499,10 @@ static void RenderSelectedSourceDetails() {
 
   if (row.group == SourceGroup::SystemInput) {
     ImGui::Spacing();
-    ImGui::SeparatorText("Why Parallel Execution?");
+    ImGui::SeparatorText("About the System Sources");
     ImGui::TextWrapped("%s", SYSTEM_SOURCES_INTRO);
     ImGui::Spacing();
-    ImGui::TextWrapped("%s", PARALLEL_EXECUTION_EXPLANATION);
+    ImGui::TextWrapped("%s", SYSTEM_SOURCES_CREDIT_NOTE);
   }
 }
 

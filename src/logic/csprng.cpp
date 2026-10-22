@@ -3,6 +3,7 @@
 #include "../crypto/quad_layer.h"
 #include "../crypto/sha512.h"
 #include "../logging/logger.h"
+#include <chrono>
 #include <sstream>
 #include <string>
 #include <windows.h>
@@ -43,6 +44,12 @@ Entropy::CarryOver DeriveCarryOver(const Crypto::SecureBytes &seedMaterial) {
   return carryOver;
 }
 
+static int64_t WallClockNanoseconds() {
+  using namespace std::chrono;
+  return duration_cast<nanoseconds>(system_clock::now().time_since_epoch())
+      .count();
+}
+
 static std::string BuildLayerOneInfo(const OutputSettings &settings,
                                      size_t byteCount, uint64_t generationNumber,
                                      uint32_t attempt) {
@@ -75,7 +82,7 @@ static std::string BuildLayerOneInfo(const OutputSettings &settings,
   }
   if (settings.outputFormat != FORMAT_ONE_TIME_PAD)
     info << "|Q:" << settings.outputQuantity;
-  info << "|T:" << Entropy::GetNanosecondTimestamp();
+  info << "|T:" << WallClockNanoseconds();
   info << "|G:" << generationNumber;
   if (attempt > 0)
     info << "|R:" << attempt;

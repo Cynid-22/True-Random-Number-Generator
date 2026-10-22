@@ -21,7 +21,7 @@ constexpr size_t ENTROPY_SOURCE_COUNT = static_cast<size_t>(EntropySource::Mouse
 inline uint64_t GetNanosecondTimestamp() {
     using namespace std::chrono;
     return duration_cast<nanoseconds>(
-        high_resolution_clock::now().time_since_epoch()
+        steady_clock::now().time_since_epoch()
     ).count();
 }
 
