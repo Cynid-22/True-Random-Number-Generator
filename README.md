@@ -2,7 +2,7 @@
 
 A desktop application for generating cryptographically secure random numbers using multiple hardware entropy sources. Built with C++ and Dear ImGui for Windows.
 
-**Platinum-Standard Validation**: Passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand**, and **TestU01**, with ~7.36 - 7.53/8.0 min-entropy under **NIST SP 800-90B**. [Scroll down for detailed statistical results](#statistical-validation-results).
+**Measured sources**: every entropy source's credit sits below its min-entropy as measured with **NIST SP 800-90B** on the raw source data ([Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b)). **Output tests**: the generator's output passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand** and **TestU01** ([Statistical Validation Results](#statistical-validation-results)).
 
 ---
 
@@ -25,8 +25,8 @@ Each generation uses up the available entropy. The data it used is kept only as 
 | Source | Method | Data Collected |
 |--------|--------|----------------|
 | **Microphone** | Thermal Noise | Least Significant Bit (LSB) of each audio sample of the first channel, at the microphone's own bit depth (the device format Windows reports, up to 24 bits), from Windows' raw stream with sound enhancements skipped when the driver supports it |
-| **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds, only while the TRNG window is in front; auto-repeat and keys sent by software are ignored |
-| **Mouse** | Movement Tracking | X/Y coordinates with nanosecond timestamps, filtered for sensor drift; movement sent by software is ignored |
+| **Keystroke** | Timing Analysis | Flight Time (gap between keys) and Dwell Time (key hold duration) in nanoseconds, read through Windows Raw Input on a dedicated thread, so each time is taken the moment the key arrives; Windows only passes keys to TRNG while its window is in front; auto-repeat and keys sent by software are ignored |
+| **Mouse** | Movement Tracking | The sensor's raw movement counts through Windows Raw Input, before pointer speed and acceleration (for a precision touchpad, the movement Windows derives from the finger), summed into at most one sample every 7 ms while the pointer is over the Mouse Path box and TRNG is in front; movement sent by software is ignored, and touchpad movement counts only while the touchpad reports a finger on it |
 
 ### System Input Sources
 
@@ -43,11 +43,29 @@ The entropy bar credits each source conservatively, per sample:
 |--------|------------------|----------|
 | **Microphone** | 8 bits per 64 LSBs | How balanced the ones and zeros are, and how balanced the bit changes are |
 | **Keystroke** | 2 bits per flight or dwell time | The smallest of the time, its change from the last one, and the change of that change |
-| **Mouse** | 1 bit per recorded movement | The smallest of the movement, its change and the change of that change; absolute coordinates are not credited, so a steady straight line counts for nothing |
+| **Mouse** | 1 bit per recorded movement (at most one every 7 ms) | The smallest of the movement, its change and the change of that change; the position itself is not credited, so a steady straight line counts for nothing |
 | **Clock Drift** | 1 bit per sample | The smallest of the change in the measured cycle count from one sample to the next, and the change of that change |
 | **CPU Jitter** | 1 bit per sample | The smallest of the count, its change and the change of that change |
 
-A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window). A source that fails gets no more credit and shows **Failed** until collection is stopped and started again; its data is still hashed into the seed. Timestamps are hashed into the seed but never credited.
+A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed** until collection is stopped and started again; its data is still hashed into the seed. Timestamps are hashed into the seed but never credited.
+
+### Measured Source Entropy (NIST SP 800-90B)
+
+Each source's raw values (recorded with the [Sample Export test build](#sample-export-test-build), before any hashing) were measured with NIST's [SP800-90B_EntropyAssessment](https://github.com/usnistgov/SP800-90B_EntropyAssessment) tool: `ea_non_iid -i -a` for the min-entropy, and `ea_restart` (1,000 restarts × 1,000 symbols) for the sources that run by themselves. Measured on 2026-10-21 on a Windows 11 laptop, on bare metal.
+
+| Source | Samples | Min-entropy (H_I) | Credit needs | Restart test (validated H) | Credit |
+|---|---|---|---|---|---|
+| Microphone (built-in, raw stream, 16-bit) | 32,163,328 LSBs | 0.875 per LSB | 0.125 | Passed (0.844) | Holds, 6.8× margin |
+| Clock Drift | 1,106,127 | 4.733 per 8-bit symbol | 1 | Passed (4.733) | Holds, 4.7× margin |
+| CPU Jitter | 1,105,336 | 7.188 per 8-bit symbol | 1 | Passed (7.188) | Holds, 7.2× margin |
+| Keystroke | 3,883 timings | 3.278 per 8-bit symbol | 2 | Not applicable | Holds, 1.6× margin |
+| Mouse (1,000 Hz mouse) | 8,902 | 1.750 per 8-bit symbol | 1 | Not applicable | Holds, 1.75× margin |
+| Mouse (precision touchpad) | 14,291 | 1.657 per 8-bit symbol | 1 | Not applicable | Holds, 1.66× margin |
+
+- Every credit cap is below the measured min-entropy, so the caps were kept as they are; none is ever set above its measurement.
+- The microphone discards its first 500 ms after each start: without it, the restart test showed its LSBs correlated for about 175 ms while the input settles.
+- Keystroke and mouse are human input: their recordings are far below the standard's 1,000,000 samples, and the restart test does not apply. Their credit is kept well below the measurement for that reason.
+- These measurements are for this machine. Other hardware, virtual machines and other microphones can measure differently.
 
 ---
 
@@ -180,7 +198,7 @@ The files hold real entropy samples: use them only for testing and delete them a
 | Clock Drift | Low 8 bits of the cycle count | 8 | 8 | 1 |
 | CPU Jitter | Low 8 bits of the counter | 8 | 8 | 1 |
 
-A source's credit is justified when the min-entropy NIST measures (`ea_non_iid -i -a <file> <bits per symbol>`) is at least the "Current credit needs" value.
+A source's credit is justified when the min-entropy NIST measures (`ea_non_iid -i -a <file> <bits per symbol>`) is at least the "Current credit needs" value. The results for the current build are in [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
 
 ---
 
@@ -275,7 +293,7 @@ Both modes run the same pipeline and are computationally secure. The last layer 
 
 ## Statistical Validation Results
 
-All tests run against the Quad-Layer CSPRNG pipeline output generated by the CLI tool `trng_gen.exe`.
+All tests run against the Quad-Layer CSPRNG pipeline output generated by the CLI tool `trng_gen.exe`. They show the output has no detectable statistical bias; they say nothing about how much entropy the sources collect, since a CSPRNG's output passes them whatever its seed. For the sources, see [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
 
 ### Summary
 
@@ -441,7 +459,7 @@ All entropy events are timestamped with 64-bit nanosecond precision:
 
 - [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI (auto-downloaded)
 - DirectX 11 - Windows graphics API
-- Windows API - Audio capture, input hooks, high-resolution timers
+- Windows API - Audio capture, Raw Input, high-resolution timers
 
 ---
 

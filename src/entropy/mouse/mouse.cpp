@@ -1,26 +1,37 @@
 #include "mouse.h"
 #include "../../logging/logger.h"
-#include <cmath>
 #include <algorithm>
-#include <windows.h>
+#include <cstdint>
+#include <hidusage.h>
 #include "../../crypto/secure_mem.h"
 
 namespace Entropy {
 
-MouseCollector* MouseCollector::s_instance = nullptr;
+namespace {
+
+// Just under a standard 125 Hz mouse's 8 ms, so a faster mouse can't earn more credit
+constexpr uint64_t MINIMUM_SAMPLE_INTERVAL_NS = 7000000ULL;
+
+constexpr USHORT TOUCH_PAD_USAGE = 0x05;
+// A precision touchpad reports at 125 Hz or more while touched
+constexpr uint64_t TOUCHPAD_TOUCH_TIMEOUT_NS = 50000000ULL;
+
+int16_t ClampToSixteenBits(int64_t count) {
+    return static_cast<int16_t>(std::clamp<int64_t>(count, INT16_MIN, INT16_MAX));
+}
+
+uint64_t PackedField(uint16_t field, int shift) {
+    return static_cast<uint64_t>(field) << shift;
+}
+
+}
 
 MouseCollector::MouseCollector() {
-    s_instance = this;
-    m_localBuffer.reserve(BATCH_SIZE);
-    m_lastFlushTime = 0;
 }
 
 MouseCollector::~MouseCollector() {
     Stop();
     SecureClearBuffer();
-    if (s_instance == this) {
-        s_instance = nullptr;
-    }
 }
 
 void MouseCollector::Start() {
@@ -28,21 +39,27 @@ void MouseCollector::Start() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Mouse", "Installing mouse hook...");
+    m_canvasHovered = false;
+    m_pendingCountsX = 0;
+    m_pendingCountsY = 0;
+    m_sensorPositionX = 0;
+    m_sensorPositionY = 0;
+    m_lastSampleTime = 0;
+    m_lastTouchpadReportTime = 0;
 
-    m_hook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
+    Logger::Log(Logger::Level::INFO, "Mouse", "Starting Raw Input mouse thread...");
 
-    if (!m_hook) {
-        Logger::Log(Logger::Level::ERR, "Mouse", "Failed to install mouse hook! Error: %lu", GetLastError());
+    const bool started = m_inputThread.Start(
+        {{HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MOUSE},
+         {HID_USAGE_PAGE_DIGITIZER, TOUCH_PAD_USAGE}},
+        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessInput(input, timestamp); },
+        "Mouse");
+    if (!started) {
         m_running = false;
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Mouse", "Mouse hook installed successfully.");
-
-    m_lastX = -1;
-    m_lastY = -1;
-    m_canvasHovered = false;
+    Logger::Log(Logger::Level::INFO, "Mouse", "Raw Input mouse thread started.");
 }
 
 void MouseCollector::Stop() {
@@ -50,13 +67,8 @@ void MouseCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Mouse", "Removing mouse hook...");
-    if (m_hook) {
-        UnhookWindowsHookEx(m_hook);
-        m_hook = nullptr;
-    }
-
-    FlushLocalBuffer();
+    Logger::Log(Logger::Level::INFO, "Mouse", "Stopping Raw Input mouse thread...");
+    m_inputThread.Stop();
 
     Logger::Log(Logger::Level::INFO, "Mouse", "Collection stopped.");
 
@@ -71,78 +83,60 @@ void MouseCollector::SetCanvasHovered(bool hovered) {
     m_canvasHovered.store(hovered);
 }
 
-void MouseCollector::FlushLocalBuffer() {
-    if (!m_localBuffer.empty()) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_buffer.insert(m_buffer.end(), m_localBuffer.begin(), m_localBuffer.end());
-        Crypto::SecureClearVector(m_localBuffer);
+void MouseCollector::ProcessInput(const RAWINPUT& input, uint64_t timestamp) {
+    if (input.header.dwType == RIM_TYPEMOUSE) {
+        ProcessMovement(input, timestamp);
+    } else if (input.header.dwType == RIM_TYPEHID && input.header.hDevice != nullptr) {
+        m_lastTouchpadReportTime = timestamp;
     }
 }
 
-LRESULT CALLBACK MouseCollector::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION && s_instance && s_instance->IsRunning()) {
-        MSLLHOOKSTRUCT* mouseEvent = (MSLLHOOKSTRUCT*)lParam;
-        if (wParam == WM_MOUSEMOVE && !(mouseEvent->flags & LLMHF_INJECTED)) {
-            uint64_t now = GetNanosecondTimestamp();
-            s_instance->ProcessMouseMove(mouseEvent->pt, now);
-        }
-    }
-    return CallNextHookEx(NULL, nCode, wParam, lParam);
+bool MouseCollector::IsFromPhysicalDevice(const RAWINPUTHEADER& header, uint64_t timestamp) const {
+    // A precision touchpad's movement has no device handle, like movement sent by software
+    const bool touchpadIsTouched = timestamp - m_lastTouchpadReportTime < TOUCHPAD_TOUCH_TIMEOUT_NS;
+    return header.hDevice != nullptr || touchpadIsTouched;
 }
 
-void MouseCollector::ProcessMouseMove(POINT position, uint64_t timestamp) {
+void MouseCollector::ProcessMovement(const RAWINPUT& input, uint64_t timestamp) {
+    const RAWMOUSE& mouse = input.data.mouse;
+    const bool isRelativeMovement = !(mouse.usFlags & MOUSE_MOVE_ABSOLUTE) &&
+                                    (mouse.lLastX != 0 || mouse.lLastY != 0);
+    if (!isRelativeMovement || !IsFromPhysicalDevice(input.header, timestamp)) {
+        return;
+    }
+
     if (!m_canvasHovered.load(std::memory_order_relaxed)) {
+        m_pendingCountsX = 0;
+        m_pendingCountsY = 0;
         return;
     }
 
-    if (m_lastX == -1 || m_lastY == -1) {
-        m_lastX = position.x;
-        m_lastY = position.y;
-        return;
+    m_pendingCountsX += mouse.lLastX;
+    m_pendingCountsY += mouse.lLastY;
+    if (timestamp - m_lastSampleTime >= MINIMUM_SAMPLE_INTERVAL_NS) {
+        RecordMovement(timestamp);
     }
+}
 
-    int dx = std::abs((int)position.x - m_lastX);
-    int dy = std::abs((int)position.y - m_lastY);
+void MouseCollector::RecordMovement(uint64_t timestamp) {
+    const int16_t dx = ClampToSixteenBits(m_pendingCountsX);
+    const int16_t dy = ClampToSixteenBits(m_pendingCountsY);
+    m_sensorPositionX = static_cast<uint16_t>(m_sensorPositionX + dx);
+    m_sensorPositionY = static_cast<uint16_t>(m_sensorPositionY + dy);
+    m_pendingCountsX = 0;
+    m_pendingCountsY = 0;
+    m_lastSampleTime = timestamp;
 
-    if (dx < 2 && dy < 2) {
-        return;
-    }
+    EntropyDataPoint dataPoint;
+    dataPoint.timestamp = timestamp;
+    dataPoint.value = PackedField(m_sensorPositionX, PACKED_X_SHIFT) |
+                      PackedField(m_sensorPositionY, PACKED_Y_SHIFT) |
+                      PackedField(static_cast<uint16_t>(dx), PACKED_DX_SHIFT) |
+                      static_cast<uint16_t>(dy);
+    dataPoint.source = EntropySource::Mouse;
 
-    uint64_t packedValue = (((uint64_t)position.x & PACKED_FIELD_MASK) << PACKED_X_SHIFT) |
-                           (((uint64_t)position.y & PACKED_FIELD_MASK) << PACKED_Y_SHIFT) |
-                           (((uint64_t)dx & PACKED_FIELD_MASK) << PACKED_DX_SHIFT) |
-                           ((uint64_t)dy & PACKED_FIELD_MASK);
-
-    {
-        EntropyDataPoint dataPoint;
-        dataPoint.timestamp = timestamp;
-        dataPoint.value = packedValue;
-        dataPoint.source = EntropySource::Mouse;
-
-        m_localBuffer.push_back(dataPoint);
-
-        bool shouldFlush = false;
-        uint64_t now = GetNanosecondTimestamp();
-        if (m_localBuffer.size() >= BATCH_SIZE) {
-            shouldFlush = true;
-        } else {
-            uint64_t lastFlush = m_lastFlushTime.load(std::memory_order_relaxed);
-            if (now > lastFlush + 15000000ULL) {
-                shouldFlush = true;
-            }
-        }
-
-        if (shouldFlush) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_buffer.insert(m_buffer.end(), m_localBuffer.begin(), m_localBuffer.end());
-            Crypto::SecureClearVector(m_localBuffer);
-            m_localBuffer.reserve(BATCH_SIZE);
-            m_lastFlushTime.store(now, std::memory_order_relaxed);
-        }
-    }
-
-    m_lastX = position.x;
-    m_lastY = position.y;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_buffer.push_back(dataPoint);
 }
 
 EntropyDataVector MouseCollector::Harvest() {
@@ -160,7 +154,6 @@ EntropyDataVector MouseCollector::Harvest() {
 void MouseCollector::SecureClearBuffer() {
     std::lock_guard<std::mutex> lock(m_mutex);
     Crypto::SecureClearVector(m_buffer);
-    Crypto::SecureClearVector(m_localBuffer);
 }
 
 }

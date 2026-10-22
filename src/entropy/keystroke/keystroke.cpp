@@ -1,23 +1,32 @@
 #include "keystroke.h"
 #include "../../logging/logger.h"
-#include <windows.h>
-#include <chrono>
+#include <hidusage.h>
 #include "../../crypto/secure_mem.h"
 
 namespace Entropy {
 
-KeystrokeCollector* KeystrokeCollector::s_instance = nullptr;
+namespace {
+
+constexpr USHORT FAKE_KEY_VIRTUAL_KEY = 0xFF;
+
+bool IsOwnWindowInForeground() {
+    HWND foregroundWindow = GetForegroundWindow();
+    if (!foregroundWindow) {
+        return false;
+    }
+    DWORD processId = 0;
+    GetWindowThreadProcessId(foregroundWindow, &processId);
+    return processId == GetCurrentProcessId();
+}
+
+}
 
 KeystrokeCollector::KeystrokeCollector() {
-    s_instance = this;
 }
 
 KeystrokeCollector::~KeystrokeCollector() {
     Stop();
     SecureClearBuffer();
-    if (s_instance == this) {
-        s_instance = nullptr;
-    }
 }
 
 void KeystrokeCollector::Start() {
@@ -29,17 +38,18 @@ void KeystrokeCollector::Start() {
     m_lastKeyDownTime = 0;
     m_lastKeyUpTime = 0;
 
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Installing keyboard hook...");
+    Logger::Log(Logger::Level::INFO, "Keystroke", "Starting Raw Input keyboard thread...");
 
-    m_hook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
-
-    if (!m_hook) {
-        Logger::Log(Logger::Level::ERR, "Keystroke", "Failed to install keyboard hook! Error: %lu", GetLastError());
+    const bool started = m_inputThread.Start(
+        {{HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_KEYBOARD}},
+        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessKey(input, timestamp); },
+        "Keystroke");
+    if (!started) {
         m_running = false;
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Keyboard hook installed successfully.");
+    Logger::Log(Logger::Level::INFO, "Keystroke", "Raw Input keyboard thread started.");
 }
 
 void KeystrokeCollector::Stop() {
@@ -47,11 +57,8 @@ void KeystrokeCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Removing keyboard hook...");
-    if (m_hook) {
-        UnhookWindowsHookEx(m_hook);
-        m_hook = nullptr;
-    }
+    Logger::Log(Logger::Level::INFO, "Keystroke", "Stopping Raw Input keyboard thread...");
+    m_inputThread.Stop();
 
     Logger::Log(Logger::Level::INFO, "Keystroke", "Collection stopped.");
 
@@ -79,48 +86,37 @@ void KeystrokeCollector::SecureClearBuffer() {
     Crypto::SecureClearVector(m_buffer);
 }
 
-static bool IsOwnWindowInForeground() {
-    HWND foregroundWindow = GetForegroundWindow();
-    if (!foregroundWindow) {
-        return false;
+size_t KeystrokeCollector::PhysicalKeyIndex(const RAWKEYBOARD& key) {
+    size_t prefix = 0;
+    if (key.Flags & RI_KEY_E0) {
+        prefix = 1;
+    } else if (key.Flags & RI_KEY_E1) {
+        prefix = 2;
     }
-    DWORD processId = 0;
-    GetWindowThreadProcessId(foregroundWindow, &processId);
-    return processId == GetCurrentProcessId();
+    return prefix * SCAN_CODE_COUNT + key.MakeCode % SCAN_CODE_COUNT;
 }
 
-LRESULT CALLBACK KeystrokeCollector::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION && s_instance && s_instance->IsRunning()) {
-        s_instance->ProcessKeyMessage(wParam, *reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam));
-    }
-    return CallNextHookEx(NULL, nCode, wParam, lParam);
-}
-
-void KeystrokeCollector::ProcessKeyMessage(WPARAM message, const KBDLLHOOKSTRUCT& keyEvent) {
-    uint64_t now = GetNanosecondTimestamp();
-
-    if (keyEvent.flags & LLKHF_INJECTED) {
+void KeystrokeCollector::ProcessKey(const RAWINPUT& input, uint64_t timestamp) {
+    const RAWKEYBOARD& key = input.data.keyboard;
+    const bool sentBySoftware = input.header.hDevice == nullptr;
+    if (input.header.dwType != RIM_TYPEKEYBOARD || sentBySoftware ||
+        key.VKey == FAKE_KEY_VIRTUAL_KEY || key.MakeCode == KEYBOARD_OVERRUN_MAKE_CODE) {
         return;
     }
 
-    const bool isKeyDown = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-    const bool isKeyUp = (message == WM_KEYUP || message == WM_SYSKEYUP);
-    const size_t virtualKey = keyEvent.vkCode % VIRTUAL_KEY_COUNT;
-    const bool isAutoRepeat = isKeyDown && m_keysDown[virtualKey];
-    if (isKeyDown) {
-        m_keysDown[virtualKey] = true;
-    } else if (isKeyUp) {
-        m_keysDown[virtualKey] = false;
-    }
+    const bool isKeyUp = (key.Flags & RI_KEY_BREAK) != 0;
+    const size_t physicalKey = PhysicalKeyIndex(key);
+    const bool isAutoRepeat = !isKeyUp && m_keysDown[physicalKey];
+    m_keysDown[physicalKey] = !isKeyUp;
 
     if (isAutoRepeat || !IsOwnWindowInForeground()) {
         return;
     }
 
-    if (isKeyDown) {
-        OnKeyDown(now);
-    } else if (isKeyUp) {
-        OnKeyUp(now);
+    if (isKeyUp) {
+        OnKeyUp(timestamp);
+    } else {
+        OnKeyDown(timestamp);
     }
 }
 

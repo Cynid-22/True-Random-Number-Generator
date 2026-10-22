@@ -84,6 +84,7 @@ jobs:
               src/logging/logger.cpp \
               src/entropy/clock_drift/clock_drift.cpp \
               src/entropy/cpu_jitter/cpu_jitter.cpp \
+              src/entropy/raw_input_thread.cpp \
               src/entropy/keystroke/keystroke.cpp \
               src/entropy/mouse/mouse.cpp \
               src/entropy/microphone/microphone.cpp \

@@ -17,17 +17,12 @@ struct HealthTestCutoffs {
 
 struct SourceCreditRule {
     double maxBitsPerSample;
-    HealthTestCutoffs cutoffs;
     size_t lowestDifferenceOrder;
     size_t highestDifferenceOrder;
 };
 
 constexpr uint32_t ADAPTIVE_PROPORTION_WINDOW = 512;
-
-// SP 800-90B 4.4 cutoffs for a false alarm rate of 2^-20
-constexpr HealthTestCutoffs CUTOFFS_FOR_1_BIT_PER_SAMPLE{21, 311};
-constexpr HealthTestCutoffs CUTOFFS_FOR_2_BITS_PER_SAMPLE{11, 177};
-constexpr HealthTestCutoffs CUTOFFS_FOR_8_BITS_PER_SAMPLE{4, 13};
+constexpr int HEALTH_TEST_FALSE_ALARM_EXPONENT = 20;
 
 constexpr size_t MICROPHONE_SAMPLES_PER_POINT = 64;
 constexpr size_t MICROPHONE_ADJACENT_SAMPLE_PAIRS = MICROPHONE_SAMPLES_PER_POINT - 1;
@@ -41,17 +36,59 @@ constexpr uint64_t LARGEST_TRACKED_VALUE = uint64_t(1) << 60;
 SourceCreditRule CreditRuleOf(EntropySource source) {
     switch (source) {
     case EntropySource::Microphone:
-        return {8.0, CUTOFFS_FOR_8_BITS_PER_SAMPLE, 0, 0};
+        return {8.0, 0, 0};
     case EntropySource::Keystroke:
-        return {2.0, CUTOFFS_FOR_2_BITS_PER_SAMPLE, 0, 2};
+        return {2.0, 0, 2};
     case EntropySource::ClockDrift:
-        return {1.0, CUTOFFS_FOR_1_BIT_PER_SAMPLE, 1, 2};
+        return {1.0, 1, 2};
     case EntropySource::CpuJitter:
-        return {1.0, CUTOFFS_FOR_1_BIT_PER_SAMPLE, 0, 2};
+        return {1.0, 0, 2};
     case EntropySource::Mouse:
-        return {1.0, CUTOFFS_FOR_1_BIT_PER_SAMPLE, 1, 3};
+        return {1.0, 1, 3};
     }
-    return {0.0, CUTOFFS_FOR_1_BIT_PER_SAMPLE, 0, 0};
+    return {0.0, 0, 0};
+}
+
+double BinomialProbability(uint32_t trials, uint32_t successes, double successProbability) {
+    const double logProbability =
+        std::lgamma(trials + 1.0) - std::lgamma(successes + 1.0) -
+        std::lgamma(trials - successes + 1.0) + successes * std::log(successProbability) +
+        (trials - successes) * std::log1p(-successProbability);
+    return std::exp(logProbability);
+}
+
+// SP 800-90B 4.4.1 and 4.4.2, with the sample's credit cap as its min-entropy H
+HealthTestCutoffs CutoffsForBitsPerSample(double bitsPerSample) {
+    const double falseAlarmRate = std::ldexp(1.0, -HEALTH_TEST_FALSE_ALARM_EXPONENT);
+    const double repeatProbability = std::exp2(-bitsPerSample);
+
+    uint32_t proportionCount = ADAPTIVE_PROPORTION_WINDOW;
+    double probabilityAboveCount = 0.0;
+    while (proportionCount > 0) {
+        const double probabilityOfCount =
+            BinomialProbability(ADAPTIVE_PROPORTION_WINDOW, proportionCount, repeatProbability);
+        if (probabilityAboveCount + probabilityOfCount > falseAlarmRate)
+            break;
+        probabilityAboveCount += probabilityOfCount;
+        proportionCount--;
+    }
+
+    const uint32_t repetitionCount =
+        1 + static_cast<uint32_t>(std::ceil(HEALTH_TEST_FALSE_ALARM_EXPONENT / bitsPerSample));
+    return {repetitionCount, proportionCount + 1};
+}
+
+HealthTestCutoffs CutoffsOf(EntropySource source) {
+    static const std::array<HealthTestCutoffs, ENTROPY_SOURCE_COUNT> cutoffsBySource = [] {
+        std::array<HealthTestCutoffs, ENTROPY_SOURCE_COUNT> cutoffs{};
+        for (size_t sourceIndex = 0; sourceIndex < ENTROPY_SOURCE_COUNT; sourceIndex++) {
+            const EntropySource indexedSource = static_cast<EntropySource>(sourceIndex);
+            cutoffs[sourceIndex] =
+                CutoffsForBitsPerSample(CreditRuleOf(indexedSource).maxBitsPerSample);
+        }
+        return cutoffs;
+    }();
+    return cutoffsBySource[static_cast<size_t>(source)];
 }
 
 bool WrapsAtSixteenBits(EntropySource source) {
@@ -140,7 +177,7 @@ void SourceCreditEstimator::Reset() {
 }
 
 void SourceCreditEstimator::RunHealthTests(EntropySource source, uint64_t value) {
-    const HealthTestCutoffs cutoffs = CreditRuleOf(source).cutoffs;
+    const HealthTestCutoffs cutoffs = CutoffsOf(source);
 
     if (m_repetitionCount > 0 && value == m_repetitionValue) {
         if (++m_repetitionCount >= cutoffs.repetitionCount)

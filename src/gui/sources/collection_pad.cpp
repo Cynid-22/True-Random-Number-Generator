@@ -26,6 +26,7 @@ static const float LEVEL_METER_UNLIT_ALPHA = 0.18f;
 static const char *const MICROPHONE_READOUT_TITLE = "Microphone";
 
 static bool s_focusPadWhenShown = false;
+static bool s_mouseCanvasShownLastFrame = false;
 static float s_microphoneMeterDb = LEVEL_METER_FLOOR_DB;
 
 static void AppendToKeystrokePreview(char character) {
@@ -87,7 +88,9 @@ void BeginCollectionPadFrame() {
 
   if (g_state.keystrokeEnabled)
     CaptureTypedCharacters();
-  ReportCanvasHovered(false);
+  if (!s_mouseCanvasShownLastFrame)
+    ReportCanvasHovered(false);
+  s_mouseCanvasShownLastFrame = false;
 }
 
 static const char *KeystrokePreviewPlaceholder() {
@@ -177,6 +180,7 @@ static void RenderMouseCanvas() {
 
   bool isHovered = ImGui::IsItemHovered();
   ReportCanvasHovered(isHovered);
+  s_mouseCanvasShownLastFrame = true;
 
   if (g_state.isCollecting && g_state.mouseMovementEnabled && isHovered) {
     CaptureMouseTrail(canvasMin, canvasSize);

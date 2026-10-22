@@ -241,17 +241,24 @@ static const SourceRow SOURCE_ROWS[] = {
      &AppState::keystrokeEnabled,
      "Captures your unique typing rhythm: Flight Time (gap between keys) and "
      "Dwell Time (how long each key is held). These timings are measured in "
-     "nanoseconds and are unique to each person. Only keys typed while the "
-     "TRNG window is in front count; auto-repeat from a held key and keys "
-     "sent by software are ignored.",
+     "nanoseconds and are unique to each person. Keys are read through "
+     "Windows Raw Input on a dedicated thread, so each time is taken the "
+     "moment the key arrives. Windows only passes keys to TRNG while its "
+     "window is in front; auto-repeat from a held key and keys sent by "
+     "software are ignored.",
      RenderKeystrokeStatus},
     {SourceGroup::UserInput, "Mouse Movement", "Mouse Movement (User Entropy)",
      "Mouse", &AppState::mouseMovementEnabled,
-     "Records X/Y coordinates and precise timestamps (nanoseconds) of mouse "
-     "movements. Your physical motor noise creates unpredictable patterns. "
-     "Small movements (under 2 pixels) are filtered to avoid sensor drift. "
-     "Only changes in speed and direction are credited, so steady straight "
-     "lines count for nothing. Movement sent by software is ignored.",
+     "Records the mouse sensor's raw movement counts through Windows Raw "
+     "Input, before pointer speed and acceleration (for a precision touchpad, "
+     "the movement Windows derives from your finger), while the pointer is "
+     "over the Mouse Path box and TRNG is in front. Your physical motor noise "
+     "creates unpredictable patterns. Movement is summed into at most one "
+     "sample every 7 ms, so a fast gaming mouse earns no more than a standard "
+     "one. Only changes in speed and direction are credited, so steady "
+     "straight lines count for nothing. Movement sent by software is ignored; "
+     "touchpad movement counts only while the touchpad reports a finger on "
+     "it.",
      RenderMouseStatus},
     {SourceGroup::SystemInput, "Clock Drift", "Clock Drift (Hardware Entropy)",
      "Clock Drift", &AppState::clockDriftEnabled,

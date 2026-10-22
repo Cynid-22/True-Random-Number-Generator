@@ -5,6 +5,7 @@
 #include <vector>
 #include <windows.h>
 #include "../entropy_common.h"
+#include "../raw_input_thread.h"
 
 namespace Entropy {
 
@@ -22,24 +23,24 @@ public:
     EntropyDataVector Harvest();
 
 private:
-    static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
-    void ProcessKeyMessage(WPARAM message, const KBDLLHOOKSTRUCT& keyEvent);
+    static size_t PhysicalKeyIndex(const RAWKEYBOARD& key);
+    void ProcessKey(const RAWINPUT& input, uint64_t timestamp);
     void OnKeyDown(uint64_t timestamp);
     void OnKeyUp(uint64_t timestamp);
     void SecureClearBuffer();
 
-    static constexpr size_t VIRTUAL_KEY_COUNT = 256;
+    static constexpr size_t SCAN_CODE_COUNT = 256;
+    static constexpr size_t SCAN_CODE_PREFIX_COUNT = 3;
+    static constexpr size_t PHYSICAL_KEY_COUNT = SCAN_CODE_COUNT * SCAN_CODE_PREFIX_COUNT;
 
     std::atomic<bool> m_running{false};
-    HHOOK m_hook = nullptr;
+    RawInputThread m_inputThread;
     std::mutex m_mutex;
     EntropyDataVector m_buffer;
 
-    std::bitset<VIRTUAL_KEY_COUNT> m_keysDown;
+    std::bitset<PHYSICAL_KEY_COUNT> m_keysDown;
     uint64_t m_lastKeyDownTime = 0;
     uint64_t m_lastKeyUpTime = 0;
-
-    static KeystrokeCollector* s_instance;
 };
 
 }
