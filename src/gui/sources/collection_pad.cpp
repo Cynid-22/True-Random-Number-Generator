@@ -1,4 +1,6 @@
 #include "../../core/app_state.h"
+#include "../../logging/logger.h"
+#include "../../platform/virtual_machine.h"
 #include "../gui.h"
 #include "../widgets.h"
 #include "imgui.h"
@@ -24,6 +26,37 @@ static const float LEVEL_METER_BLOCK_GAP_EM = 0.2f;
 static const float LEVEL_METER_UNLIT_ALPHA = 0.18f;
 
 static const char *const MICROPHONE_READOUT_TITLE = "Microphone";
+
+static const char *USE_NOW_TOOLTIP =
+    "Finishing the full 1,024-sample start-up test is strongly recommended.\n\n"
+    "The full test checks that this source behaves randomly before any of its\n"
+    "credit is used. A stuck key, a faulty device or input replayed by\n"
+    "software would be caught, and its credit discarded.\n\n"
+    "Use now releases the credit held so far. The health tests keep running,\n"
+    "but credit already used in an output cannot be taken back if this source\n"
+    "fails later.";
+
+static const char *WAITING_FOR_HARDWARE_STARTUP_TEXT =
+    "Use now becomes available once the enabled hardware sources pass their "
+    "start-up tests.";
+
+static const char *HEALTH_TEST_FAILED_LINE =
+    "Health test failed, credit stopped.";
+
+static const char *VIRTUAL_MACHINE_WARNING =
+    "TRNG is running in a virtual machine: Clock Drift and CPU Jitter are "
+    "mixed in without credit.";
+
+struct StartupLineText {
+  const char *sourceName;
+  const char *sampleNoun;
+  const char *keepGoingAdvice;
+};
+
+static const StartupLineText KEYSTROKE_STARTUP_TEXT = {
+    "Keystroke", "key timings", "Keep typing to finish it (recommended), or"};
+static const StartupLineText MOUSE_STARTUP_TEXT = {
+    "Mouse", "movements", "Keep moving to finish it (recommended), or"};
 
 static bool s_focusPadWhenShown = false;
 static bool s_mouseCanvasShownLastFrame = false;
@@ -93,6 +126,54 @@ void BeginCollectionPadFrame() {
   s_mouseCanvasShownLastFrame = false;
 }
 
+static void RenderEarlyStartupChoice(Entropy::EntropySource source,
+                                     const StartupLineText &text) {
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  if (startup.samplesTested < Entropy::EarlyStartupSampleCount(source))
+    return;
+  if (!CanFinishStartupEarly(source)) {
+    ImGui::PushStyleColor(ImGuiCol_Text, UiColor::DimText);
+    ImGui::TextWrapped("%s", WAITING_FOR_HARDWARE_STARTUP_TEXT);
+    ImGui::PopStyleColor();
+    return;
+  }
+  ImGui::TextColored(UiColor::Warning, "%s", text.keepGoingAdvice);
+  ImGui::SetItemTooltip("%s", USE_NOW_TOOLTIP);
+  ImGui::SameLine();
+  ImGui::PushID(static_cast<int>(source));
+  if (ImGui::SmallButton("Use now")) {
+    g_state.entropyPool.FinishStartupEarly(source);
+    Logger::Log(Logger::Level::INFO, "GUI",
+                "%s start-up test finished early after %u samples",
+                text.sourceName, startup.samplesTested);
+  }
+  ImGui::SetItemTooltip("%s", USE_NOW_TOOLTIP);
+  ImGui::PopID();
+}
+
+static void RenderStartupLine(Entropy::EntropySource source, bool *enabled,
+                              const StartupLineText &text) {
+  if (!g_state.isCollecting || !*enabled)
+    return;
+  if (g_state.entropyPool.HealthTestFailed(source)) {
+    ImGui::TextColored(UiColor::StatusUnavailable, "%s",
+                       HEALTH_TEST_FAILED_LINE);
+    ImGui::SameLine();
+    RenderHealthTestFailureButtons(source, enabled, text.sourceName);
+    return;
+  }
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  if (startup.complete)
+    return;
+  ImGui::TextColored(UiColor::StatusReady, "Start-up test: %s of %s %s",
+                     WithThousandsSeparators(startup.samplesTested).c_str(),
+                     WithThousandsSeparators(Entropy::STARTUP_SAMPLE_COUNT).c_str(),
+                     text.sampleNoun);
+  RenderEarlyStartupChoice(source, text);
+}
+
 static const char *KeystrokePreviewPlaceholder() {
   if (!g_state.keystrokeEnabled)
     return " [ Keystroke Dynamics is excluded ] ";
@@ -101,6 +182,8 @@ static const char *KeystrokePreviewPlaceholder() {
 
 static void RenderKeyboardPreview() {
   ImGui::SeparatorText("Keystroke Preview");
+  RenderStartupLine(Entropy::EntropySource::Keystroke, &g_state.keystrokeEnabled,
+                    KEYSTROKE_STARTUP_TEXT);
 
   ImGui::BeginChild("KeyOutputBox", ImVec2(0, KEYSTROKE_PREVIEW_HEIGHT), true);
   if (g_state.keystrokePreview.empty()) {
@@ -168,6 +251,8 @@ static const char *MouseCanvasPlaceholder() {
 
 static void RenderMouseCanvas() {
   ImGui::SeparatorText("Mouse Path");
+  RenderStartupLine(Entropy::EntropySource::Mouse,
+                    &g_state.mouseMovementEnabled, MOUSE_STARTUP_TEXT);
 
   ImVec2 canvasMin = ImGui::GetCursorScreenPos();
   ImVec2 canvasSize = ImGui::GetContentRegionAvail();
@@ -349,6 +434,13 @@ void RenderCollectionPad() {
   }
   if (ImGui::BeginChild("##CollectionColumn", ImVec2(0.0f, 0.0f),
                         ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+    if (Platform::IsRunningInVirtualMachine() &&
+        (g_state.clockDriftEnabled || g_state.cpuJitterEnabled)) {
+      ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
+      ImGui::TextWrapped("%s", VIRTUAL_MACHINE_WARNING);
+      ImGui::PopStyleColor();
+      ImGui::Spacing();
+    }
     RenderLiveReadouts();
     ImGui::Spacing();
     RenderKeyboardPreview();

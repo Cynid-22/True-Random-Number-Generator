@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <string>
 
 static const float SOURCES_COLUMN_WIDTH_RATIO = 0.34f;
 static const float SOURCES_COLUMN_MAX_WIDTH_RATIO = 0.5f;
@@ -17,6 +18,7 @@ static const char *const STATUS_LABEL_STARTING = "Starting...";
 static const char *const STATUS_LABEL_UNAVAILABLE = "Unavailable";
 static const char *const STATUS_LABEL_EXCLUDED = "Excluded";
 static const char *const STATUS_LABEL_FAILED = "Failed";
+static const char *const STATUS_LABEL_NO_CREDIT = "No credit";
 
 static const char *HEALTH_TEST_FAILED_TOOLTIP =
     "This source failed an SP 800-90B health test: it repeated the same "
@@ -24,7 +26,22 @@ static const char *HEALTH_TEST_FAILED_TOOLTIP =
     "512-sample window.\n\n"
     "Its data is still mixed into the seed, but it no longer counts toward "
     "the entropy bar.\n"
-    "Stop and start collection to test it again.";
+    "Turn it off, or test it again, with the buttons below the source.";
+
+static const char *HEALTH_TEST_FAILED_NOTICE =
+    "Failed its health test, so its credit has stopped.";
+
+static const char *STARTUP_TEST_TOOLTIP_FORMAT =
+    "Start-up health test: %s of %s samples.\n"
+    "Credit held: %.1f bits, released once the test passes.\n"
+    "If the test fails, the held credit is discarded.";
+
+static const char *VIRTUAL_MACHINE_NO_CREDIT_TOOLTIP_FORMAT =
+    "TRNG is running in a virtual machine.\n"
+    "This source's timing comes from the virtual machine's view of the CPU,\n"
+    "which the host controls, so it earns no credit here.\n"
+    "Its data is still mixed into the seed.\n\n"
+    "Start-up health test: %s";
 
 static const char *UNAVAILABLE_MICROPHONE_TOOLTIP =
     "This input device/mode is currently unavailable.\n\n"
@@ -73,6 +90,46 @@ static void RenderHealthTestFailedStatus() {
                     HEALTH_TEST_FAILED_TOOLTIP);
 }
 
+static bool RenderStartupStatusIfTesting(Entropy::EntropySource source) {
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  if (startup.complete)
+    return false;
+  RenderSourceBadge(
+      UiColor::StatusReady, STATUS_LABEL_STARTING, STARTUP_TEST_TOOLTIP_FORMAT,
+      WithThousandsSeparators(startup.samplesTested).c_str(),
+      WithThousandsSeparators(Entropy::STARTUP_SAMPLE_COUNT).c_str(),
+      startup.heldBits);
+  return true;
+}
+
+static std::string StartupTestSummary(Entropy::EntropySource source) {
+  if (!g_state.isCollecting)
+    return "runs when collection starts";
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  if (!startup.complete)
+    return WithThousandsSeparators(startup.samplesTested) + " of " +
+           WithThousandsSeparators(Entropy::STARTUP_SAMPLE_COUNT) + " samples";
+  return "passed";
+}
+
+static void RenderNoCreditStatus(Entropy::EntropySource source) {
+  RenderSourceBadge(UiColor::Warning, STATUS_LABEL_NO_CREDIT,
+                    VIRTUAL_MACHINE_NO_CREDIT_TOOLTIP_FORMAT,
+                    StartupTestSummary(source).c_str());
+}
+
+static std::string StartupSkippedNote(Entropy::EntropySource source) {
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  if (!startup.finishedEarly)
+    return "";
+  return "\nStart-up test skipped: credit was released after " +
+         WithThousandsSeparators(startup.samplesTested) + " of " +
+         WithThousandsSeparators(Entropy::STARTUP_SAMPLE_COUNT) + " samples.";
+}
+
 static double CreditedBits(Entropy::EntropySource source) {
   return g_state.entropyPool.GetCreditedBits(source);
 }
@@ -89,6 +146,8 @@ static void RenderMicrophoneStatus() {
     RenderHealthTestFailedStatus();
   } else if (g_state.isCollecting) {
     if (g_state.microphoneCollector.IsCapturing()) {
+      if (RenderStartupStatusIfTesting(source))
+        return;
       RenderSourceBadge(UiColor::StatusActive, STATUS_LABEL_ACTIVE,
                         "Microphone is actively collecting entropy.\n"
                         "Stream: %s\n"
@@ -123,12 +182,15 @@ static void RenderKeystrokeStatus() {
   } else if (IsFailingHealthTest(source)) {
     RenderHealthTestFailedStatus();
   } else if (g_state.isCollecting) {
+    if (RenderStartupStatusIfTesting(source))
+      return;
     RenderSourceBadge(UiColor::StatusActive, STATUS_LABEL_ACTIVE,
                       "Keystroke dynamics are actively being collected.\n"
                       "Credited: %.1f bits (up to %.0f bits per key "
                       "timing)\n"
-                      "Source is working correctly.",
-                      CreditedBits(source), MaxCreditBits(source));
+                      "Source is working correctly.%s",
+                      CreditedBits(source), MaxCreditBits(source),
+                      StartupSkippedNote(source).c_str());
   } else {
     RenderSourceBadge(UiColor::StatusReady, STATUS_LABEL_READY,
                       "Keystroke capture is enabled and ready to collect "
@@ -143,12 +205,15 @@ static void RenderMouseStatus() {
   } else if (IsFailingHealthTest(source)) {
     RenderHealthTestFailedStatus();
   } else if (g_state.isCollecting) {
+    if (RenderStartupStatusIfTesting(source))
+      return;
     RenderSourceBadge(UiColor::StatusActive, STATUS_LABEL_ACTIVE,
                       "Mouse movement is actively being tracked.\n"
                       "Credited: %.1f bits (up to %.0f bit per recorded "
                       "movement)\n"
-                      "Source is working correctly.",
-                      CreditedBits(source), MaxCreditBits(source));
+                      "Source is working correctly.%s",
+                      CreditedBits(source), MaxCreditBits(source),
+                      StartupSkippedNote(source).c_str());
   } else {
     RenderSourceBadge(UiColor::StatusReady, STATUS_LABEL_READY,
                       "Mouse movement tracking is enabled and ready to "
@@ -162,8 +227,12 @@ static void RenderClockDriftStatus() {
     RenderExcludedStatus();
   } else if (IsFailingHealthTest(source)) {
     RenderHealthTestFailedStatus();
+  } else if (!Entropy::IsCreditedOnThisMachine(source)) {
+    RenderNoCreditStatus(source);
   } else if (g_state.isCollecting) {
     if (g_state.clockDriftCollector.IsRunning()) {
+      if (RenderStartupStatusIfTesting(source))
+        return;
       RenderSourceBadge(UiColor::StatusActive, STATUS_LABEL_ACTIVE,
                         "Clock Drift collector is actively running.\n\n"
                         "Samples collected: %llu\n"
@@ -196,7 +265,11 @@ static void RenderCpuJitterStatus() {
     RenderExcludedStatus();
   } else if (IsFailingHealthTest(source)) {
     RenderHealthTestFailedStatus();
+  } else if (!Entropy::IsCreditedOnThisMachine(source)) {
+    RenderNoCreditStatus(source);
   } else if (g_state.isCollecting) {
+    if (RenderStartupStatusIfTesting(source))
+      return;
     RenderSourceBadge(
         UiColor::StatusActive, STATUS_LABEL_ACTIVE,
         "CPU Jitter race condition is actively running.\n"
@@ -218,6 +291,7 @@ enum class SourceGroup { UserInput, SystemInput };
 
 struct SourceRow {
   SourceGroup group;
+  Entropy::EntropySource source;
   const char *name;
   const char *title;
   const char *logName;
@@ -227,7 +301,8 @@ struct SourceRow {
 };
 
 static const SourceRow SOURCE_ROWS[] = {
-    {SourceGroup::UserInput, "Microphone Noise",
+    {SourceGroup::UserInput, Entropy::EntropySource::Microphone,
+     "Microphone Noise",
      "Microphone Noise (Thermal Entropy)", "Microphone",
      &AppState::microphoneEnabled,
      "Captures the Least Significant Bit (LSB) of audio samples, at the "
@@ -236,7 +311,8 @@ static const SourceRow SOURCE_ROWS[] = {
      "actual sound. Each block of 64 LSBs is credited at most 8 bits, less "
      "when its bits are unbalanced or too regular.",
      RenderMicrophoneStatus},
-    {SourceGroup::UserInput, "Keystroke Dynamics",
+    {SourceGroup::UserInput, Entropy::EntropySource::Keystroke,
+     "Keystroke Dynamics",
      "Keystroke Dynamics (User Entropy)", "Keystroke",
      &AppState::keystrokeEnabled,
      "Captures your unique typing rhythm: Flight Time (gap between keys) and "
@@ -247,7 +323,8 @@ static const SourceRow SOURCE_ROWS[] = {
      "window is in front; auto-repeat from a held key and keys sent by "
      "software are ignored.",
      RenderKeystrokeStatus},
-    {SourceGroup::UserInput, "Mouse Movement", "Mouse Movement (User Entropy)",
+    {SourceGroup::UserInput, Entropy::EntropySource::Mouse, "Mouse Movement",
+     "Mouse Movement (User Entropy)",
      "Mouse", &AppState::mouseMovementEnabled,
      "Records the mouse sensor's raw movement counts through Windows Raw "
      "Input, before pointer speed and acceleration (for a precision touchpad, "
@@ -260,14 +337,16 @@ static const SourceRow SOURCE_ROWS[] = {
      "touchpad movement counts only while the touchpad reports a finger on "
      "it.",
      RenderMouseStatus},
-    {SourceGroup::SystemInput, "Clock Drift", "Clock Drift (Hardware Entropy)",
+    {SourceGroup::SystemInput, Entropy::EntropySource::ClockDrift,
+     "Clock Drift", "Clock Drift (Hardware Entropy)",
      "Clock Drift", &AppState::clockDriftEnabled,
      "Measures the delta in CPU cycle counts during a fixed System Time "
      "window. A 3GHz CPU should count ~3,000,000 cycles per ms, but due to "
      "heat/voltage, the actual count varies (e.g., 3,000,402 or 2,999,881). "
      "Those fluctuating digits are entropy.",
      RenderClockDriftStatus},
-    {SourceGroup::SystemInput, "CPU Jitter", "CPU Jitter (System Entropy)",
+    {SourceGroup::SystemInput, Entropy::EntropySource::CpuJitter, "CPU Jitter",
+     "CPU Jitter (System Entropy)",
      "CPU Jitter", &AppState::cpuJitterEnabled,
      "Creates a 'race condition': Thread A counts up as fast as it can, and "
      "Thread B wakes about every 1.5 ms and reads how far it got. The count "
@@ -283,7 +362,8 @@ static float StatusColumnWidth() {
   float width = 0.0f;
   for (const char *label :
        {STATUS_LABEL_READY, STATUS_LABEL_ACTIVE, STATUS_LABEL_STARTING,
-        STATUS_LABEL_UNAVAILABLE, STATUS_LABEL_EXCLUDED, STATUS_LABEL_FAILED})
+        STATUS_LABEL_UNAVAILABLE, STATUS_LABEL_EXCLUDED, STATUS_LABEL_FAILED,
+        STATUS_LABEL_NO_CREDIT})
     width = std::max(width, ImGui::CalcTextSize(label).x);
   return width;
 }
@@ -340,11 +420,28 @@ static void RenderSourceRow(int rowIndex) {
   ImGui::PopID();
 }
 
+static void RenderHealthTestFailureRow(int rowIndex) {
+  const SourceRow &row = SOURCE_ROWS[rowIndex];
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::Indent();
+  ImGui::PushStyleColor(ImGuiCol_Text, UiColor::StatusUnavailable);
+  ImGui::TextWrapped("%s", HEALTH_TEST_FAILED_NOTICE);
+  ImGui::PopStyleColor();
+  RenderHealthTestFailureButtons(row.source, &(g_state.*row.enabled),
+                                 row.logName);
+  ImGui::Unindent();
+}
+
 static void RenderSourceGroup(SourceGroup group, const char *groupName) {
   RenderGroupRow(groupName);
   for (int i = 0; i < SOURCE_ROW_COUNT; i++) {
-    if (SOURCE_ROWS[i].group == group)
-      RenderSourceRow(i);
+    const SourceRow &row = SOURCE_ROWS[i];
+    if (row.group != group)
+      continue;
+    RenderSourceRow(i);
+    if (g_state.*row.enabled && IsFailingHealthTest(row.source))
+      RenderHealthTestFailureRow(i);
   }
 }
 

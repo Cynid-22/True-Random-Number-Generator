@@ -1,5 +1,6 @@
 #include "source_credit.h"
 #include "mouse/mouse.h"
+#include "../platform/virtual_machine.h"
 #include <algorithm>
 #include <bitset>
 #include <cmath>
@@ -22,6 +23,8 @@ struct SourceCreditRule {
 };
 
 constexpr uint32_t ADAPTIVE_PROPORTION_WINDOW = 512;
+constexpr uint32_t KEYSTROKE_EARLY_STARTUP_SAMPLE_COUNT = 64;
+constexpr uint32_t MOUSE_EARLY_STARTUP_SAMPLE_COUNT = 512;
 constexpr int HEALTH_TEST_FALSE_ALARM_EXPONENT = 20;
 
 constexpr size_t MICROPHONE_SAMPLES_PER_POINT = 64;
@@ -159,6 +162,23 @@ double MaxCreditBitsPerSample(EntropySource source) {
     return CreditRuleOf(source).maxBitsPerSample;
 }
 
+uint32_t EarlyStartupSampleCount(EntropySource source) {
+    switch (source) {
+    case EntropySource::Keystroke:
+        return KEYSTROKE_EARLY_STARTUP_SAMPLE_COUNT;
+    case EntropySource::Mouse:
+        return MOUSE_EARLY_STARTUP_SAMPLE_COUNT;
+    default:
+        return STARTUP_SAMPLE_COUNT;
+    }
+}
+
+bool IsCreditedOnThisMachine(EntropySource source) {
+    const bool reliesOnHardwareTiming =
+        source == EntropySource::ClockDrift || source == EntropySource::CpuJitter;
+    return !reliesOnHardwareTiming || !Platform::IsRunningInVirtualMachine();
+}
+
 double SourceCreditEstimator::Credit(EntropySource source, uint64_t value) {
     RunHealthTests(source, value);
     const bool repeatsRecentValue = RepeatsRecentValue(value);
@@ -167,9 +187,41 @@ double SourceCreditEstimator::Credit(EntropySource source, uint64_t value) {
                                   ? MicrophoneBitBalanceBits(value)
                                   : ChangeBits(source, value);
 
-    if (m_healthTestFailed || repeatsRecentValue)
+    if (m_healthTestFailed) {
+        m_heldStartupBits = 0.0;
         return 0.0;
-    return std::max(0.0, std::min(changeBits, MaxCreditBitsPerSample(source)));
+    }
+    const double sampleBits =
+        (repeatsRecentValue || !IsCreditedOnThisMachine(source))
+            ? 0.0
+            : std::max(0.0, std::min(changeBits, MaxCreditBitsPerSample(source)));
+    if (m_startupComplete)
+        return sampleBits;
+
+    m_heldStartupBits += sampleBits;
+    if (++m_startupSamplesTested < STARTUP_SAMPLE_COUNT)
+        return 0.0;
+    return ReleaseHeldStartupBits();
+}
+
+StartupStatus SourceCreditEstimator::Startup() const {
+    return {m_startupSamplesTested, m_heldStartupBits, m_startupComplete,
+            m_startupFinishedEarly};
+}
+
+double SourceCreditEstimator::FinishStartupEarly(EntropySource source) {
+    if (m_startupComplete || m_healthTestFailed ||
+        m_startupSamplesTested < EarlyStartupSampleCount(source))
+        return 0.0;
+    m_startupFinishedEarly = true;
+    return ReleaseHeldStartupBits();
+}
+
+double SourceCreditEstimator::ReleaseHeldStartupBits() {
+    m_startupComplete = true;
+    const double releasedBits = m_heldStartupBits;
+    m_heldStartupBits = 0.0;
+    return releasedBits;
 }
 
 void SourceCreditEstimator::Reset() {

@@ -50,6 +50,12 @@ public:
 
     bool HealthTestFailed(EntropySource source) const;
 
+    StartupStatus GetStartupStatus(EntropySource source) const;
+
+    void FinishStartupEarly(EntropySource source);
+
+    void RestartSourceStartup(EntropySource source);
+
     void SecureWipe();
 
 private:

@@ -148,6 +148,24 @@ bool EntropyPool::HealthTestFailed(EntropySource source) const {
     return m_creditEstimators[static_cast<size_t>(source)].HealthTestFailed();
 }
 
+StartupStatus EntropyPool::GetStartupStatus(EntropySource source) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_creditEstimators[static_cast<size_t>(source)].Startup();
+}
+
+void EntropyPool::FinishStartupEarly(EntropySource source) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const size_t sourceIndex = static_cast<size_t>(source);
+    const double releasedBits = m_creditEstimators[sourceIndex].FinishStartupEarly(source);
+    m_availableBitsBySource[sourceIndex] += releasedBits;
+    m_creditedBitsBySource[sourceIndex] += releasedBits;
+}
+
+void EntropyPool::RestartSourceStartup(EntropySource source) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_creditEstimators[static_cast<size_t>(source)].Reset();
+}
+
 void EntropyPool::SecureWipe() {
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& sourceData : m_newDataBySource) {

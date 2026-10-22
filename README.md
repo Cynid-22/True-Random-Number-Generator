@@ -47,7 +47,11 @@ The entropy bar credits each source conservatively, per sample:
 | **Clock Drift** | 1 bit per sample | The smallest of the change in the measured cycle count from one sample to the next, and the change of that change |
 | **CPU Jitter** | 1 bit per sample | The smallest of the count, its change and the change of that change |
 
-A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed** until collection is stopped and started again; its data is still hashed into the seed. Timestamps are hashed into the seed but never credited.
+A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed**; its data is still hashed into the seed until you choose **Turn off** (nothing from it is credited or hashed) or **Test again** (its full start-up test runs again). Timestamps are hashed into the seed but never credited.
+
+Each time collection starts, every source runs a start-up test (SP 800-90B 4.3): its first 1,024 samples go through both health tests before any of its credit counts. The credit is held during the test, released when the test passes and discarded if it fails. Keystroke and Mouse can be released early, after 64 and 512 samples, with **Use now**, once the enabled system and microphone sources have passed their own start-up tests; finishing the full test is recommended, since credit released early can be used before the full test would have caught a faulty device. The choice is not remembered between collections.
+
+In a virtual machine, Clock Drift and CPU Jitter earn no credit: their timing comes from the virtual machine's view of the CPU, which the host controls. Their data is still hashed into the seed. TRNG detects a virtual machine through the CPU's hypervisor flag; Windows running on Hyper-V for Memory Integrity, WSL2 or Hyper-V itself is recognised as the host and keeps full credit. A hypervisor built to hide itself is not detected.
 
 ### Measured Source Entropy (NIST SP 800-90B)
 
@@ -234,7 +238,8 @@ TRNG/
 │   └── platform/
 │       ├── dx11.h            # DirectX declarations
 │       ├── dx11.cpp          # DirectX implementation
-│       └── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
+│       ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
+│       └── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
 ├── assets/
 │   ├── NordPass_wordlist.txt   # Passphrase word lists, embedded in the exe
 │   ├── eff_large_wordlist.txt

@@ -6,13 +6,30 @@
 
 namespace Entropy {
 
+constexpr uint32_t STARTUP_SAMPLE_COUNT = 1024;
+
 double MaxCreditBitsPerSample(EntropySource source);
+
+uint32_t EarlyStartupSampleCount(EntropySource source);
+
+bool IsCreditedOnThisMachine(EntropySource source);
+
+struct StartupStatus {
+    uint32_t samplesTested;
+    double heldBits;
+    bool complete;
+    bool finishedEarly;
+};
 
 class SourceCreditEstimator {
 public:
     double Credit(EntropySource source, uint64_t value);
 
     bool HealthTestFailed() const { return m_healthTestFailed; }
+
+    StartupStatus Startup() const;
+
+    double FinishStartupEarly(EntropySource source);
 
     void Reset();
 
@@ -29,8 +46,14 @@ private:
     bool RepeatsRecentValue(uint64_t value) const;
     void RememberValue(uint64_t value);
     double ChangeBits(EntropySource source, uint64_t value);
+    double ReleaseHeldStartupBits();
 
     bool m_healthTestFailed = false;
+
+    uint32_t m_startupSamplesTested = 0;
+    double m_heldStartupBits = 0.0;
+    bool m_startupComplete = false;
+    bool m_startupFinishedEarly = false;
 
     uint64_t m_repetitionValue = 0;
     uint32_t m_repetitionCount = 0;

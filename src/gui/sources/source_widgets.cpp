@@ -41,3 +41,54 @@ void RenderSourceBadge(const ImVec4 &color, const char *label,
     va_end(args);
   }
 }
+
+static bool HardwareSourcePassedStartup(Entropy::EntropySource source, bool enabled,
+                                        bool available) {
+  if (!enabled || !available)
+    return true;
+  return g_state.entropyPool.GetStartupStatus(source).complete &&
+         !g_state.entropyPool.HealthTestFailed(source);
+}
+
+bool HardwareSourcesPassedStartup() {
+  using Entropy::EntropySource;
+  return HardwareSourcePassedStartup(EntropySource::Microphone,
+                                     g_state.microphoneEnabled,
+                                     !g_state.microphoneCollector.HasFailed()) &&
+         HardwareSourcePassedStartup(EntropySource::ClockDrift,
+                                     g_state.clockDriftEnabled, true) &&
+         HardwareSourcePassedStartup(EntropySource::CpuJitter,
+                                     g_state.cpuJitterEnabled, true);
+}
+
+bool CanFinishStartupEarly(Entropy::EntropySource source) {
+  const Entropy::StartupStatus startup =
+      g_state.entropyPool.GetStartupStatus(source);
+  return !startup.complete && !g_state.entropyPool.HealthTestFailed(source) &&
+         startup.samplesTested >= Entropy::EarlyStartupSampleCount(source) &&
+         HardwareSourcesPassedStartup();
+}
+
+void RenderHealthTestFailureButtons(Entropy::EntropySource source, bool *enabled,
+                                    const char *sourceName) {
+  ImGui::PushID(static_cast<int>(source));
+  if (ImGui::SmallButton("Turn off")) {
+    *enabled = false;
+    Logger::Log(Logger::Level::INFO, "GUI",
+                "%s turned off after a failed health test", sourceName);
+  }
+  ImGui::SetItemTooltip(
+      "Stop this source. Nothing from it is credited or mixed into the seed.\n"
+      "Stop collection to tick it again.");
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Test again")) {
+    g_state.entropyPool.RestartSourceStartup(source);
+    Logger::Log(Logger::Level::INFO, "GUI",
+                "%s start-up test restarted after a failed health test",
+                sourceName);
+  }
+  ImGui::SetItemTooltip(
+      "Discard this source's test results and run its full start-up test "
+      "again.\nIt earns credit again only once it passes.");
+  ImGui::PopID();
+}
