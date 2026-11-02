@@ -2,6 +2,7 @@ static constexpr int THREAD_USAGE_PERCENT = 50;
 
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -16,7 +17,7 @@ static constexpr int THREAD_USAGE_PERCENT = 50;
 #include <intrin.h>
 #endif
 
-#include "../crypto/quad_layer.h"
+#include "../crypto/hmac_drbg.h"
 
 template <typename T>
 static void AppendRawBytes(std::vector<uint8_t>& bytes, const T& value) {
@@ -54,12 +55,31 @@ static std::vector<uint8_t> CollectHardwareSeed() {
     return seed;
 }
 
+static const char GENERATOR_PERSONALIZATION[] = "TRNG-GEN";
+
 static std::vector<uint8_t> GenerateChunk(const std::vector<uint8_t>& entropyBytes,
                                           size_t byteCount,
                                           uint64_t chunkNumber) {
-    std::string infoText = "TRNG-GEN|C:" + std::to_string(chunkNumber);
-    std::vector<uint8_t> info(infoText.begin(), infoText.end());
-    return Crypto::GenerateQuadLayerStream(entropyBytes, info, byteCount);
+    uint8_t nonce[sizeof(chunkNumber)];
+    for (size_t i = 0; i < sizeof(chunkNumber); i++)
+        nonce[i] = static_cast<uint8_t>(chunkNumber >> (i * 8));
+    Crypto::HmacDrbg generator(
+        {entropyBytes.data(), entropyBytes.size()}, {nonce, sizeof(nonce)},
+        {reinterpret_cast<const uint8_t*>(GENERATOR_PERSONALIZATION),
+         sizeof(GENERATOR_PERSONALIZATION) - 1});
+
+    std::vector<uint8_t> chunk(byteCount);
+    size_t written = 0;
+    while (written < byteCount) {
+        const size_t requestBytes =
+            std::min(byteCount - written, Crypto::HmacDrbg::MAX_BYTES_PER_REQUEST);
+        if (!generator.Generate(chunk.data() + written, requestBytes)) {
+            fprintf(stderr, "HMAC_DRBG refused a request\n");
+            std::abort();
+        }
+        written += requestBytes;
+    }
+    return chunk;
 }
 
 int main() {

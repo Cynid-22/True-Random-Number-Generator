@@ -2,19 +2,19 @@
 
 A desktop application for generating cryptographically secure random numbers using multiple hardware entropy sources. Built with C++ and Dear ImGui for Windows.
 
-**Measured sources**: every entropy source's credit sits below its min-entropy as measured with **NIST SP 800-90B** on the raw source data ([Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b)). **Output tests**: the generator's output passes 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand** and **TestU01** ([Statistical Validation Results](#statistical-validation-results)).
+**Measured sources**: every entropy source's credit sits below its min-entropy as measured with **NIST SP 800-90B** on the raw source data ([Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b)). **Output tests**: the earlier quad-layer pipeline's output passed 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand** and **TestU01**; the runs for the current HMAC_DRBG generator are still to be done ([Statistical Validation Results](#statistical-validation-results)).
 
 ---
 
 ## Overview
 
-TRNG collects entropy from physical and system sources (hardware timing, user input and operating system scheduling) and uses it to seed a cryptographic pipeline. Every output, in both security modes, is that pipeline's ChaCha20 stream: cryptographically secure pseudorandom output seeded from physical sources. Its security is computational.
+TRNG collects entropy from physical and system sources (hardware timing, user input and operating system scheduling) and uses it to seed **HMAC_DRBG (SHA-512)**, a deterministic random bit generator from NIST SP 800-90A. Every output, in both security modes, is HMAC_DRBG output: cryptographically secure pseudorandom output seeded from physical sources. Its security is computational.
 
 The application supports two security modes:
-- **ENTROPY-BACKED**: When the unused collected entropy (as estimated) is at least what the output needs, the raw data is condensed into the seed of the cryptographic pipeline. ENTROPY-BACKED means the output is backed by at least as much fresh collected entropy as it has bits, not that it is information-theoretically secure.
-- **EXPANDED**: When the unused collected entropy is less than required, the pipeline's ChaCha20 stream, seeded via HKDF, stretches the seed to the output size. This provides computational security.
+- **ENTROPY-BACKED**: When the unused collected entropy (as estimated) is at least what the output needs, the generator is reseeded with that data before the output is made. ENTROPY-BACKED means the output is backed by at least as much fresh collected entropy as it has bits, not that it is information-theoretically secure.
+- **EXPANDED**: When the unused collected entropy is less than required, HMAC_DRBG stretches its seed to the output size. This provides computational security.
 
-Each generation uses up the available entropy. The data it used is kept only as a hash, which is mixed into later outputs but doesn't count toward the next ENTROPY-BACKED output or One-Time Pad (see [Entropy Accounting](#entropy-accounting-and-carry-over)).
+Each generation uses up the available entropy. The data it used reseeds the generator and is then wiped; it shapes every later output but doesn't count toward the next ENTROPY-BACKED output or One-Time Pad (see [Entropy Accounting](#entropy-accounting-and-generator-state)).
 
 ### Screenshots
 
@@ -109,7 +109,7 @@ Pick a category, then a type within it:
   - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
-  - One-Time Pad (Vernam cipher with a key from the ChaCha20 pipeline, so its security is computational; see [Generation Modes](#generation-modes)). Needs ENTROPY-BACKED mode, and each pad needs new entropy
+  - One-Time Pad (Vernam cipher with a key from HMAC_DRBG, so its security is computational; see [Generation Modes](#generation-modes)). Needs ENTROPY-BACKED mode, and each pad needs new entropy
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
     - Message Length: a pad (key) of a given number of characters, without typing the message
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
@@ -243,7 +243,7 @@ TRNG/
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
 │   │   ├── output_export.h/.cpp     # CSV and JSON export
 │   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
-│   ├── crypto/               # SHA-512, HKDF, ChaCha20, AES-256, quad layer
+│   ├── crypto/               # SHA-512, HMAC, HMAC_DRBG, launch self-tests
 │   ├── entropy/              # Entropy collectors, pool, per-source credit
 │   │                         # and health tests, raw-sample recorder
 │   │                         # (test build only)
@@ -274,48 +274,51 @@ TRNG/
 
 ### Minimum Entropy Requirement
 
-The application enforces a **512-bit minimum** for all output generation, regardless of the selected format: the seed must hold at least 512 bits of credited entropy (unused entropy plus entropy carried over from earlier generations). This ensures a baseline level of security even for small outputs.
+The application enforces a **512-bit minimum** for all output generation, regardless of the selected format: the generator must have received at least 512 bits of credited entropy (unused entropy plus entropy used by earlier generations in the session). This ensures a baseline level of security even for small outputs.
 
-### Cryptographic Architecture: Quad-Layer Pipeline
+### Cryptographic Architecture: HMAC_DRBG (SHA-512)
 
-All output generation uses a four-layer pipeline:
+All output comes from one HMAC_DRBG (SHA-512) instance per session, as specified in NIST SP 800-90A Rev. 1:
 
-1.  **Layer 1 (Masking)**: `ChaCha20` (RFC 8439) stream seeded by a `SHA-512` hash of the seed material (carry-over hash and new data points) + context (settings, time and a generation counter).
-2.  **Layer 2 (Injection)**: **XOR Information Fold**. The raw entropy pool is XORed directly into the stream, which Layer 3 then encrypts with a key hashed from it.
-3.  **Layer 3 (Transformation)**: `AES-256` (FIPS 197) in CTR mode, using a dynamic key derived from the stream itself. This adds robust non-linearity.
-4.  **Layer 4 (Whitening)**: Final `ChaCha20` whitening pass to remove any potential structural artifacts.
+1.  **Instantiate**: the first generation creates the generator from the collected data points (entropy input), a nonce (wall-clock time, generation counter, process id) and a fixed personalization string.
+2.  **Reseed**: every later generation reseeds it with the new data points collected since the previous one. Used points are wiped afterwards.
+3.  **Generate**: output is produced in requests of at most 64 KiB. The first request of each generation takes the settings, time and generation counter as additional input, so two generations never share output. After every request the generator rewrites its state, so a later copy of memory can't recover earlier output.
+4.  **Self-tests**: at launch, SHA-512, HMAC-SHA-512 and HMAC_DRBG are checked against known answers (FIPS 180-4, RFC 4231, NIST CAVP). If one fails, generating is turned off.
+
+The security strength is 256 bits. The generator's state (1,024 bits) is kept in locked memory and wiped on Clear, logoff and exit.
 
 ### Generation Modes
 
 | Collected Entropy | Mode | Security Level |
 |-------------------|------|----------------|
 | Unused + used < 512 bits | Blocked | Generation disabled |
-| Unused + used >= 512, unused < target | EXPANDED | Computational (Quad-Layer pipeline) |
-| Unused >= target | ENTROPY-BACKED | Computational (Quad-Layer pipeline); unused collected entropy is at least the output size |
+| Unused + used >= 512, unused < target | EXPANDED | Computational (HMAC_DRBG) |
+| Unused >= target | ENTROPY-BACKED | Computational (HMAC_DRBG); unused collected entropy is at least the output size |
 
-Both modes run the same pipeline and are computationally secure. The last layer is a ChaCha20 stream whose 256-bit key and 96-bit nonce come from a SHA-512 hash, so every output is set by 352 bits of state and is only as strong as the pipeline. ENTROPY-BACKED means the unused collected entropy (as estimated) is at least the output size, not that the output is information-theoretically secure. The One-Time Pad is a Vernam cipher with such a key, so its security is computational too: without the key the ciphertext can't be decrypted in practice, but it is not a true one-time pad.
+Both modes use the same generator and are computationally secure. HMAC_DRBG's security strength is 256 bits, so every output is only as strong as the generator. ENTROPY-BACKED means the unused collected entropy (as estimated) is at least the output size, not that the output is information-theoretically secure. The One-Time Pad is a Vernam cipher with such a key, so its security is computational too: without the key the ciphertext can't be decrypted in practice, but it is not a true one-time pad.
 
-### Entropy Accounting and Carry-Over
+### Entropy Accounting and Generator State
 
 - **Available** entropy is the credit of new data from the ticked sources. Only available entropy counts toward ENTROPY-BACKED mode and the One-Time Pad.
-- A successful generation uses up all available entropy of the ticked sources. Its data points are replaced by a 64-byte carry-over value (HMAC-SHA-512 keyed by the SHA-512 of the seed material) and wiped. The carry-over is mixed into every later seed, but reading memory later doesn't reveal the data behind earlier outputs.
-- A cancelled or failed generation uses nothing up.
-- **Clear** wipes the data, the credit and the carry-over.
-- The key derivation info holds the current time and a per-process generation counter, so two generations never share it.
+- A successful generation uses up all available entropy of the ticked sources. Its data points reseed the generator and are then wiped. The generator's state carries their effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
+- A generation works on a copy of the generator. A cancelled or failed generation uses nothing up and leaves the generator as it was.
+- **Clear** wipes the data, the credit and the generator; the next generation creates a new one.
+- The additional input of each generation holds the current time and a per-process generation counter, so two generations never share it.
 
 ## Documentation & Standards
 
 | Component | Standard | Authority |
 |-----------|----------|-----------|
 | Hashing | FIPS 180-4 | NIST |
-| Encryption| FIPS 197 | NIST |
-| Stream | RFC 8439 | IETF |
-| KDF | RFC 5869 | IETF |
+| HMAC | FIPS 198-1, RFC 4231 (test vectors) | NIST, IETF |
+| Random bit generator | SP 800-90A Rev. 1 (HMAC_DRBG), CAVP test vectors | NIST |
 | Entropy sources | SP 800-90B (measurement, health tests), AIS 31 (stochastic models: [docs/stochastic_models.md](docs/stochastic_models.md)) | NIST, BSI |
 
 ## Statistical Validation Results
 
-All tests run against the Quad-Layer CSPRNG pipeline output generated by the CLI tool `trng_gen.exe`. They show the output has no detectable statistical bias; they say nothing about how much entropy the sources collect, since a CSPRNG's output passes them whatever its seed. For the sources, see [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
+**These results are from the earlier quad-layer pipeline (ChaCha20, AES-256), which HMAC_DRBG replaced. They have not been rerun for HMAC_DRBG yet.**
+
+All tests ran against the pipeline output generated by the CLI tool `trng_gen.exe`. They show the output has no detectable statistical bias; they say nothing about how much entropy the sources collect, since a CSPRNG's output passes them whatever its seed. For the sources, see [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
 
 ### Summary
 

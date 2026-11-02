@@ -199,8 +199,7 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
                             size_t quantity, size_t bytesPerItem,
                             const std::vector<uint8_t> &randomBytes,
                             std::vector<uint8_t> &itemBytes,
-                            const Crypto::SecureBytes &seedMaterial,
-                            uint64_t generationNumber,
+                            Crypto::HmacDrbg &generator,
                             GenerationResult &result) {
   const WordLists::WordList &wordList =
       WordLists::Get(settings.passphraseWordList);
@@ -218,7 +217,6 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
   uuidV7Options.ordering = settings.uuidV7Ordering;
   uuidV7Options.counterBits = settings.uuidV7CounterBits;
   uuidV7Options.incrementBits = settings.uuidV7IncrementBits;
-  uint32_t attempt = 0;
 
   for (size_t i = 0; i < quantity; i++) {
     if ((i & 0x3FF) == 0)
@@ -241,14 +239,11 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
 
       for (unsigned retry = 1;
            allDrawsRejected && retry <= AppConfig::INTEGER_MAX_RETRIES; retry++) {
-        ++attempt;
         Logger::Log(Logger::Level::INFO, "CSPRNG",
-                    "Integer item %zu: all draws rejected, retrying "
-                    "(attempt %u)",
-                    i + 1, attempt);
+                    "Integer item %zu: all draws rejected, retry %u",
+                    i + 1, retry);
         Crypto::SecureClearVector(itemBytes);
-        itemBytes = GenerateRandomBytes(settings, seedMaterial, generationNumber,
-                                        bytesPerItem, attempt);
+        itemBytes = GenerateRandomBytes(generator, bytesPerItem);
         item = GenerateInteger(itemBytes, settings.integerMin,
                                settings.integerMax, allDrawsRejected,
                                itemBinary);
@@ -345,24 +340,12 @@ GenerationResult GenerateOutput(
   if (bytesNeeded < 64)
     bytesNeeded = 64;
 
-  const uint64_t CHACHA20_MAX_KEYSTREAM_BYTES = 64ULL << 32;
-  if (static_cast<uint64_t>(bytesNeeded) > CHACHA20_MAX_KEYSTREAM_BYTES) {
-    result.errorMessage = "Requested output is too large: it needs more than "
-                          "256 GiB of random data. Reduce the quantity or "
-                          "item size.";
-    return result;
-  }
-
   const uint64_t generationNumber = ++s_generationCount;
   Entropy::GenerationInput input;
-  Entropy::CarryOver nextCarryOver{};
-  Crypto::SecureBytes seedMaterial;
   std::vector<uint8_t> randomBytes;
   std::vector<uint8_t> itemBytes;
   auto wipeAll = [&]() {
     input.SecureWipe();
-    SecureZeroMemory(nextCarryOver.data(), nextCarryOver.size());
-    Crypto::SecureClearVector(seedMaterial);
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
     Crypto::SecureClearVector(result.output);
@@ -375,12 +358,12 @@ GenerationResult GenerateOutput(
     input = g_state.entropyPool.CopyGenerationInput(includedSources);
     Logger::Log(Logger::Level::INFO, "CSPRNG",
                 "Generation %llu: %zu new data points, %.1f bits credited, "
-                "carry-over %s",
+                "generator %s",
                 static_cast<unsigned long long>(generationNumber),
                 input.newPoints.size(), input.CreditBits(),
-                input.hasCarryOver ? "included" : "none");
+                input.generator ? "continued" : "new");
 
-    if (input.newPoints.empty() && !input.hasCarryOver) {
+    if (input.newPoints.empty() && !input.generator) {
       wipeAll();
       result.errorMessage = "No entropy data available";
       return result;
@@ -391,16 +374,19 @@ GenerationResult GenerateOutput(
                     ? "ENTROPY-BACKED - unused entropy met the target"
                     : "EXPANDED - unused entropy below the target");
 
-    seedMaterial = BuildSeedMaterial(input);
-    randomBytes =
-        GenerateRandomBytes(settings, seedMaterial, generationNumber, bytesNeeded);
+    SeedGenerator(input, generationNumber);
+    const std::string generationInfo =
+        BuildGenerationInfo(settings, bytesNeeded, generationNumber);
+    randomBytes = GenerateRandomBytes(
+        *input.generator, bytesNeeded,
+        {reinterpret_cast<const uint8_t *>(generationInfo.data()),
+         generationInfo.size()});
     result.rawBytesGenerated = randomBytes.size();
     ThrowIfGenerationCancelled();
 
     const bool written =
         isList ? WriteListOutput(settings, format, quantity, bytesPerItem, randomBytes,
-                                 itemBytes, seedMaterial, generationNumber,
-                                 result)
+                                 itemBytes, *input.generator, result)
                : WriteOneTimePadOutput(settings, randomBytes, result);
     if (!written) {
       wipeAll();
@@ -412,13 +398,10 @@ GenerationResult GenerateOutput(
       result.output.push_back('\0');
     }
 
-    nextCarryOver = DeriveCarryOver(seedMaterial);
-    g_state.entropyPool.UseGenerationInput(input, nextCarryOver);
+    g_state.entropyPool.UseGenerationInput(input);
     result.entropyConsumed = static_cast<float>(input.CreditBits());
 
     input.SecureWipe();
-    SecureZeroMemory(nextCarryOver.data(), nextCarryOver.size());
-    Crypto::SecureClearVector(seedMaterial);
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
 

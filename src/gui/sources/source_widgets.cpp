@@ -5,9 +5,9 @@
 #include <cstdarg>
 
 void RenderUsedDataWarning() {
-  if (g_state.entropyPool.HasCarryOver() && g_state.showUsedDataWarning) {
+  if (g_state.entropyPool.HasUsedData() && g_state.showUsedDataWarning) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
-    ImGui::TextWrapped("WARNING: Data used by earlier generations is kept only as a hash, which is mixed into every later output. Source selection only affects NEW data, which no generation has used yet.");
+    ImGui::TextWrapped("WARNING: Data used by earlier generations is wiped, but it shaped the generator's state, which every later output depends on. Source selection only affects NEW data, which no generation has used yet.");
     ImGui::TextWrapped("Used data no longer counts toward the entropy bar. Clear wipes it.");
     ImGui::PopStyleColor();
 

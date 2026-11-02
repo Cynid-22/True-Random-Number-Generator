@@ -1,6 +1,6 @@
 # Statistical Testing Guide
 
-This guide covers how to build the CLI generator and run 4 statistical test suites against the TRNG's Quad-Layer CSPRNG pipeline.
+This guide covers how to build the CLI generator and run 4 statistical test suites against the TRNG's HMAC_DRBG (SHA-512) generator.
 
 ---
 
@@ -15,7 +15,7 @@ pacman -S git unzip mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-jsoncpp mi
 
 ## Step 1: Build the CLI Generator
 
-The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the same Quad-Layer pipeline (HKDF → ChaCha20 → XOR → AES-256 → ChaCha20) as the main application, with no GUI dependencies.
+The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the same HMAC_DRBG (SHA-512) code as the main application, with no GUI dependencies: each 4 MiB chunk comes from its own generator, seeded from hardware timing and the chunk number.
 
 1.  Open your **MSYS2 UCRT64** terminal.
 2.  Navigate to the TRNG project root:

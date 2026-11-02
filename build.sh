@@ -109,10 +109,6 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/crypto/sha512.cpp \
     src/crypto/hmac_drbg.cpp \
     src/crypto/self_test.cpp \
-    src/crypto/hkdf.cpp \
-    src/crypto/chacha20.cpp \
-    src/crypto/aes.cpp \
-    src/crypto/quad_layer.cpp \
     "${SAMPLE_EXPORT_SOURCES[@]}" \
     external/imgui/imgui.cpp \
     external/imgui/imgui_draw.cpp \

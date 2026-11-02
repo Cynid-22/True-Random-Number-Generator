@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <utility>
 #include <vector>
 #include <windows.h>
 
@@ -49,6 +50,69 @@ bool operator!=(const SecureAllocator<T>&, const SecureAllocator<U>&) noexcept {
 }
 
 using SecureBytes = std::vector<uint8_t, SecureAllocator<uint8_t>>;
+
+template <typename T>
+class SecureBox {
+public:
+    SecureBox() = default;
+
+    SecureBox(const SecureBox& other) {
+        if (other.m_object)
+            Emplace(*other.m_object);
+    }
+
+    SecureBox(SecureBox&& other) noexcept : m_object(std::exchange(other.m_object, nullptr)) {}
+
+    SecureBox& operator=(const SecureBox& other) {
+        if (this != &other) {
+            Reset();
+            if (other.m_object)
+                Emplace(*other.m_object);
+        }
+        return *this;
+    }
+
+    SecureBox& operator=(SecureBox&& other) noexcept {
+        if (this != &other) {
+            Reset();
+            m_object = std::exchange(other.m_object, nullptr);
+        }
+        return *this;
+    }
+
+    ~SecureBox() { Reset(); }
+
+    template <typename... Args>
+    T& Emplace(Args&&... args) {
+        Reset();
+        SecureAllocator<T> allocator;
+        T* memory = allocator.allocate(1);
+        try {
+            m_object = new (memory) T(std::forward<Args>(args)...);
+        } catch (...) {
+            allocator.deallocate(memory, 1);
+            throw;
+        }
+        return *m_object;
+    }
+
+    void Reset() noexcept {
+        if (!m_object)
+            return;
+        m_object->~T();
+        SecureAllocator<T>().deallocate(m_object, 1);
+        m_object = nullptr;
+    }
+
+    explicit operator bool() const noexcept { return m_object != nullptr; }
+    T& operator*() noexcept { return *m_object; }
+    const T& operator*() const noexcept { return *m_object; }
+    T* operator->() noexcept { return m_object; }
+    const T* operator->() const noexcept { return m_object; }
+
+private:
+    T* m_object = nullptr;
+};
 
 template <typename T, typename Allocator>
 void SecureClearVector(std::vector<T, Allocator>& vec) {

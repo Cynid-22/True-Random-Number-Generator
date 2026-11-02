@@ -12,7 +12,7 @@
 #include <vector>
 
 static const char *const ONE_TIME_PAD_METHOD_TEXT =
-    "Method: Vernam cipher with a key from the ChaCha20 pipeline";
+    "Method: Vernam cipher with a key from HMAC_DRBG (SHA-512)";
 
 static bool IsFileResult() {
   return g_state.oneTimePadResultMode == ONE_TIME_PAD_FILE_INPUT;
@@ -38,8 +38,8 @@ static void RenderKeyWarning() {
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
   ImGui::TextWrapped("Save the key. Without it the ciphertext can't be "
                      "decrypted in practice, and this program can't recover "
-                     "it either. The key is ChaCha20 output from the "
-                     "cryptographic pipeline, so this security is "
+                     "it either. The key is HMAC_DRBG output seeded from "
+                     "the collected entropy, so this security is "
                      "computational, not the information-theoretic security "
                      "of a true one-time pad.");
   ImGui::PopStyleColor();

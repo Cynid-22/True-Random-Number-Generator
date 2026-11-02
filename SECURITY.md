@@ -32,15 +32,15 @@ Instead, report it privately:
 
 This application implements the following security measures:
 
-### Cryptographic Pipeline
-- **SHA-512** (FIPS 180-4) for hashing
-- **HKDF** (RFC 5869) for key derivation
-- **ChaCha20** (RFC 8439) for stream generation
-- **AES-256-CTR** (FIPS 197) for block transformation
-- Quad-layer pipeline tested with **NIST SP 800-22** (8000 streams): 13 of 15 tests passed cleanly; FFT and Universal passed only marginally (their P-values passed, but their pass counts, 7886 and 7892 of 8000, were just under the strict bound of 7893). See the README for the full results
+### Cryptographic Generator
+- **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first collected data, reseeded with new data at every generation, state rewritten after every request of at most 64 KiB
+- **SHA-512** (FIPS 180-4) and **HMAC-SHA-512** (FIPS 198-1) underneath it; no table lookups, so no cache-timing leak
+- **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231) and HMAC_DRBG (NIST CAVP vectors) are checked against known answers; if one fails, generating is turned off
+- The generator's state is kept in locked memory and wiped on Clear, logoff and exit; a generation works on a copy that replaces it only when the generation succeeds
+- The statistical results in the README are from the earlier quad-layer pipeline (ChaCha20, AES-256) and have not been rerun for HMAC_DRBG yet
 
 ### Memory Security
-- Collected entropy data and the seed material use an allocator that locks their pages in RAM (`VirtualLock`, best effort: the process asks for a 128 MB minimum working set, and larger pools can still be paged) and wipes every block when it is freed, including the old blocks a growing buffer leaves behind
+- Collected entropy data, the seed material and the generator's state use an allocator that locks their pages in RAM (`VirtualLock`, best effort: the process asks for a 128 MB minimum working set, and larger pools can still be paged) and wipes every block when it is freed, including the old blocks a growing buffer leaves behind
 - Dear ImGui's memory is wiped when freed, and Clear, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy)
 - Output buffers, keys and the pool are wiped with `SecureZeroMemory`; the generation thread works on a snapshot of the settings that is wiped when it ends
 - Logoff and shutdown (`WM_ENDSESSION`) wipe the pool, outputs, One-Time Pad message and clipboard
@@ -61,4 +61,3 @@ This application implements the following security measures:
 - **Clipboard**: Copied output is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
 - **Memory locking**: Outputs, One-Time Pad keys and messages are wiped but not locked in RAM, so they can reach the pagefile
 - **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests, but the per-sample caps have not been validated with an SP 800-90B assessment of raw samples
-- **AES MixColumns**: Column ordering should be verified against FIPS 197 Appendix B/C test vectors

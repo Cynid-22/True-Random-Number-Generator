@@ -484,9 +484,9 @@ static void RenderEntropyProgressBar() {
         "Credit is conservative (at most 1 or 2 bits per timing or "
         "movement, 8 bits per\n64 microphone samples) and stops for a "
         "source that fails an SP 800-90B health test.\n\n"
-        "A generation uses up all available entropy. Used data is kept only "
-        "as a hash,\nwhich is mixed into every later output but doesn't "
-        "count toward the bar again.");
+        "A generation uses up all available entropy. Used data is wiped "
+        "after it reseeds\nthe generator, which every later output depends "
+        "on, and doesn't count toward the bar again.");
   }
 }
 
@@ -500,17 +500,16 @@ static void RenderSecurityMode() {
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Unused collected entropy (as estimated) covers the bits the "
-          "output needs.\nThe output is still the pipeline's ChaCha20 "
-          "stream, so security is computational,\nnot "
-          "information-theoretic.");
+          "output needs.\nThe output is still HMAC_DRBG output, so security "
+          "is computational,\nnot information-theoretic.");
     }
   } else {
     ImGui::TextColored(UiColor::Warning, "EXPANDED");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "Unused collected entropy is below the bits the output needs.\nThe "
-          "pipeline's ChaCha20 stream stretches the seed to the output size. "
-          "\nSecurity is computational. One-Time Pad needs ENTROPY-BACKED.");
+          "Unused collected entropy is below the bits the output needs.\n"
+          "HMAC_DRBG stretches the seed to the output size.\nSecurity is "
+          "computational. One-Time Pad needs ENTROPY-BACKED.");
     }
   }
 }
@@ -702,15 +701,12 @@ void RenderAboutModal() {
     ImGui::Text("Version %s", APP_VERSION);
     ImGui::Separator();
     ImGui::Text("A high-security cryptographic randomness tool.");
-    ImGui::Text("Uses a Quad-Layer CSPRNG architecture:");
-    ImGui::BulletText("Layer 1: ChaCha20 Masking");
-    ImGui::BulletText("Layer 2: Entropy Injection (XOR Fold)");
-    ImGui::BulletText("Layer 3: AES-256 Transformation");
-    ImGui::BulletText("Layer 4: ChaCha20 Final Whitening");
-    ImGui::Text("Every output, in both security modes, is this pipeline's "
-                "ChaCha20 stream");
-    ImGui::Text("seeded from the collected entropy. Security is "
-                "computational.");
+    ImGui::Text("Every output, in both security modes, comes from HMAC_DRBG "
+                "(SHA-512, NIST SP 800-90A)");
+    ImGui::Text("seeded and reseeded with the collected entropy. Its "
+                "security strength is 256 bits;");
+    ImGui::Text("security is computational. The cryptographic code is "
+                "checked against known answers at launch.");
     ImGui::Spacing();
     ImGui::Text("Entropy sources: Clock Drift, CPU Jitter, Keystrokes, Mouse, Mic.");
     ImGui::Separator();
@@ -742,13 +738,6 @@ void RenderClosingModal() {
     ImGui::Text("Stopping the generation in progress.");
     ImGui::Text("The app will close as soon as it has stopped. The unfinished "
                 "output is discarded and all data is wiped.");
-    if (g_state.generationInCryptoPass) {
-      ImGui::Spacing();
-      ImGui::TextColored(UiColor::Warning,
-                         "The encryption pass is running and can't be "
-                         "interrupted. For very large outputs this can take a "
-                         "while.");
-    }
     ImGui::Spacing();
     ImGui::TextColored(UiColor::DimText, "Waiting: %.1fs  %s",
                        ImGui::GetTime() - g_state.closeRequestedTime,

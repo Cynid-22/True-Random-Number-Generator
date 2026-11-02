@@ -1,9 +1,9 @@
 #pragma once
 
-inline constexpr char PIPELINE_STATE_NOTE[] =
-    "Every output is a ChaCha20 stream set by 352 bits of pipeline state\n"
-    "(a 256-bit key and a 96-bit nonce). Counts above 352 bits measure\n"
-    "collected entropy or choices, not how hard the output is to guess.";
+inline constexpr char SECURITY_STRENGTH_NOTE[] =
+    "Every output comes from HMAC_DRBG (SHA-512), whose security strength\n"
+    "is 256 bits. Counts above 256 bits measure collected entropy or\n"
+    "choices, not how hard the output is to guess.";
 
 void BeginOptionRow(const char *label, bool alignToInput = true);
 

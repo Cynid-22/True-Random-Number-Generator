@@ -9,10 +9,7 @@ echo "Building trng_gen.exe..."
 g++ -O3 -o trng_gen.exe \
   src/tools/trng_gen.cpp \
   src/crypto/sha512.cpp \
-  src/crypto/hkdf.cpp \
-  src/crypto/chacha20.cpp \
-  src/crypto/aes.cpp \
-  src/crypto/quad_layer.cpp \
+  src/crypto/hmac_drbg.cpp \
   -I src -std=c++17 -lpthread
 
 echo "Done! Built trng_gen.exe"

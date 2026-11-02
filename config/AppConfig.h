@@ -5,7 +5,7 @@
 
 namespace AppConfig {
     constexpr float MINIMUM_ENTROPY_BITS = 512.0f;
-    constexpr int PIPELINE_STATE_BITS = 352;
+    constexpr int SECURITY_STRENGTH_BITS = 256;
 
     constexpr int DECIMAL_MIN_DIGITS = 1;
     constexpr int DECIMAL_MAX_DIGITS = INT_MAX;

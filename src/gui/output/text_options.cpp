@@ -173,8 +173,8 @@ static void RenderPassphraseStrength() {
                      wordList.name,
                      WithThousandsSeparators(wordList.words.size()).c_str(),
                      wordList.bitsPerWord, parts.c_str(), totalBits);
-  if (totalBits > AppConfig::PIPELINE_STATE_BITS)
-    HelpMarker(PIPELINE_STATE_NOTE);
+  if (totalBits > AppConfig::SECURITY_STRENGTH_BITS)
+    HelpMarker(SECURITY_STRENGTH_NOTE);
 }
 
 static bool ListUsesDigits(const WordLists::WordList &wordList) {

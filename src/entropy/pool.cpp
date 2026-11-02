@@ -1,6 +1,7 @@
 #include "pool.h"
 #include "../crypto/secure_mem.h"
 #include <algorithm>
+#include <utility>
 #include <windows.h>
 
 namespace Entropy {
@@ -15,10 +16,9 @@ double GenerationInput::CreditBits() const {
 
 void GenerationInput::SecureWipe() {
     Crypto::SecureClearVector(newPoints);
-    SecureZeroMemory(carryOver.data(), carryOver.size());
     newPointCountBySource.fill(0);
     creditBitsBySource.fill(0.0);
-    hasCarryOver = false;
+    generator.Reset();
 }
 
 EntropyPool::EntropyPool() {}
@@ -67,8 +67,7 @@ GenerationInput EntropyPool::CopyGenerationInput(
             input.creditBitsBySource[sourceIndex] = m_availableBitsBySource[sourceIndex];
         }
 
-        input.carryOver = m_carryOver;
-        input.hasCarryOver = m_hasCarryOver;
+        input.generator = m_generator;
         input.poolClearCount = m_clearCount;
     }
 
@@ -79,8 +78,7 @@ GenerationInput EntropyPool::CopyGenerationInput(
     return input;
 }
 
-void EntropyPool::UseGenerationInput(const GenerationInput& input,
-                                     const CarryOver& nextCarryOver) {
+void EntropyPool::UseGenerationInput(GenerationInput& input) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (input.poolClearCount != m_clearCount)
         return;
@@ -106,13 +104,12 @@ void EntropyPool::UseGenerationInput(const GenerationInput& input,
         m_usedBits += usedBits;
     }
 
-    m_carryOver = nextCarryOver;
-    m_hasCarryOver = true;
+    m_generator = std::move(input.generator);
 }
 
-bool EntropyPool::HasCarryOver() const {
+bool EntropyPool::HasUsedData() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    return m_hasCarryOver;
+    return static_cast<bool>(m_generator);
 }
 
 double EntropyPool::GetAvailableBits(const std::set<EntropySource>& includedSources) const {
@@ -181,8 +178,7 @@ void EntropyPool::SecureWipe() {
     m_availableBitsBySource.fill(0.0);
     m_creditedBitsBySource.fill(0.0);
     m_usedBits = 0.0;
-    SecureZeroMemory(m_carryOver.data(), m_carryOver.size());
-    m_hasCarryOver = false;
+    m_generator.Reset();
     m_clearCount++;
 }
 

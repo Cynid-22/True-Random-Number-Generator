@@ -6,18 +6,16 @@
 #include <cstdint>
 #include "entropy_common.h"
 #include "source_credit.h"
+#include "../crypto/hmac_drbg.h"
+#include "../crypto/secure_mem.h"
 
 namespace Entropy {
-
-constexpr size_t CARRY_OVER_BYTES = 64;
-using CarryOver = std::array<uint8_t, CARRY_OVER_BYTES>;
 
 struct GenerationInput {
     EntropyDataVector newPoints;
     std::array<size_t, ENTROPY_SOURCE_COUNT> newPointCountBySource{};
     std::array<double, ENTROPY_SOURCE_COUNT> creditBitsBySource{};
-    CarryOver carryOver{};
-    bool hasCarryOver = false;
+    Crypto::SecureBox<Crypto::HmacDrbg> generator;
     uint64_t poolClearCount = 0;
 
     double CreditBits() const;
@@ -36,9 +34,9 @@ public:
 
     GenerationInput CopyGenerationInput(const std::set<EntropySource>& includedSources) const;
 
-    void UseGenerationInput(const GenerationInput& input, const CarryOver& nextCarryOver);
+    void UseGenerationInput(GenerationInput& input);
 
-    bool HasCarryOver() const;
+    bool HasUsedData() const;
 
     double GetAvailableBits(const std::set<EntropySource>& includedSources) const;
 
@@ -65,8 +63,7 @@ private:
     std::array<double, ENTROPY_SOURCE_COUNT> m_availableBitsBySource{};
     std::array<double, ENTROPY_SOURCE_COUNT> m_creditedBitsBySource{};
     double m_usedBits = 0.0;
-    CarryOver m_carryOver{};
-    bool m_hasCarryOver = false;
+    Crypto::SecureBox<Crypto::HmacDrbg> m_generator;
     uint64_t m_clearCount = 0;
 };
 

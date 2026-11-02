@@ -77,7 +77,6 @@ struct AppState : OutputSettings {
 
     bool truncateOutputView = true;
     std::atomic<bool> cancelGenerationRequested{false};
-    std::atomic<bool> generationInCryptoPass{false};
 
     bool closeRequested = false;
     double closeRequestedTime = 0.0;

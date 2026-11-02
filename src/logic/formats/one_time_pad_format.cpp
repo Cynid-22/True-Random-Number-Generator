@@ -139,7 +139,7 @@ std::vector<char> BuildOneTimePadExportText(const char *key,
 
   if (fileMode) {
     header += "File:     " + fileName + " (" + lengthText + " bytes)\n"
-              "Method:   Vernam cipher with a key from the ChaCha20 pipeline\n"
+              "Method:   Vernam cipher with a key from HMAC_DRBG (SHA-512)\n"
               "Encrypt:  each byte: ciphertext = file XOR key\n"
               "Decrypt:  file = ciphertext XOR key (the same XOR)\n"
               "Encoding: KEY and CIPHERTEXT below are hexadecimal, 2 "
@@ -147,7 +147,7 @@ std::vector<char> BuildOneTimePadExportText(const char *key,
     keyTitle = "KEY (" + lengthText + " bytes, hex)\n";
     ciphertextTitle = "CIPHERTEXT (" + lengthText + " bytes, hex)\n";
   } else {
-    header += "Method:   Vernam cipher with a key from the ChaCha20 pipeline\n"
+    header += "Method:   Vernam cipher with a key from HMAC_DRBG (SHA-512)\n"
               "Encrypt:  ciphertext = (message + key) mod 63\n"
               "Alphabet: 0-9 A-Z a-z space (0-9 = 0-9, A-Z = 10-35, "
               "a-z = 36-61, space = 62)\n"
@@ -161,7 +161,7 @@ std::vector<char> BuildOneTimePadExportText(const char *key,
             "the ciphertext can\nread the message. Keep it secret and never "
             "reuse the key. Without the key the\nciphertext can't be "
             "decrypted in practice, and this program can't recover it\n"
-            "either. The key is ChaCha20 output, so this security is "
+            "either. The key is HMAC_DRBG output, so this security is "
             "computational, not the\ninformation-theoretic security of a "
             "true one-time pad.\n\n";
 

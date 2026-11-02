@@ -136,7 +136,7 @@ static void RenderEntropyRequirementRow() {
     ImGui::SameLine();
     ImGui::TextColored(UiColor::DimText, "(Minimum Base Security)");
   }
-  HelpMarker(PIPELINE_STATE_NOTE);
+  HelpMarker(SECURITY_STRENGTH_NOTE);
 }
 
 void RenderOutputConfigSection() {

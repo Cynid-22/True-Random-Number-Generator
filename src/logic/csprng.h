@@ -1,22 +1,20 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <string>
 #include <vector>
 #include "../core/output_settings.h"
-#include "../crypto/secure_mem.h"
+#include "../crypto/hmac_drbg.h"
 #include "../entropy/pool.h"
 
 namespace CSPRNG {
 
-Crypto::SecureBytes BuildSeedMaterial(const Entropy::GenerationInput& input);
+void SeedGenerator(Entropy::GenerationInput& input, uint64_t generationNumber);
 
-Entropy::CarryOver DeriveCarryOver(const Crypto::SecureBytes& seedMaterial);
+std::string BuildGenerationInfo(const OutputSettings& settings, size_t byteCount,
+                                uint64_t generationNumber);
 
-std::vector<uint8_t> GenerateRandomBytes(
-    const OutputSettings& settings,
-    const Crypto::SecureBytes& seedMaterial,
-    uint64_t generationNumber,
-    size_t byteCount,
-    uint32_t attempt = 0);
+std::vector<uint8_t> GenerateRandomBytes(Crypto::HmacDrbg& generator, size_t byteCount,
+                                         Crypto::ByteSpan additionalInput = {});
 
 }
