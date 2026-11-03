@@ -33,7 +33,7 @@ Instead, report it privately:
 This application implements the following security measures:
 
 ### Cryptographic Generator
-- **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first collected data, reseeded with new data at every generation, state rewritten after every request of at most 64 KiB
+- **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first collected data, reseeded with new data at every generation and every 64 MiB during long outputs, state rewritten after every request of at most 64 KiB
 - **SHA-512** (FIPS 180-4) and **HMAC-SHA-512** (FIPS 198-1) underneath it; no table lookups, so no cache-timing leak
 - **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231) and HMAC_DRBG (NIST CAVP vectors) are checked against known answers; if one fails, generating is turned off
 - Windows' random generator (BCryptGenRandom) adds 64 bytes every time the generator is created or reseeded. They are uncredited: never counted as entropy, so they can only add to the output's unpredictability and never prop up a claim. If Windows can't supply them, generation continues without them

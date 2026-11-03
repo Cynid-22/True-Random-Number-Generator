@@ -14,6 +14,7 @@ namespace CSPRNG {
 static const char PERSONALIZATION_STRING[] = "TRNG HMAC_DRBG";
 static constexpr size_t BYTES_PER_DATA_POINT = 16;
 static constexpr size_t OS_RANDOM_BYTES = 64;
+static constexpr size_t RESEED_INTERVAL_BYTES = 64 * 1024 * 1024;
 
 template <typename Integer>
 static void AppendLittleEndian(Crypto::SecureBytes &bytes, Integer value) {
@@ -32,10 +33,10 @@ static void AppendOsRandom(Crypto::SecureBytes &bytes) {
   }
 }
 
-static Crypto::SecureBytes BuildPointBytes(const Entropy::GenerationInput &input) {
+static Crypto::SecureBytes BuildPointBytes(const Entropy::EntropyDataVector &points) {
   Crypto::SecureBytes bytes;
-  bytes.reserve(input.newPoints.size() * BYTES_PER_DATA_POINT + OS_RANDOM_BYTES);
-  for (const auto &point : input.newPoints) {
+  bytes.reserve(points.size() * BYTES_PER_DATA_POINT + OS_RANDOM_BYTES);
+  for (const auto &point : points) {
     AppendLittleEndian(bytes, point.timestamp);
     AppendLittleEndian(bytes, point.value);
   }
@@ -61,7 +62,7 @@ static Crypto::ByteSpan SpanOf(const Crypto::SecureBytes &bytes) {
 }
 
 void SeedGenerator(Entropy::GenerationInput &input, uint64_t generationNumber) {
-  Crypto::SecureBytes seedMaterial = BuildPointBytes(input);
+  Crypto::SecureBytes seedMaterial = BuildPointBytes(input.newPoints);
   if (!input.generator) {
     AppendOsRandom(seedMaterial);
     const Crypto::SecureBytes nonce = BuildNonce(generationNumber);
@@ -111,19 +112,37 @@ std::string BuildGenerationInfo(const OutputSettings &settings, size_t byteCount
   return info.str();
 }
 
+static void ReseedDuringGeneration(Crypto::HmacDrbg &generator,
+                                   const ReseedSource &reseedSource) {
+  Entropy::EntropyDataVector points =
+      reseedSource.pool.TakeAdditionalInput(reseedSource.input, reseedSource.includedSources);
+  Crypto::SecureBytes seedMaterial = BuildPointBytes(points);
+  Crypto::SecureClearVector(points);
+  AppendOsRandom(seedMaterial);
+  if (!seedMaterial.empty())
+    generator.Reseed(SpanOf(seedMaterial), {});
+}
+
 std::vector<uint8_t> GenerateRandomBytes(Crypto::HmacDrbg &generator, size_t byteCount,
-                                         Crypto::ByteSpan additionalInput) {
+                                         Crypto::ByteSpan additionalInput,
+                                         const ReseedSource *reseedSource) {
   std::vector<uint8_t> bytes(byteCount);
   try {
     size_t written = 0;
+    size_t bytesSinceReseed = 0;
     while (written < byteCount) {
       ThrowIfGenerationCancelled();
+      if (reseedSource && bytesSinceReseed >= RESEED_INTERVAL_BYTES) {
+        ReseedDuringGeneration(generator, *reseedSource);
+        bytesSinceReseed = 0;
+      }
       const size_t requestBytes =
           std::min(byteCount - written, Crypto::HmacDrbg::MAX_BYTES_PER_REQUEST);
       if (!generator.Generate(bytes.data() + written, requestBytes, additionalInput))
         throw std::runtime_error("HMAC_DRBG refused the request: reseed required.");
       additionalInput = {};
       written += requestBytes;
+      bytesSinceReseed += requestBytes;
     }
   } catch (...) {
     Crypto::SecureClearVector(bytes);

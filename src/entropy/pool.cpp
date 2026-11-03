@@ -47,6 +47,13 @@ void EntropyPool::RestartSourceTracking() {
     }
 }
 
+static void SortByTimestamp(EntropyDataVector& points) {
+    std::sort(points.begin(), points.end(),
+              [](const EntropyDataPoint& a, const EntropyDataPoint& b) {
+                  return a.timestamp < b.timestamp;
+              });
+}
+
 GenerationInput EntropyPool::CopyGenerationInput(
     const std::set<EntropySource>& includedSources) const {
     GenerationInput input;
@@ -71,11 +78,32 @@ GenerationInput EntropyPool::CopyGenerationInput(
         input.poolClearCount = m_clearCount;
     }
 
-    std::sort(input.newPoints.begin(), input.newPoints.end(),
-              [](const EntropyDataPoint& a, const EntropyDataPoint& b) {
-                  return a.timestamp < b.timestamp;
-              });
+    SortByTimestamp(input.newPoints);
     return input;
+}
+
+EntropyDataVector EntropyPool::TakeAdditionalInput(
+    GenerationInput& input, const std::set<EntropySource>& includedSources) const {
+    EntropyDataVector points;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (input.poolClearCount != m_clearCount)
+            return points;
+
+        for (EntropySource source : includedSources) {
+            const size_t sourceIndex = static_cast<size_t>(source);
+            const auto& sourceData = m_newDataBySource[sourceIndex];
+            const size_t absorbedCount =
+                std::min(input.newPointCountBySource[sourceIndex], sourceData.size());
+            points.insert(points.end(), sourceData.begin() + absorbedCount, sourceData.end());
+            input.newPointCountBySource[sourceIndex] = sourceData.size();
+            input.creditBitsBySource[sourceIndex] = std::max(
+                input.creditBitsBySource[sourceIndex], m_availableBitsBySource[sourceIndex]);
+        }
+    }
+
+    SortByTimestamp(points);
+    return points;
 }
 
 void EntropyPool::UseGenerationInput(GenerationInput& input) {
@@ -97,6 +125,7 @@ void EntropyPool::UseGenerationInput(GenerationInput& input) {
         if (input.newPointCountBySource[sourceIndex] == 0)
             continue;
         m_newDataBySource[sourceIndex].swap(unusedDataBySource[sourceIndex]);
+        m_creditEstimators[sourceIndex].DiscardHeldStartupBits();
 
         const double usedBits = input.creditBitsBySource[sourceIndex];
         m_availableBitsBySource[sourceIndex] =

@@ -377,10 +377,12 @@ GenerationResult GenerateOutput(
     SeedGenerator(input, generationNumber);
     const std::string generationInfo =
         BuildGenerationInfo(settings, bytesNeeded, generationNumber);
+    const ReseedSource reseedSource{g_state.entropyPool, includedSources, input};
     randomBytes = GenerateRandomBytes(
         *input.generator, bytesNeeded,
         {reinterpret_cast<const uint8_t *>(generationInfo.data()),
-         generationInfo.size()});
+         generationInfo.size()},
+        &reseedSource);
     result.rawBytesGenerated = randomBytes.size();
     ThrowIfGenerationCancelled();
 

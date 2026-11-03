@@ -36,6 +36,9 @@ public:
 
     void UseGenerationInput(GenerationInput& input);
 
+    EntropyDataVector TakeAdditionalInput(GenerationInput& input,
+                                          const std::set<EntropySource>& includedSources) const;
+
     bool HasUsedData() const;
 
     double GetAvailableBits(const std::set<EntropySource>& includedSources) const;

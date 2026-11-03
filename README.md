@@ -61,7 +61,7 @@ The entropy bar credits each source conservatively, per sample:
 
 A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed**; its data is still hashed into the seed until you choose **Turn off** (nothing from it is credited or hashed) or **Test again** (its full start-up test runs again). Timestamps are hashed into the seed but never credited.
 
-Each time collection starts, every source runs a start-up test (SP 800-90B 4.3): its first 1,024 samples go through both health tests before any of its credit counts. The credit is held during the test, released when the test passes and discarded if it fails. Keystroke and Mouse can be released early, after 64 and 512 samples, with **Use now**, once the enabled system and microphone sources have passed their own start-up tests; finishing the full test is recommended, since credit released early can be used before the full test would have caught a faulty device. The choice is not remembered between collections.
+Each time collection starts, every source runs a start-up test (SP 800-90B 4.3): its first 1,024 samples go through both health tests before any of its credit counts. The credit is held during the test, released when the test passes and discarded if it fails. If a generation uses the source's data before the test finishes, the credit held so far is discarded too, so it can't count later for data already used. Keystroke and Mouse can be released early, after 64 and 512 samples, with **Use now**, once the enabled system and microphone sources have passed their own start-up tests; finishing the full test is recommended, since credit released early can be used before the full test would have caught a faulty device. The choice is not remembered between collections.
 
 In a virtual machine, Clock Drift and CPU Jitter earn no credit: their timing comes from the virtual machine's view of the CPU, which the host controls. Their data is still hashed into the seed. TRNG detects a virtual machine through the CPU's hypervisor flag; Windows running on Hyper-V for Memory Integrity, WSL2 or Hyper-V itself is recognised as the host and keeps full credit. A hypervisor built to hide itself is not detected.
 
@@ -281,7 +281,7 @@ The application enforces a **512-bit minimum** for all output generation, regard
 All output comes from one HMAC_DRBG (SHA-512) instance per session, as specified in NIST SP 800-90A Rev. 1:
 
 1.  **Instantiate**: the first generation creates the generator from the collected data points (entropy input), a nonce (wall-clock time, generation counter, process id) and a fixed personalization string.
-2.  **Reseed**: every later generation reseeds it with the new data points collected since the previous one. Used points are wiped afterwards.
+2.  **Reseed**: every later generation reseeds it with the new data points collected since the previous one. During a long output it is also reseeded every 64 MiB with the points collected since the last reseed. Used points are wiped afterwards.
 3.  **Generate**: output is produced in requests of at most 64 KiB. The first request of each generation takes the settings, time and generation counter as additional input, so two generations never share output. After every request the generator rewrites its state, so a later copy of memory can't recover earlier output.
 4.  **Self-tests**: at launch, SHA-512, HMAC-SHA-512 and HMAC_DRBG are checked against known answers (FIPS 180-4, RFC 4231, NIST CAVP). If one fails, generating is turned off.
 
@@ -300,7 +300,7 @@ Both modes use the same generator and are computationally secure. HMAC_DRBG's se
 ### Entropy Accounting and Generator State
 
 - **Available** entropy is the credit of new data from the ticked sources. Only available entropy counts toward ENTROPY-BACKED mode and the One-Time Pad.
-- A successful generation uses up all available entropy of the ticked sources. Its data points reseed the generator and are then wiped. The generator's state carries their effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
+- A successful generation uses up all available entropy of the ticked sources. Its data points reseed the generator and are then wiped. Data collected while a long output is being made goes in at each 64 MiB reseed and is used up too; data collected after the last reseed stays available. The generator's state carries their effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
 - A generation works on a copy of the generator. A cancelled or failed generation uses nothing up and leaves the generator as it was.
 - **Clear** wipes the data, the credit and the generator; the next generation creates a new one.
 - Each time the generator is created or reseeded, 64 bytes from Windows' own random generator (BCryptGenRandom) are mixed in with the collected data. They are never credited: they don't count toward the entropy bar, the modes or the One-Time Pad, and the program works the same if Windows can't supply them.

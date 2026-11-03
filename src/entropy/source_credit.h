@@ -31,6 +31,8 @@ public:
 
     double FinishStartupEarly(EntropySource source);
 
+    void DiscardHeldStartupBits() { m_heldStartupBits = 0.0; }
+
     void Reset();
 
     struct Change {
