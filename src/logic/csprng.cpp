@@ -1,6 +1,8 @@
 #include "csprng.h"
 #include "../crypto/secure_mem.h"
 #include "formats/cancellation.h"
+#include "../logging/logger.h"
+#include "../platform/os_random.h"
 #include <algorithm>
 #include <chrono>
 #include <sstream>
@@ -11,6 +13,7 @@ namespace CSPRNG {
 
 static const char PERSONALIZATION_STRING[] = "TRNG HMAC_DRBG";
 static constexpr size_t BYTES_PER_DATA_POINT = 16;
+static constexpr size_t OS_RANDOM_BYTES = 64;
 
 template <typename Integer>
 static void AppendLittleEndian(Crypto::SecureBytes &bytes, Integer value) {
@@ -19,9 +22,19 @@ static void AppendLittleEndian(Crypto::SecureBytes &bytes, Integer value) {
   }
 }
 
-static Crypto::SecureBytes BuildSeedMaterial(const Entropy::GenerationInput &input) {
+static void AppendOsRandom(Crypto::SecureBytes &bytes) {
+  const size_t start = bytes.size();
+  bytes.resize(start + OS_RANDOM_BYTES);
+  if (!Platform::FillOsRandom(bytes.data() + start, OS_RANDOM_BYTES)) {
+    bytes.resize(start);
+    Logger::Log(Logger::Level::WARN, "CSPRNG",
+                "Windows random generator unavailable, seeding without it");
+  }
+}
+
+static Crypto::SecureBytes BuildPointBytes(const Entropy::GenerationInput &input) {
   Crypto::SecureBytes bytes;
-  bytes.reserve(input.newPoints.size() * BYTES_PER_DATA_POINT);
+  bytes.reserve(input.newPoints.size() * BYTES_PER_DATA_POINT + OS_RANDOM_BYTES);
   for (const auto &point : input.newPoints) {
     AppendLittleEndian(bytes, point.timestamp);
     AppendLittleEndian(bytes, point.value);
@@ -48,14 +61,16 @@ static Crypto::ByteSpan SpanOf(const Crypto::SecureBytes &bytes) {
 }
 
 void SeedGenerator(Entropy::GenerationInput &input, uint64_t generationNumber) {
-  const Crypto::SecureBytes seedMaterial = BuildSeedMaterial(input);
+  Crypto::SecureBytes seedMaterial = BuildPointBytes(input);
   if (!input.generator) {
+    AppendOsRandom(seedMaterial);
     const Crypto::SecureBytes nonce = BuildNonce(generationNumber);
     const Crypto::ByteSpan personalization{
         reinterpret_cast<const uint8_t *>(PERSONALIZATION_STRING),
         sizeof(PERSONALIZATION_STRING) - 1};
     input.generator.Emplace(SpanOf(seedMaterial), SpanOf(nonce), personalization);
   } else if (!seedMaterial.empty()) {
+    AppendOsRandom(seedMaterial);
     input.generator->Reseed(SpanOf(seedMaterial), {});
   }
 }

@@ -36,6 +36,7 @@ This application implements the following security measures:
 - **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first collected data, reseeded with new data at every generation, state rewritten after every request of at most 64 KiB
 - **SHA-512** (FIPS 180-4) and **HMAC-SHA-512** (FIPS 198-1) underneath it; no table lookups, so no cache-timing leak
 - **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231) and HMAC_DRBG (NIST CAVP vectors) are checked against known answers; if one fails, generating is turned off
+- Windows' random generator (BCryptGenRandom) adds 64 bytes every time the generator is created or reseeded. They are uncredited: never counted as entropy, so they can only add to the output's unpredictability and never prop up a claim. If Windows can't supply them, generation continues without them
 - The generator's state is kept in locked memory and wiped on Clear, logoff and exit; a generation works on a copy that replaces it only when the generation succeeds
 - The statistical results in the README are from the earlier quad-layer pipeline (ChaCha20, AES-256) and have not been rerun for HMAC_DRBG yet
 
@@ -44,7 +45,7 @@ This application implements the following security measures:
 - Dear ImGui's memory is wiped when freed, and Clear, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy)
 - Output buffers, keys and the pool are wiped with `SecureZeroMemory`; the generation thread works on a snapshot of the settings that is wiped when it ends
 - Logoff and shutdown (`WM_ENDSESSION`) wipe the pool, outputs, One-Time Pad message and clipboard
-- System DLLs load from System32 only (`SetDefaultDllDirectories`; d3d11, d3dcompiler and dwmapi are loaded at run time from System32; gamepad support is compiled out), so a DLL placed next to the exe is not loaded
+- System DLLs load from System32 only (`SetDefaultDllDirectories`; d3d11, d3dcompiler, dwmapi and bcrypt are loaded at run time from System32; gamepad support is compiled out), so a DLL placed next to the exe is not loaded
 
 ### Thread Safety
 - `std::atomic` for all shared collector state

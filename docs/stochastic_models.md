@@ -50,7 +50,7 @@ The measured numbers come from [Measured Source Entropy](../README.md#measured-s
 5. **Start-up test.** Each time collection starts, a source's first 1,024 samples must pass both health tests before any of their credit counts.
 6. **Credit adds up across sources.** Credits from different sources are added as if the sources were independent. Where they are not, see [Dependencies between sources](#dependencies-between-sources).
 
-All values and their timestamps go into HMAC_DRBG (SHA-512) as entropy input, when it is created or reseeded. The credit counts the min-entropy that went in. How the generator uses it is described in the README's [Security Considerations](../README.md#security-considerations).
+All values and their timestamps go into HMAC_DRBG (SHA-512) as entropy input, when it is created or reseeded. The credit counts the min-entropy that went in. The 64 bytes from Windows' random generator that are mixed in beside it are not part of any model and are not credited. How the generator uses it is described in the README's [Security Considerations](../README.md#security-considerations).
 
 ### Where the credit comes from
 

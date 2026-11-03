@@ -303,6 +303,7 @@ Both modes use the same generator and are computationally secure. HMAC_DRBG's se
 - A successful generation uses up all available entropy of the ticked sources. Its data points reseed the generator and are then wiped. The generator's state carries their effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
 - A generation works on a copy of the generator. A cancelled or failed generation uses nothing up and leaves the generator as it was.
 - **Clear** wipes the data, the credit and the generator; the next generation creates a new one.
+- Each time the generator is created or reseeded, 64 bytes from Windows' own random generator (BCryptGenRandom) are mixed in with the collected data. They are never credited: they don't count toward the entropy bar, the modes or the One-Time Pad, and the program works the same if Windows can't supply them.
 - The additional input of each generation holds the current time and a per-process generation counter, so two generations never share it.
 
 ## Documentation & Standards

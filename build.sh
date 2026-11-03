@@ -97,6 +97,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/platform/unicode_path.cpp \
     src/platform/secure_clipboard.cpp \
     src/platform/virtual_machine.cpp \
+    src/platform/os_random.cpp \
     src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \
