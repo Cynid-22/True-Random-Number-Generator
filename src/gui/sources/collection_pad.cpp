@@ -1,5 +1,4 @@
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../platform/virtual_machine.h"
 #include "../gui.h"
 #include "../widgets.h"
@@ -48,15 +47,14 @@ static const char *VIRTUAL_MACHINE_WARNING =
     "mixed in without credit.";
 
 struct StartupLineText {
-  const char *sourceName;
   const char *sampleNoun;
   const char *keepGoingAdvice;
 };
 
 static const StartupLineText KEYSTROKE_STARTUP_TEXT = {
-    "Keystroke", "key timings", "Keep typing to finish it (recommended), or"};
+    "key timings", "Keep typing to finish it (recommended), or"};
 static const StartupLineText MOUSE_STARTUP_TEXT = {
-    "Mouse", "movements", "Keep moving to finish it (recommended), or"};
+    "movements", "Keep moving to finish it (recommended), or"};
 
 static bool s_focusPadWhenShown = false;
 static bool s_mouseCanvasShownLastFrame = false;
@@ -144,9 +142,6 @@ static void RenderEarlyStartupChoice(Entropy::EntropySource source,
   ImGui::PushID(static_cast<int>(source));
   if (ImGui::SmallButton("Use now")) {
     g_state.entropyPool.FinishStartupEarly(source, g_state.enabledEntropySources());
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "%s start-up test finished early after %u samples",
-                text.sourceName, startup.samplesTested);
   }
   ImGui::SetItemTooltip("%s", USE_NOW_TOOLTIP);
   ImGui::PopID();
@@ -160,7 +155,7 @@ static void RenderStartupLine(Entropy::EntropySource source, bool *enabled,
     ImGui::TextColored(UiColor::StatusUnavailable, "%s",
                        HEALTH_TEST_FAILED_LINE);
     ImGui::SameLine();
-    RenderHealthTestFailureButtons(source, enabled, text.sourceName);
+    RenderHealthTestFailureButtons(source, enabled);
     return;
   }
   const Entropy::StartupStatus startup =

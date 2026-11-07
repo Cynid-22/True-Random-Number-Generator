@@ -301,7 +301,6 @@ struct SourceRow {
   Entropy::EntropySource source;
   const char *name;
   const char *title;
-  const char *logName;
   bool AppState::*enabled;
   const char *howItWorks;
   void (*renderStatus)();
@@ -310,7 +309,7 @@ struct SourceRow {
 static const SourceRow SOURCE_ROWS[] = {
     {SourceGroup::UserInput, Entropy::EntropySource::Microphone,
      "Microphone Noise",
-     "Microphone Noise (Hardware Entropy)", "Microphone",
+     "Microphone Noise (Hardware Entropy)",
      &AppState::microphoneEnabled,
      "Captures the Least Significant Bit (LSB) of audio samples, at the "
      "microphone's own bit depth. In a quiet room this bit is set mostly by "
@@ -324,7 +323,7 @@ static const SourceRow SOURCE_ROWS[] = {
      RenderMicrophoneStatus},
     {SourceGroup::UserInput, Entropy::EntropySource::Keystroke,
      "Keystroke Dynamics",
-     "Keystroke Dynamics (User Entropy)", "Keystroke",
+     "Keystroke Dynamics (User Entropy)",
      &AppState::keystrokeEnabled,
      "Captures your typing rhythm: Flight Time (gap between keys) and Dwell "
      "Time (how long each key is held), measured in nanoseconds. Nobody "
@@ -339,7 +338,7 @@ static const SourceRow SOURCE_ROWS[] = {
      RenderKeystrokeStatus},
     {SourceGroup::UserInput, Entropy::EntropySource::Mouse, "Mouse Movement",
      "Mouse Movement (User Entropy)",
-     "Mouse", &AppState::mouseMovementEnabled,
+     &AppState::mouseMovementEnabled,
      "Records the mouse sensor's raw movement counts through Windows Raw "
      "Input, before pointer speed and acceleration (for a precision touchpad, "
      "the movement Windows derives from your finger), while the pointer is "
@@ -353,7 +352,7 @@ static const SourceRow SOURCE_ROWS[] = {
      RenderMouseStatus},
     {SourceGroup::SystemInput, Entropy::EntropySource::ClockDrift,
      "Clock Drift", "Clock Drift (Timer Entropy)",
-     "Clock Drift", &AppState::clockDriftEnabled,
+     &AppState::clockDriftEnabled,
      "Asks Windows to wake this thread after 1 ms and counts how many ticks "
      "of the CPU's cycle counter actually passed. On modern CPUs this "
      "counter ticks at a fixed rate, so heat and voltage do not change it. "
@@ -365,7 +364,7 @@ static const SourceRow SOURCE_ROWS[] = {
      RenderClockDriftStatus},
     {SourceGroup::SystemInput, Entropy::EntropySource::CpuJitter, "CPU Jitter",
      "CPU Jitter (Scheduling Entropy)",
-     "CPU Jitter", &AppState::cpuJitterEnabled,
+     &AppState::cpuJitterEnabled,
      "Two threads run at once. One adds to a counter as fast as it can; the "
      "other wakes about every millisecond and records how far the counter "
      "moved since its last look. Neither thread pauses the other. The amount "
@@ -431,7 +430,7 @@ static void RenderSourceRow(int rowIndex) {
     s_selectedSourceRow = rowIndex;
   }
   ImGui::SameLine(0.0f, ImGui::GetStyle().IndentSpacing);
-  RenderSourceToggle("##Include", &(g_state.*row.enabled), row.logName);
+  RenderSourceToggle("##Include", &(g_state.*row.enabled));
   ImGui::SameLine();
   ImGui::TextUnformatted(row.name);
 
@@ -450,8 +449,7 @@ static void RenderHealthTestFailureRow(int rowIndex) {
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::StatusUnavailable);
   ImGui::TextWrapped("%s", HEALTH_TEST_FAILED_NOTICE);
   ImGui::PopStyleColor();
-  RenderHealthTestFailureButtons(row.source, &(g_state.*row.enabled),
-                                 row.logName);
+  RenderHealthTestFailureButtons(row.source, &(g_state.*row.enabled));
   ImGui::Unindent();
 }
 

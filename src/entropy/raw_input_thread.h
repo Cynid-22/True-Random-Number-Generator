@@ -22,7 +22,7 @@ public:
     RawInputThread(const RawInputThread&) = delete;
     RawInputThread& operator=(const RawInputThread&) = delete;
 
-    bool Start(std::vector<HidUsage> devices, InputHandler handler, const char* logModule);
+    bool Start(std::vector<HidUsage> devices, InputHandler handler);
 
     void Stop();
 
@@ -31,7 +31,6 @@ private:
     void DeliverInput(HRAWINPUT rawInput);
 
     InputHandler m_handler;
-    const char* m_logModule = "RawInput";
     std::thread m_thread;
     DWORD m_threadId = 0;
     std::vector<BYTE> m_inputBuffer;

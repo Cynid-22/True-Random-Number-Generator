@@ -60,10 +60,9 @@ double BinomialProbability(uint32_t trials, uint32_t successes, double successPr
     return std::exp(logProbability);
 }
 
-// SP 800-90B 4.4.1 and 4.4.2, with the sample's credit cap as its min-entropy H
-HealthTestCutoffs CutoffsForBitsPerSample(double bitsPerSample) {
+HealthTestCutoffs HealthTestCutoffsForMinEntropy(double minEntropyBitsPerSample) {
     const double falseAlarmRate = std::ldexp(1.0, -HEALTH_TEST_FALSE_ALARM_EXPONENT);
-    const double repeatProbability = std::exp2(-bitsPerSample);
+    const double repeatProbability = std::exp2(-minEntropyBitsPerSample);
 
     uint32_t proportionCount = ADAPTIVE_PROPORTION_WINDOW;
     double probabilityAboveCount = 0.0;
@@ -77,7 +76,8 @@ HealthTestCutoffs CutoffsForBitsPerSample(double bitsPerSample) {
     }
 
     const uint32_t repetitionCount =
-        1 + static_cast<uint32_t>(std::ceil(HEALTH_TEST_FALSE_ALARM_EXPONENT / bitsPerSample));
+        1 + static_cast<uint32_t>(
+                std::ceil(HEALTH_TEST_FALSE_ALARM_EXPONENT / minEntropyBitsPerSample));
     return {repetitionCount, proportionCount + 1};
 }
 
@@ -86,8 +86,8 @@ HealthTestCutoffs CutoffsOf(EntropySource source) {
         std::array<HealthTestCutoffs, ENTROPY_SOURCE_COUNT> cutoffs{};
         for (size_t sourceIndex = 0; sourceIndex < ENTROPY_SOURCE_COUNT; sourceIndex++) {
             const EntropySource indexedSource = static_cast<EntropySource>(sourceIndex);
-            cutoffs[sourceIndex] =
-                CutoffsForBitsPerSample(CreditRuleOf(indexedSource).maxBitsPerSample);
+            const double creditCapAsMinEntropy = CreditRuleOf(indexedSource).maxBitsPerSample;
+            cutoffs[sourceIndex] = HealthTestCutoffsForMinEntropy(creditCapAsMinEntropy);
         }
         return cutoffs;
     }();

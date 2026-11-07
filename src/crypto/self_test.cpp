@@ -114,8 +114,7 @@ static constexpr size_t FULL_TOEPLITZ_INPUT_VALUE_COUNT =
     ToeplitzExtractor::MAX_INPUT_BYTES / sizeof(uint64_t);
 static constexpr uint8_t FIRST_INPUT_BIT_ONLY = 0x80;
 
-// Equals seed bits 131,071 to 131,582: the window a lone first input bit selects
-static const char TOEPLITZ_FIRST_BIT_OUTPUT[] =
+static const char TOEPLITZ_FIRST_BIT_OUTPUT_EQUALS_SEED_BITS_131071_TO_131582[] =
     "7a44cc244edaff911daaa573554ddeade05d5b57ae0f5bcc76337891cc07bda0"
     "969123b4d320e462bf1c6c7c61b7d0e95d40f352bca751c18ce788fd44347439";
 
@@ -220,7 +219,8 @@ static bool ToeplitzOutputMatches(const std::vector<uint8_t>& input, const char*
 }
 
 static const char* FindFailingToeplitzTest() {
-    if (!ToeplitzOutputMatches({FIRST_INPUT_BIT_ONLY}, TOEPLITZ_FIRST_BIT_OUTPUT))
+    if (!ToeplitzOutputMatches({FIRST_INPUT_BIT_ONLY},
+                               TOEPLITZ_FIRST_BIT_OUTPUT_EQUALS_SEED_BITS_131071_TO_131582))
         return "Toeplitz extractor first input bit";
     const std::vector<uint64_t> shortValues(std::begin(SHORT_TOEPLITZ_INPUT_VALUES),
                                             std::end(SHORT_TOEPLITZ_INPUT_VALUES));

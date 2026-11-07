@@ -1,6 +1,5 @@
 #include "cpu_jitter.h"
 #include "../high_resolution_sleeper.h"
-#include "../../logging/logger.h"
 #include <chrono>
 #include <windows.h>
 
@@ -18,8 +17,6 @@ void CpuJitterCollector::Start() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "CpuJitter", "Starting collector threads...");
-
     m_counter = 0;
     m_samples.Reset();
 
@@ -32,12 +29,8 @@ void CpuJitterCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "CpuJitter", "Stopping collector threads...");
-
     if (m_counterThread.joinable()) m_counterThread.join();
     if (m_samplerThread.joinable()) m_samplerThread.join();
-
-    Logger::Log(Logger::Level::INFO, "CpuJitter", "Collection stopped.");
 
     SecureClearBuffer();
 }
@@ -53,15 +46,9 @@ void CpuJitterCollector::CounterLoop() {
 }
 
 void CpuJitterCollector::SamplerLoop() {
-    Logger::Log(Logger::Level::INFO, "CpuJitter", "Sampler thread started");
     uint64_t previousCount = 0;
 
     HighResolutionSleeper sleeper;
-    if (!sleeper.IsHighResolution()) {
-        Logger::Log(Logger::Level::WARN, "CpuJitter",
-                    "High-resolution timer unavailable (Error: %lu); sampling at the system timer rate",
-                    GetLastError());
-    }
 
     while (m_running) {
         sleeper.SleepFor(std::chrono::milliseconds(1));

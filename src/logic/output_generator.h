@@ -17,8 +17,6 @@ struct GenerationResult {
     std::vector<uint8_t> binaryOutput;
     std::string errorMessage;
     GenerationMode mode;
-    float entropyConsumed;
-    size_t rawBytesGenerated;
 
     int oneTimePadResultMode;
     std::vector<char> oneTimePadKey;

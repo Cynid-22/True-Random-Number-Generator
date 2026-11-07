@@ -1,5 +1,4 @@
 #include "keystroke.h"
-#include "../../logging/logger.h"
 #include <hidusage.h>
 #include "../../crypto/secure_mem.h"
 
@@ -38,18 +37,13 @@ void KeystrokeCollector::Start() {
     m_lastKeyDownTime = 0;
     m_lastKeyUpTime = 0;
 
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Starting Raw Input keyboard thread...");
-
     const bool started = m_inputThread.Start(
         {{HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_KEYBOARD}},
-        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessKey(input, timestamp); },
-        "Keystroke");
+        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessKey(input, timestamp); });
     if (!started) {
         m_running = false;
         return;
     }
-
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Raw Input keyboard thread started.");
 }
 
 void KeystrokeCollector::Stop() {
@@ -57,10 +51,7 @@ void KeystrokeCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Stopping Raw Input keyboard thread...");
     m_inputThread.Stop();
-
-    Logger::Log(Logger::Level::INFO, "Keystroke", "Collection stopped.");
 
     SecureClearBuffer();
 }

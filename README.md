@@ -20,11 +20,11 @@ A TRUE RANDOM output takes only the reserve bits it draws; they are wiped, and t
 
 ### Screenshots
 
-**Input tab:** collecting from all five sources: the source list with each source's status and description, the microphone level, the Clock Drift and CPU Jitter sample rates, the keystroke preview and the mouse path.
+**Input tab:** collecting from all five sources: the source list with each source's status and description, the microphone level, the Clock Drift and CPU Jitter sample rates, and the keystroke preview and mouse path with their start-up tests still running. The bar shows the true random reserve, with the reserve counter next to the security mode.
 
 ![Input tab while collecting](images/input-screen.png)
 
-**Output tab:** 100 UUID v4 identifiers generated in TRUE RANDOM mode, with the entropy they required.
+**Output tab:** three numbered 256-bit Raw Data values in uppercase hex, generated in TRUE RANDOM mode, with the entropy they required.
 
 ![Output tab with generated UUIDs](images/output-screen.png)
 
@@ -175,7 +175,7 @@ When the output box shows an error or a cancelled generation, only .txt is offer
 ### Requirements
 
 - Windows 10/11
-- MSYS2 with MinGW-w64
+- MSYS2 with MinGW-w64 (UCRT64)
 - g++ with C++17 support
 
 ### Build Steps
@@ -266,12 +266,17 @@ TRNG/
 │   ├── entropy/              # Entropy collectors, pool and true random
 │   │                         # reserve, per-source credit and health tests,
 │   │                         # raw-sample recorder (test build only)
-│   ├── logging/              # Logger
-│   └── platform/
-│       ├── dx11.h            # DirectX declarations
-│       ├── dx11.cpp          # DirectX implementation
-│       ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
-│       └── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+│   ├── platform/
+│   │   ├── dx11.h            # DirectX declarations
+│   │   ├── dx11.cpp          # DirectX implementation
+│   │   ├── os_random.h/.cpp  # Windows random generator (BCryptGenRandom)
+│   │   ├── secure_clipboard.h/.cpp  # Copy kept out of clipboard history, cleared after 60 s
+│   │   ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
+│   │   └── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+│   └── tools/                # trng_gen (HMAC_DRBG stream for test suites),
+│                             # testu01_stdin (TestU01 reader)
+├── config/
+│   └── AppConfig.h           # Limits: minimum entropy, input ranges, sizes
 ├── docs/
 │   └── stochastic_models.md    # What is unpredictable in each source, attacks, credit caps
 ├── images/                     # README screenshots
@@ -287,6 +292,7 @@ TRNG/
 │   └── imgui/                # Dear ImGui (auto-downloaded)
 ├── tests/                    # Regression tests (build_tests.sh)
 ├── build_tests.sh            # Builds and runs the regression tests
+├── build_gen.sh              # Builds trng_gen.exe for the statistical tests
 └── build.sh                  # Build script (--sample-export: test build
                               # that records raw source samples)
 ```

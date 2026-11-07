@@ -13,7 +13,7 @@ using CSPRNG::TRUE_PATH_RESEED_BYTES;
 using CSPRNG::TRUE_PATH_RESEED_INTERVAL_BYTES;
 using CSPRNG::TruePathReserveBytes;
 using Entropy::EntropySource;
-using Tests::FIRST_SAMPLE_SEED;
+using Tests::FIRST_FULL_CREDIT_SEED;
 using Tests::MICROPHONE_ONLY;
 using Tests::SamplePoints;
 
@@ -67,7 +67,7 @@ OutputSettings PadSettings(int messageLength) {
 
 void FeedFullMicrophoneStartup() {
     Pool().SecureWipe();
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_SAMPLE_SEED, 0,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_FULL_CREDIT_SEED, 0,
                                       Entropy::STARTUP_SAMPLE_COUNT),
                          MICROPHONE_ONLY);
 }
@@ -253,7 +253,7 @@ TEST(CancelledGenerationUsesNothing) {
 
 TEST(ReserveSeedsTheGeneratorWhenTickedSourcesHoldTooLittle) {
     FeedFullMicrophoneStartup();
-    Pool().AddDataPoints(SamplePoints(EntropySource::Keystroke, FIRST_SAMPLE_SEED, 0,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Keystroke, FIRST_FULL_CREDIT_SEED, 0,
                                       Entropy::STARTUP_SAMPLE_COUNT,
                                       Tests::KEYSTROKE_VALUE_SHIFT),
                          Tests::MICROPHONE_AND_KEYSTROKE);

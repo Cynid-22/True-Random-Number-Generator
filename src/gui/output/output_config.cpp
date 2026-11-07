@@ -1,5 +1,4 @@
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/logic.h"
 #include "../gui.h"
 #include "../widgets.h"
@@ -99,27 +98,15 @@ static bool RenderListOptions() {
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##Quantity", &g_state.outputQuantity)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config: Quantity set to %d",
-                g_state.outputQuantity);
   }
   g_state.outputQuantity = std::clamp(g_state.outputQuantity,
                                       AppConfig::OUTPUT_MIN_QUANTITY,
                                       AppConfig::OUTPUT_MAX_QUANTITY);
 
   ImGui::SameLine(0.0f, 24.0f);
-  if (ImGui::Checkbox("Blank line between items",
-                      &g_state.blankLineBetweenItems)) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config: Blank line between items toggled %s",
-                g_state.blankLineBetweenItems ? "ON" : "OFF");
-  }
+  ImGui::Checkbox("Blank line between items", &g_state.blankLineBetweenItems);
   ImGui::SameLine();
-  if (ImGui::Checkbox("Number items (1. 2. 3.)", &g_state.numberListItems)) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config: Number items toggled %s",
-                g_state.numberListItems ? "ON" : "OFF");
-  }
+  ImGui::Checkbox("Number items (1. 2. 3.)", &g_state.numberListItems);
 
   if (g_state.outputFormat == FORMAT_RAW_DATA)
     RenderRawDataCaseToggle();

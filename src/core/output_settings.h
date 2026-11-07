@@ -43,7 +43,6 @@ struct OutputSettings {
     int rawDataAmount = 256;
     int rawDataUnit = RAW_DATA_UNIT_BITS;
     int rawDataEncoding = 0;
-    // Indexed by CSPRNG::RawEncoding
     static constexpr int RAW_DATA_ENCODING_COUNT = 14;
     static constexpr std::array<bool, RAW_DATA_ENCODING_COUNT> DEFAULT_RAW_DATA_GROUPING_ENABLED = {false, false, true, false, false, false, false, false, false, false, false, false, false, false};
     static constexpr std::array<int, RAW_DATA_ENCODING_COUNT>  DEFAULT_RAW_DATA_GROUP_SIZE       = {4,     4,     8,    4,     4,     4,     8,     4,     4,     3,     4,     4,     4,     5};

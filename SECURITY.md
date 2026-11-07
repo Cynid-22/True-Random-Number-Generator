@@ -62,12 +62,10 @@ This application implements the following security measures:
 - Atomic `exchange()` pattern for start/stop operations
 
 ### Logging
-- `DEBUG` log level removed entirely
-- No entropy values, timing data, or sample counts in log output
-- Generated output is never logged
+- TRNG has no logging: no entropy values, timing data, seeds, keys or output reach a log file, the console or the debugger output
 
 ## Known Limitations
 
 - **Clipboard**: Copied output is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
 - **Memory locking**: Outputs, One-Time Pad keys and messages are wiped but not locked in RAM, so they can reach the pagefile
-- **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests, but the per-sample caps have not been validated with an SP 800-90B assessment of raw samples
+- **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests. The caps sit below the min-entropy an SP 800-90B assessment of raw samples measured, but on one laptop only ([Measured Source Entropy](README.md#measured-source-entropy-nist-sp-800-90b)); other hardware can measure differently

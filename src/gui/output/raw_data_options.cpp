@@ -1,6 +1,5 @@
 #include "format_options.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/formats/raw_data_format.h"
 #include "../widgets.h"
 #include "imgui.h"
@@ -102,11 +101,7 @@ static void RenderEncodingDescription(int encoding) {
 
 static void RenderGroupingOptions(int encoding) {
   BeginOptionRow("Grouping:");
-  if (ImGui::Checkbox("Separator", &g_state.rawDataGroupingEnabled[encoding])) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Raw Data]: Separator toggled %s",
-                g_state.rawDataGroupingEnabled[encoding] ? "ON" : "OFF");
-  }
+  ImGui::Checkbox("Separator", &g_state.rawDataGroupingEnabled[encoding]);
   if (g_state.rawDataGroupingEnabled[encoding]) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(150);
@@ -132,9 +127,6 @@ bool RenderRawDataOptions() {
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##Amount", &g_state.rawDataAmount)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Bit/Byte]: Amount set to %d",
-                g_state.rawDataAmount);
   }
   g_state.rawDataAmount = std::clamp(g_state.rawDataAmount,
                                      AppConfig::RAW_DATA_MIN_AMOUNT,
@@ -145,9 +137,6 @@ bool RenderRawDataOptions() {
   ImGui::SetNextItemWidth(ComboWidthForText(ImGui::CalcTextSize(unitNames[1]).x));
   if (ImGui::Combo("##Unit", &g_state.rawDataUnit, unitNames, 2)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Bit/Byte]: Unit set to %s",
-                unitNames[g_state.rawDataUnit]);
   }
 
   RenderItemSizeHint();
@@ -166,11 +155,7 @@ void RenderRawDataCaseToggle() {
   if (IsValidRawEncoding(encoding) &&
       CSPRNG::RawEncodingHasSingleCaseLetters(encoding)) {
     ImGui::SameLine();
-    if (ImGui::Checkbox("Uppercase", &g_state.rawDataUppercase[encoding])) {
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Output Config [Raw Data]: Uppercase toggled %s",
-                  g_state.rawDataUppercase[encoding] ? "ON" : "OFF");
-    }
+    ImGui::Checkbox("Uppercase", &g_state.rawDataUppercase[encoding]);
 
     const RawEncodingDescription &description = RAW_ENCODING_DESCRIPTIONS[encoding];
     if (description.uppercaseStandard && !g_state.rawDataUppercase[encoding]) {

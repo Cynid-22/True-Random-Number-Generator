@@ -1,6 +1,5 @@
 #include "generation_task.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/output_export.h"
 #include "output_types.h"
 #include <atomic>
@@ -131,16 +130,10 @@ void CollectFinishedGeneration() {
     const char *modeName = CSPRNG::ModeName(s_finishedResult.mode);
     g_state.generatedOutputDetails = std::move(s_runningGenerationDetails);
     g_state.generatedOutputDetails.securityMode = modeName;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Generated output using %s mode, used %.1f bits",
-                modeName, s_finishedResult.entropyConsumed);
   } else if (s_finishedResult.cancelled) {
     ShowOutputText(s_finishedResult.errorMessage);
-    Logger::Log(Logger::Level::INFO, "GUI", "Generation cancelled");
   } else {
     ShowOutputText("[ERROR] " + s_finishedResult.errorMessage);
-    Logger::Log(Logger::Level::ERR, "GUI", "Generation failed: %s",
-                s_finishedResult.errorMessage.c_str());
   }
 
   s_resultReady.store(false);

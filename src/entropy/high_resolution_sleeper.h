@@ -21,10 +21,6 @@ public:
     HighResolutionSleeper(const HighResolutionSleeper&) = delete;
     HighResolutionSleeper& operator=(const HighResolutionSleeper&) = delete;
 
-    bool IsHighResolution() const {
-        return m_timer != nullptr;
-    }
-
     void SleepFor(std::chrono::microseconds duration) {
         if (m_timer) {
             using TimerTicks = std::chrono::duration<LONGLONG, std::ratio<1, 10000000>>;

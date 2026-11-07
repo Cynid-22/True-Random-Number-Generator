@@ -1,7 +1,6 @@
 #include "csprng.h"
 #include "../crypto/secure_mem.h"
 #include "formats/cancellation.h"
-#include "../logging/logger.h"
 #include "../platform/os_random.h"
 #include <algorithm>
 #include <chrono>
@@ -28,8 +27,6 @@ static void AppendOsRandom(Crypto::SecureBytes &bytes) {
   bytes.resize(start + OS_RANDOM_BYTES);
   if (!Platform::FillOsRandom(bytes.data() + start, OS_RANDOM_BYTES)) {
     bytes.resize(start);
-    Logger::Log(Logger::Level::WARN, "CSPRNG",
-                "Windows random generator unavailable, seeding without it");
   }
 }
 

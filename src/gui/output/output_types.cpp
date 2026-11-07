@@ -1,6 +1,5 @@
 #include "output_types.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/formats/raw_data_format.h"
 #include "../../logic/logic.h"
 #include "../widgets.h"
@@ -73,9 +72,6 @@ void FindCurrentOutputType(int &category, int &type) {
 }
 
 void SelectOutputType(int category, int type) {
-  int previousCategory, previousType;
-  FindCurrentOutputType(previousCategory, previousType);
-  const OutputType &previous = OUTPUT_CATEGORIES[previousCategory].types[previousType];
   const OutputType &next = OUTPUT_CATEGORIES[category].types[type];
 
   int previousFormat = g_state.outputFormat;
@@ -84,18 +80,10 @@ void SelectOutputType(int category, int type) {
     g_state.rawDataEncoding = next.rawDataEncoding;
   s_lastTypeInCategory[category] = type;
 
-  Logger::Log(Logger::Level::INFO, "GUI",
-              "Output Format changed from '%s > %s' to '%s > %s'",
-              OUTPUT_CATEGORIES[previousCategory].name, previous.name,
-              OUTPUT_CATEGORIES[category].name, next.name);
-
   if (previousFormat == FORMAT_ONE_TIME_PAD &&
       g_state.outputFormat != FORMAT_ONE_TIME_PAD) {
-    // Zero in place: ImGui needs the buffer size
-    SecureZeroMemory(g_state.oneTimePadMessage.data(),
-                     g_state.oneTimePadMessage.size());
-    SecureZeroMemory(g_state.oneTimePadFilePath.data(),
-                     g_state.oneTimePadFilePath.size());
+    WipeInputTextBufferKeepingItsSize(g_state.oneTimePadMessage);
+    WipeInputTextBufferKeepingItsSize(g_state.oneTimePadFilePath);
     WipeTextInputBuffers();
     g_state.oneTimePadFileSize = 0;
     g_state.oneTimePadFileLastWriteTime = 0;

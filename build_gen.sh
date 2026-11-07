@@ -1,6 +1,4 @@
 #!/bin/bash
-# Build the standalone TRNG generator for piping to test suites
-# Usage: ./build_gen.sh
 
 set -e
 

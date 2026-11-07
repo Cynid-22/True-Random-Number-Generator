@@ -17,7 +17,7 @@ windres src/resource.rc -O coff -o build/resource_tests.res || exit 1
 echo "Compiling tests..."
 g++ -std=c++17 -O2 \
     -D_WIN32_WINNT=0x0A00 \
-    -I"src" -I"src/core" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
+    -I"src" -I"src/core" -I"src/logic" -I"src/platform" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -o build/TRNG_tests.exe \
     tests/test_main.cpp \
@@ -38,7 +38,6 @@ g++ -std=c++17 -O2 \
     src/platform/unicode_path.cpp \
     src/platform/virtual_machine.cpp \
     src/platform/os_random.cpp \
-    src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \
     src/entropy/raw_input_thread.cpp \

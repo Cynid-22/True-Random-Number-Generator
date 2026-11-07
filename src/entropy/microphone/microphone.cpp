@@ -1,5 +1,4 @@
 #include "microphone.h"
-#include "../../logging/logger.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -11,7 +10,6 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "mmdevapi.lib")
 
-// Not provided by MinGW
 static const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT_GUID =
 { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 static const GUID KSDATAFORMAT_SUBTYPE_PCM_GUID =
@@ -145,8 +143,6 @@ static HRESULT RequestRawStream(IAudioClient* audioClient) {
 static bool OpenCaptureStream(IMMDevice* device, bool raw, unsigned floatResolutionBits,
                               IAudioClient** audioClientOut, WAVEFORMATEX** mixFormatOut,
                               SampleFormat* sampleFormatOut) {
-    const Logger::Level failureLevel = raw ? Logger::Level::WARN : Logger::Level::ERR;
-    const char* streamName = raw ? "raw" : "standard";
     IAudioClient* audioClient = NULL;
     WAVEFORMATEX* mixFormat = NULL;
 
@@ -154,14 +150,12 @@ static bool OpenCaptureStream(IMMDevice* device, bool raw, unsigned floatResolut
         __uuidof(IAudioClient), CLSCTX_ALL,
         NULL, (void**)&audioClient);
     if (FAILED(hr)) {
-        Logger::Log(failureLevel, "Microphone", "Failed to activate AudioClient (%s stream). Error: 0x%08X", streamName, hr);
         return false;
     }
 
     if (raw) {
         hr = RequestRawStream(audioClient);
         if (FAILED(hr)) {
-            Logger::Log(failureLevel, "Microphone", "Failed to request the raw stream. Error: 0x%08X", hr);
             audioClient->Release();
             return false;
         }
@@ -169,15 +163,12 @@ static bool OpenCaptureStream(IMMDevice* device, bool raw, unsigned floatResolut
 
     hr = audioClient->GetMixFormat(&mixFormat);
     if (FAILED(hr)) {
-        Logger::Log(failureLevel, "Microphone", "Failed to get MixFormat (%s stream). Error: 0x%08X", streamName, hr);
         audioClient->Release();
         return false;
     }
 
     const SampleFormat sampleFormat = SampleFormatOf(mixFormat, floatResolutionBits);
     if (sampleFormat.encoding == SampleEncoding::Unsupported) {
-        Logger::Log(failureLevel, "Microphone", "Unsupported audio format (%s stream): %u-bit samples",
-                    streamName, static_cast<unsigned>(mixFormat->wBitsPerSample));
         CoTaskMemFree(mixFormat);
         audioClient->Release();
         return false;
@@ -191,7 +182,6 @@ static bool OpenCaptureStream(IMMDevice* device, bool raw, unsigned floatResolut
         mixFormat,
         NULL);
     if (FAILED(hr)) {
-        Logger::Log(failureLevel, "Microphone", "Failed to initialize AudioClient (%s stream). Error: 0x%08X", streamName, hr);
         CoTaskMemFree(mixFormat);
         audioClient->Release();
         return false;
@@ -269,21 +259,13 @@ void MicrophoneCollector::Start() {
     }
 
     m_running = true;
-    Logger::Log(Logger::Level::INFO, "Microphone", "Starting audio capture thread...");
     m_captureThread = std::thread(&MicrophoneCollector::CaptureLoop, this);
 }
 
 void MicrophoneCollector::Stop() {
-    const bool wasRunning = m_running.exchange(false);
-
-    if (wasRunning) {
-        Logger::Log(Logger::Level::INFO, "Microphone", "Stopping audio capture...");
-    }
+    m_running = false;
     if (m_captureThread.joinable()) {
         m_captureThread.join();
-    }
-    if (wasRunning) {
-        Logger::Log(Logger::Level::INFO, "Microphone", "Collection stopped.");
     }
 
     SecureClearBuffer();
@@ -352,7 +334,6 @@ void MicrophoneCollector::CaptureLoop() {
         (void**)&deviceEnumerator);
 
     if (FAILED(hr)) {
-        Logger::Log(Logger::Level::ERR, "Microphone", "Failed to create MMDeviceEnumerator. Error: 0x%08X", hr);
         MarkCaptureFailed();
         CoUninitialize();
         return;
@@ -360,7 +341,6 @@ void MicrophoneCollector::CaptureLoop() {
 
     hr = deviceEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &captureDevice);
     if (FAILED(hr)) {
-        Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get default audio endpoint. No microphone? Error: 0x%08X", hr);
         deviceEnumerator->Release();
         MarkCaptureFailed();
         CoUninitialize();
@@ -371,9 +351,6 @@ void MicrophoneCollector::CaptureLoop() {
     const bool rawStream = capabilities.rawProcessingSupported &&
                            OpenCaptureStream(captureDevice, true, capabilities.resolutionBits,
                                              &audioClient, &mixFormat, &sampleFormat);
-    if (capabilities.rawProcessingSupported && !rawStream) {
-        Logger::Log(Logger::Level::WARN, "Microphone", "Raw stream unavailable, using the standard stream.");
-    }
     if (!rawStream &&
         !OpenCaptureStream(captureDevice, false, capabilities.resolutionBits,
                            &audioClient, &mixFormat, &sampleFormat)) {
@@ -389,7 +366,6 @@ void MicrophoneCollector::CaptureLoop() {
         (void**)&captureClient);
 
     if (FAILED(hr)) {
-        Logger::Log(Logger::Level::ERR, "Microphone", "Failed to get AudioCaptureClient. Error: 0x%08X", hr);
         CoTaskMemFree(mixFormat);
         audioClient->Release();
         captureDevice->Release();
@@ -401,7 +377,6 @@ void MicrophoneCollector::CaptureLoop() {
 
     hr = audioClient->Start();
     if (FAILED(hr)) {
-        Logger::Log(Logger::Level::ERR, "Microphone", "Failed to start recording. Error: 0x%08X", hr);
         captureClient->Release();
         CoTaskMemFree(mixFormat);
         audioClient->Release();
@@ -412,8 +387,6 @@ void MicrophoneCollector::CaptureLoop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Microphone", "Audio capture started (%s stream, LSB of %u-bit samples). Initializing loop...",
-                rawStream ? "raw" : "standard", sampleFormat.resolutionBits);
     m_lastFailureMs = 0;
     m_rawStream = rawStream;
     m_resolutionBits = sampleFormat.resolutionBits;
@@ -426,7 +399,6 @@ void MicrophoneCollector::CaptureLoop() {
 
     uint64_t lsbAccumulator = 0;
     int accumulatedBitCount = 0;
-    // Restart test: LSBs stay correlated for ~175 ms after a start while the input settles
     uint64_t warmUpFramesLeft =
         static_cast<uint64_t>(mixFormat->nSamplesPerSec) * WARM_UP_DISCARD_MS / MILLISECONDS_PER_SECOND;
 
@@ -517,7 +489,6 @@ void MicrophoneCollector::CaptureLoop() {
     if (deviceEnumerator) deviceEnumerator->Release();
 
     CoUninitialize();
-    Logger::Log(Logger::Level::INFO, "Microphone", "Capture thread exited.");
 }
 
 }

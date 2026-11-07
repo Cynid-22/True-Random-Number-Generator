@@ -62,6 +62,10 @@ void RenderTruncatableText(const char *text, size_t length,
   ImGui::PopFont();
 }
 
+void WipeInputTextBufferKeepingItsSize(std::vector<char> &buffer) {
+  SecureZeroMemory(buffer.data(), buffer.size());
+}
+
 static void WipeTextBuffer(ImVector<char> &text) {
   if (text.Data)
     SecureZeroMemory(text.Data, static_cast<size_t>(text.Capacity));

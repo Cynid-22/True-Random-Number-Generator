@@ -7,11 +7,11 @@
 using Entropy::EntropySource;
 using Entropy::SourceCreditEstimator;
 using Entropy::STARTUP_SAMPLE_COUNT;
-using Tests::FIRST_SAMPLE_SEED;
+using Tests::FIRST_FULL_CREDIT_SEED;
 using Tests::MICROPHONE_BITS_PER_POINT;
 using Tests::MICROPHONE_ONLY;
 using Tests::SamplePoints;
-using Tests::SECOND_SAMPLE_SEED;
+using Tests::SECOND_FULL_CREDIT_SEED;
 
 namespace {
 
@@ -35,7 +35,7 @@ Entropy::EntropyPool& Pool() {
 
 void FeedFullMicrophoneStartup() {
     Pool().SecureWipe();
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_SAMPLE_SEED, 0,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_FULL_CREDIT_SEED, 0,
                                       STARTUP_SAMPLE_COUNT),
                          MICROPHONE_ONLY);
 }
@@ -44,7 +44,7 @@ void FeedFullMicrophoneStartup() {
 
 TEST(RepeatedRecentValuesEarnNoCredit) {
     SourceCreditEstimator estimator;
-    Tests::SplitMix64 random(FIRST_SAMPLE_SEED);
+    Tests::SplitMix64 random(FIRST_FULL_CREDIT_SEED);
     const uint64_t first = random.Next();
     const uint64_t second = random.Next();
     CHECK_EQ(estimator.Credit(EntropySource::Microphone, first), MICROPHONE_BITS_PER_POINT);
@@ -54,7 +54,7 @@ TEST(RepeatedRecentValuesEarnNoCredit) {
 
 TEST(KeystrokeCreditNeedsHistoryAndIsCapped) {
     SourceCreditEstimator estimator;
-    Tests::SplitMix64 random(FIRST_SAMPLE_SEED);
+    Tests::SplitMix64 random(FIRST_FULL_CREDIT_SEED);
     auto nextValue = [&random] { return random.Next() >> Tests::KEYSTROKE_VALUE_SHIFT; };
     CHECK_EQ(estimator.Credit(EntropySource::Keystroke, nextValue()), 0.0);
     CHECK_EQ(estimator.Credit(EntropySource::Keystroke, nextValue()), 0.0);
@@ -73,7 +73,7 @@ TEST(ConstantInputFailsTheHealthTest) {
 TEST(StartupTestHoldsCreditUntilItPasses) {
     Pool().SecureWipe();
     Pool().AddDataPoints(
-        SamplePoints(EntropySource::Microphone, FIRST_SAMPLE_SEED, 0, HELD_POINTS),
+        SamplePoints(EntropySource::Microphone, FIRST_FULL_CREDIT_SEED, 0, HELD_POINTS),
         MICROPHONE_ONLY);
 
     const Entropy::StartupStatus during = Pool().GetStartupStatus(EntropySource::Microphone);
@@ -83,7 +83,7 @@ TEST(StartupTestHoldsCreditUntilItPasses) {
     CHECK_EQ(Pool().GetAvailableBits(MICROPHONE_ONLY), 0.0);
     CHECK_EQ(Pool().GetTotalCreditedBits(), 0.0);
 
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_SAMPLE_SEED,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, FIRST_FULL_CREDIT_SEED,
                                       HELD_POINTS, STARTUP_SAMPLE_COUNT - HELD_POINTS),
                          MICROPHONE_ONLY);
     CHECK(Pool().GetStartupStatus(EntropySource::Microphone).complete);
@@ -93,7 +93,7 @@ TEST(StartupTestHoldsCreditUntilItPasses) {
 TEST(RestartingTheStartupTestReleasesNoCredit) {
     Pool().SecureWipe();
     Pool().AddDataPoints(
-        SamplePoints(EntropySource::Microphone, FIRST_SAMPLE_SEED, 0, HELD_POINTS),
+        SamplePoints(EntropySource::Microphone, FIRST_FULL_CREDIT_SEED, 0, HELD_POINTS),
         MICROPHONE_ONLY);
     Pool().RestartSourceStartup(EntropySource::Microphone);
 
@@ -122,14 +122,14 @@ TEST(UntickedSourcesAreLeftOut) {
 
 TEST(PartialChunkWaitsOutsideTheReserve) {
     FeedFullMicrophoneStartup();
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_SAMPLE_SEED, 0,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_FULL_CREDIT_SEED, 0,
                                       PARTIAL_CHUNK_POINTS),
                          MICROPHONE_ONLY);
     CHECK_EQ(Pool().GetUnfinishedChunkBits(MICROPHONE_ONLY),
              PARTIAL_CHUNK_POINTS * MICROPHONE_BITS_PER_POINT);
     CHECK_EQ(Pool().GetReserveBits(MICROPHONE_ONLY), FULL_STARTUP_RESERVE_BITS);
 
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_SAMPLE_SEED,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_FULL_CREDIT_SEED,
                                       PARTIAL_CHUNK_POINTS,
                                       MICROPHONE_POINTS_PER_CHUNK - PARTIAL_CHUNK_POINTS),
                          MICROPHONE_ONLY);
@@ -140,7 +140,7 @@ TEST(PartialChunkWaitsOutsideTheReserve) {
 
 TEST(FailingSourceDropsItsChunk) {
     FeedFullMicrophoneStartup();
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_SAMPLE_SEED, 0,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_FULL_CREDIT_SEED, 0,
                                       PARTIAL_CHUNK_POINTS),
                          MICROPHONE_ONLY);
     CHECK_EQ(Pool().GetUnfinishedChunkBits(MICROPHONE_ONLY),
@@ -155,7 +155,7 @@ TEST(FailingSourceDropsItsChunk) {
     CHECK_EQ(Pool().GetUnfinishedChunkBits(MICROPHONE_ONLY), 0.0);
     CHECK_EQ(Pool().GetReserveBits(MICROPHONE_ONLY), FULL_STARTUP_RESERVE_BITS);
 
-    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_SAMPLE_SEED,
+    Pool().AddDataPoints(SamplePoints(EntropySource::Microphone, SECOND_FULL_CREDIT_SEED,
                                       PARTIAL_CHUNK_POINTS, 2 * MICROPHONE_POINTS_PER_CHUNK),
                          MICROPHONE_ONLY);
     CHECK_EQ(Pool().GetUnfinishedChunkBits(MICROPHONE_ONLY), 0.0);

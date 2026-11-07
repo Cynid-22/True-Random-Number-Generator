@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include "imgui.h"
 
 namespace UiColor {
@@ -33,3 +34,5 @@ void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText);
 
 void WipeTextInputBuffers();
+
+void WipeInputTextBufferKeepingItsSize(std::vector<char> &buffer);

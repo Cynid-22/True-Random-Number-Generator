@@ -1,22 +1,11 @@
 #include "format_options.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/formats/text_formats.h"
 #include "../../logic/word_lists.h"
 #include "../widgets.h"
 #include "imgui.h"
 #include <algorithm>
 #include <string>
-
-static bool RenderCharacterSetToggle(const char *label, bool *included) {
-  if (ImGui::Checkbox(label, included)) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Custom]: %s toggled %s", label,
-                *included ? "ON" : "OFF");
-    return true;
-  }
-  return false;
-}
 
 bool RenderRandomCharactersOptions() {
   bool changed = false;
@@ -25,25 +14,22 @@ bool RenderRandomCharactersOptions() {
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##CustomLen", &g_state.randomCharactersLength)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Custom]: Length set to %d",
-                g_state.randomCharactersLength);
   }
   g_state.randomCharactersLength = std::clamp(g_state.randomCharactersLength,
                                               AppConfig::RANDOM_CHARACTERS_MIN_LENGTH,
                                               AppConfig::RANDOM_CHARACTERS_MAX_LENGTH);
 
   BeginOptionRow("Include:");
-  if (RenderCharacterSetToggle("0-9", &g_state.includeNumbers))
+  if (ImGui::Checkbox("0-9", &g_state.includeNumbers))
     changed = true;
   ImGui::SameLine();
-  if (RenderCharacterSetToggle("A-Z", &g_state.includeUppercase))
+  if (ImGui::Checkbox("A-Z", &g_state.includeUppercase))
     changed = true;
   ImGui::SameLine();
-  if (RenderCharacterSetToggle("a-z", &g_state.includeLowercase))
+  if (ImGui::Checkbox("a-z", &g_state.includeLowercase))
     changed = true;
   ImGui::SameLine();
-  if (RenderCharacterSetToggle("Special", &g_state.includeSpecial))
+  if (ImGui::Checkbox("Special", &g_state.includeSpecial))
     changed = true;
   ImGui::SameLine();
   ImGui::TextDisabled("%s", "(!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~)");
@@ -107,9 +93,6 @@ static bool RenderWordListSelector() {
           !selected) {
         g_state.passphraseWordList = wordListId;
         changed = true;
-        Logger::Log(Logger::Level::INFO, "GUI",
-                    "Output Config [Passphrase]: Word list set to %s",
-                    wordList.name);
       }
       RenderWordListTooltip(wordList);
       if (selected)
@@ -185,16 +168,31 @@ static bool ListUsesDigits(const WordLists::WordList &wordList) {
   return false;
 }
 
+static bool SeparatorIsEmptyOrOneRepeatedDigit() {
+  const char *separator = g_state.passphraseSeparator.data();
+  for (const char *character = separator; *character != '\0'; character++) {
+    if (*character < '0' || *character > '9' || *character != separator[0])
+      return false;
+  }
+  return true;
+}
+
 static void RenderNumberWarning() {
   const WordLists::WordList &wordList = SelectedWordList();
-  if (!wordList.IsUsable() || g_state.passphraseNumberCount == 0 ||
-      !ListUsesDigits(wordList))
+  if (!wordList.IsUsable() || g_state.passphraseNumberCount == 0)
     return;
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-  ImGui::TextWrapped("Some words in this list contain digits, so an added "
-                     "number may look like part of a word and some "
-                     "passphrases may be read more than one way (fewer bits "
-                     "than shown).");
+  if (ListUsesDigits(wordList))
+    ImGui::TextWrapped("Some words in this list contain digits, so an added "
+                       "number may look like part of a word and some "
+                       "passphrases may be read more than one way (fewer bits "
+                       "than shown).");
+  if (SeparatorIsEmptyOrOneRepeatedDigit())
+    ImGui::TextWrapped("With this separator, a number between two words reads "
+                       "the same at the end of one word as at the start of the "
+                       "next, so some passphrases may be read more than one way "
+                       "(fewer bits than shown). Use a separator such as - or "
+                       "a space.");
   ImGui::PopStyleColor();
 }
 
@@ -237,9 +235,6 @@ bool RenderPassphraseOptions() {
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##WordCount", &g_state.passphraseWordCount)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Passphrase]: Word count set to %d",
-                g_state.passphraseWordCount);
   }
   g_state.passphraseWordCount = std::clamp(g_state.passphraseWordCount,
                                            AppConfig::PASSPHRASE_MIN_WORDS,
@@ -251,9 +246,6 @@ bool RenderPassphraseOptions() {
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##NumberCount", &g_state.passphraseNumberCount)) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Passphrase]: Numbers set to %d",
-                g_state.passphraseNumberCount);
   }
   g_state.passphraseNumberCount =
       std::clamp(g_state.passphraseNumberCount, 0,
@@ -265,11 +257,8 @@ bool RenderPassphraseOptions() {
 
   BeginOptionRow("Separator:");
   ImGui::SetNextItemWidth(150);
-  if (ImGui::InputText("##Separator", g_state.passphraseSeparator.data(),
-                       g_state.passphraseSeparator.size())) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [Passphrase]: Separator changed");
-  }
+  ImGui::InputText("##Separator", g_state.passphraseSeparator.data(),
+                   g_state.passphraseSeparator.size());
 
   RenderPassphraseStrength();
   RenderSeparatorWarning();

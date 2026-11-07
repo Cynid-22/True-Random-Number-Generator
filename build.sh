@@ -63,7 +63,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     -DIMGUI_USE_WCHAR32 \
     -DIMGUI_IMPL_WIN32_DISABLE_GAMEPAD \
     "${SAMPLE_EXPORT_FLAGS[@]}" \
-    -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/logging" -I"src/entropy" \
+    -I"src" -I"src/core" -I"src/gui" -I"src/logic" -I"src/platform" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \
     -I"external/imgui" -I"external/imgui/backends" \
     -o "$OUTPUT_EXE" \
@@ -98,7 +98,6 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/platform/secure_clipboard.cpp \
     src/platform/virtual_machine.cpp \
     src/platform/os_random.cpp \
-    src/logging/logger.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \
     src/entropy/raw_input_thread.cpp \

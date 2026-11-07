@@ -1,5 +1,4 @@
 #include "mouse.h"
-#include "../../logging/logger.h"
 #include <algorithm>
 #include <cstdint>
 #include <hidusage.h>
@@ -9,11 +8,9 @@ namespace Entropy {
 
 namespace {
 
-// Just under a standard 125 Hz mouse's 8 ms, so a faster mouse can't earn more credit
 constexpr uint64_t MINIMUM_SAMPLE_INTERVAL_NS = 7000000ULL;
 
 constexpr USHORT TOUCH_PAD_USAGE = 0x05;
-// A precision touchpad reports at 125 Hz or more while touched
 constexpr uint64_t TOUCHPAD_TOUCH_TIMEOUT_NS = 50000000ULL;
 
 int16_t ClampToSixteenBits(int64_t count) {
@@ -47,19 +44,14 @@ void MouseCollector::Start() {
     m_lastSampleTime = 0;
     m_lastTouchpadReportTime = 0;
 
-    Logger::Log(Logger::Level::INFO, "Mouse", "Starting Raw Input mouse thread...");
-
     const bool started = m_inputThread.Start(
         {{HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MOUSE},
          {HID_USAGE_PAGE_DIGITIZER, TOUCH_PAD_USAGE}},
-        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessInput(input, timestamp); },
-        "Mouse");
+        [this](const RAWINPUT& input, uint64_t timestamp) { ProcessInput(input, timestamp); });
     if (!started) {
         m_running = false;
         return;
     }
-
-    Logger::Log(Logger::Level::INFO, "Mouse", "Raw Input mouse thread started.");
 }
 
 void MouseCollector::Stop() {
@@ -67,10 +59,7 @@ void MouseCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "Mouse", "Stopping Raw Input mouse thread...");
     m_inputThread.Stop();
-
-    Logger::Log(Logger::Level::INFO, "Mouse", "Collection stopped.");
 
     SecureClearBuffer();
 }
@@ -92,9 +81,10 @@ void MouseCollector::ProcessInput(const RAWINPUT& input, uint64_t timestamp) {
 }
 
 bool MouseCollector::IsFromPhysicalDevice(const RAWINPUTHEADER& header, uint64_t timestamp) const {
-    // A precision touchpad's movement has no device handle, like movement sent by software
-    const bool touchpadIsTouched = timestamp - m_lastTouchpadReportTime < TOUCHPAD_TOUCH_TIMEOUT_NS;
-    return header.hDevice != nullptr || touchpadIsTouched;
+    const bool hasDeviceHandle = header.hDevice != nullptr;
+    const bool handlelessMovementFromTouchedTouchpad =
+        timestamp - m_lastTouchpadReportTime < TOUCHPAD_TOUCH_TIMEOUT_NS;
+    return hasDeviceHandle || handlelessMovementFromTouchedTouchpad;
 }
 
 void MouseCollector::ProcessMovement(const RAWINPUT& input, uint64_t timestamp) {

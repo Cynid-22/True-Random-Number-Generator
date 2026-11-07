@@ -1,6 +1,5 @@
 #include "gui.h"
 #include "../core/app_state.h"
-#include "../logging/logger.h"
 #include "../logic/logic.h"
 #include "../logic/output_export.h"
 #include "widgets.h"
@@ -432,9 +431,6 @@ static void ClearAllEntropyData() {
   g_state.usedEntropyBits = 0.0;
   g_state.reserveBits = 0.0;
   g_state.unfinishedChunkBits = 0.0;
-
-  Logger::Log(Logger::Level::INFO, "GUI",
-              "All recorded entropy data cleared by user");
 }
 
 static constexpr double BITS_PER_BYTE = 8.0;

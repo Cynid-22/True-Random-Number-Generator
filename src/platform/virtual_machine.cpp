@@ -41,8 +41,7 @@ bool HypervisorBitSet() {
     return (Cpuid(CPU_FEATURES_LEAF).registers[REGISTER_ECX] & HYPERVISOR_PRESENT_BIT) != 0;
 }
 
-// Windows itself runs on Hyper-V when Memory Integrity, WSL2 or Hyper-V is on
-bool IsHyperVHost() {
+bool IsWindowsHostRunningOnItsOwnHyperV() {
     const CpuidResult vendorLeaf = Cpuid(HYPERVISOR_VENDOR_LEAF);
     if (vendorLeaf.registers[REGISTER_EAX] < static_cast<unsigned>(HYPERV_PRIVILEGES_LEAF))
         return false;
@@ -63,7 +62,7 @@ bool IsHyperVHost() {
 }
 
 bool IsRunningInVirtualMachine() {
-    static const bool runningInVirtualMachine = HypervisorBitSet() && !IsHyperVHost();
+    static const bool runningInVirtualMachine = HypervisorBitSet() && !IsWindowsHostRunningOnItsOwnHyperV();
     return runningInVirtualMachine;
 }
 

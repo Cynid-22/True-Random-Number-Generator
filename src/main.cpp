@@ -10,7 +10,6 @@
 #include "gui/widgets.h"
 #include "platform/dx11.h"
 #include "platform/secure_clipboard.h"
-#include "logging/logger.h"
 #ifdef TRNG_SAMPLE_EXPORT
 #include "gui/sample_export.h"
 #endif
@@ -136,13 +135,6 @@ static void UpdateEntropyCollection() {
     }
 }
 
-static void LogTabSwitch(int& activeTab, int tab, const char* tabName) {
-    if (activeTab != tab) {
-        Logger::Log(Logger::Level::INFO, "GUI", "Tab switched to: %s", tabName);
-        activeTab = tab;
-    }
-}
-
 static void RenderTabBody(const char* id, void (*renderContents)()) {
     if (ImGui::BeginChild(id, ImVec2(0, -StatusBarReservedHeight()),
                           ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoBackground)) {
@@ -158,7 +150,6 @@ static void RenderOutputTab() {
 }
 
 static void RenderMainTabs() {
-    static int activeTab = 0;
     static bool wasCollecting = false;
     const bool collectionJustStarted = g_state.isCollecting && !wasCollecting;
     wasCollecting = g_state.isCollecting;
@@ -168,12 +159,10 @@ static void RenderMainTabs() {
     if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Input", nullptr,
                                 collectionJustStarted ? ImGuiTabItemFlags_SetSelected : 0)) {
-            LogTabSwitch(activeTab, 0, "Input");
             RenderTabBody("##InputTabBody", RenderInputTab);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Output")) {
-            LogTabSwitch(activeTab, 1, "Output");
             RenderTabBody("##OutputTabBody", RenderOutputTab);
             ImGui::EndTabItem();
         }
@@ -247,9 +236,8 @@ static void WipeForSessionEnd() {
     StopAllCollectors();
     g_state.entropyPool.SecureWipe();
 
-    // Zero in place: ImGui may draw another frame before the process ends
-    SecureZeroMemory(g_state.oneTimePadMessage.data(), g_state.oneTimePadMessage.size());
-    SecureZeroMemory(g_state.oneTimePadFilePath.data(), g_state.oneTimePadFilePath.size());
+    WipeInputTextBufferKeepingItsSize(g_state.oneTimePadMessage);
+    WipeInputTextBufferKeepingItsSize(g_state.oneTimePadFilePath);
     g_state.wipeOneTimePadResult();
     g_state.wipeGeneratedOutput();
     Crypto::SecureClearVector(g_state.keystrokePreview);
@@ -260,12 +248,9 @@ static void WipeForSessionEnd() {
 
 static void RunCryptoSelfTests() {
     const char* failedTest = Crypto::FindFailingSelfTest();
-    if (!failedTest) {
-        Logger::Log(Logger::Level::INFO, "Main", "Cryptographic self-tests passed");
+    if (!failedTest)
         return;
-    }
     g_state.selfTestFailed = true;
-    Logger::Log(Logger::Level::ERR, "Main", "Cryptographic self-test failed: %s", failedTest);
     ShowErrorModal("Self-test failed",
                    std::string("The cryptographic self-test \"") + failedTest +
                        "\" gave a wrong result.\nThis build of TRNG may be damaged "
@@ -347,8 +332,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
     SetProcessWorkingSetSize(GetCurrentProcess(), LOCKABLE_MEMORY_BYTES,
                              WORKING_SET_MAXIMUM_BYTES);
-    Logger::Init();
-    Logger::Log(Logger::Level::INFO, "Main", "Application starting...");
     RunCryptoSelfTests();
 
     SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
@@ -419,12 +402,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     MergeFallbackFontsIntoLastFont(io, fontSize, fallbackFontFiles);
 
     ImFont* outputFont = AddEmbeddedOutputFont(io, fontSize, fontConfig);
-    if (outputFont) {
+    if (outputFont)
         MergeFallbackFontsIntoLastFont(io, fontSize, fallbackFontFiles);
-    } else {
-        Logger::Log(Logger::Level::WARN, "Main",
-                    "Embedded output font could not be loaded, using the main font");
-    }
     SetOutputFont(outputFont);
 
     ImGui::GetStyle().ScaleAllSizes(dpiScale);
@@ -471,6 +450,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DestroyWindow(hwnd);
     UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
 
-    Logger::Shutdown();
     return 0;
 }

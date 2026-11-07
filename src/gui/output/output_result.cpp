@@ -201,9 +201,7 @@ static void RenderCopyAndClearButtons() {
     g_state.generatedAtText = "";
     g_state.generationTimeText = "";
 
-    // Zero in place: ImGui needs the buffer size
-    SecureZeroMemory(g_state.oneTimePadMessage.data(),
-                     g_state.oneTimePadMessage.size());
+    WipeInputTextBufferKeepingItsSize(g_state.oneTimePadMessage);
     WipeTextInputBuffers();
     UpdateTargetEntropy();
   }
@@ -220,8 +218,8 @@ static void RenderCopyAndClearButtons() {
 static void RenderOutputFooter() {
   ImGui::TextColored(
       UiColor::DimText,
-      "Note: The current time and a generation counter are mixed into the "
-      "seed for uniqueness.");
+      "Note: The current time and a generation counter are mixed into every "
+      "generation for uniqueness.");
 }
 
 void RenderOutputSection() {

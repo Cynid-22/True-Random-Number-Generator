@@ -232,7 +232,7 @@ Each depends on everything else the computer is doing at that microsecond.
 
 | Failure | How it is caught |
 |---|---|
-| No high-resolution timer | A coarser wait, with a warning in the log |
+| No high-resolution timer | A coarser wait at the system timer's rate; the per-sample estimate and the health tests still apply |
 | Virtual machine | No credit |
 | A counter that stops changing in its low bits | The repetition count test |
 
@@ -320,7 +320,7 @@ The 512 output bits are y = T·x over GF(2), where x is the chunk's input padded
 
 The seed is 131,583 bits: 131,072 input bits plus 512 output bits, minus one. It is the `outputValue` of 257 consecutive pulses of the **NIST Randomness Beacon 2.0**, chain 2, pulses 2007938 to 2008194 (2026-11-01 00:00 to 04:16 UTC), concatenated in order, most significant bit first. The last of the 131,584 bits is unused. It is embedded in `src/crypto/toeplitz_seed.h`, and anyone can check it against the beacon, for example `https://beacon.nist.gov/beacon/2.0/chain/2/pulse/2007938`.
 
-The redesign plan expected a seed of 1,151 bits (512 + 640 − 1). That size would only fit inputs of 640 bits, while the extractor's input is the raw chunk, up to 131,072 bits, and a Toeplitz matrix needs input length plus output length minus one seed bits.
+A seed of 1,151 bits (512 + 640 − 1) would only fit inputs of 640 bits. The extractor's input is the raw chunk, up to 131,072 bits, and a Toeplitz matrix needs input length plus output length minus one seed bits.
 
 **Self-tests.** At launch, the extractor is checked against three known answers: a lone first input bit (which must return seed bits 131,071 to 131,582, checkable by hand from the last two pulses), a 3-value input, and a full 2,048-value input whose answer depends on every seed bit. The expected values were computed with independent reference code that builds the matrix from its definition.
 

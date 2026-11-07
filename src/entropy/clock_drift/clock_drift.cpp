@@ -1,6 +1,5 @@
 #include "clock_drift.h"
 #include "../high_resolution_sleeper.h"
-#include "../../logging/logger.h"
 #include <intrin.h>
 #include <chrono>
 #include <windows.h>
@@ -20,7 +19,6 @@ void ClockDriftCollector::Start() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "ClockDrift", "Starting collector thread...");
     m_samples.Reset();
     m_thread = std::thread(&ClockDriftCollector::CollectionLoop, this);
 }
@@ -30,14 +28,9 @@ void ClockDriftCollector::Stop() {
         return;
     }
 
-    Logger::Log(Logger::Level::INFO, "ClockDrift", "Stopping collector thread...");
     if (m_thread.joinable()) {
         m_thread.join();
     }
-
-    Logger::Log(Logger::Level::INFO, "ClockDrift", "Collection stopped.");
-
-    Logger::Log(Logger::Level::INFO, "ClockDrift", "Collector thread stopped.");
 
     SecureClearBuffer();
 }
@@ -76,14 +69,7 @@ uint64_t ClockDriftCollector::GetSampleCount() const {
 }
 
 void ClockDriftCollector::CollectionLoop() {
-    Logger::Log(Logger::Level::INFO, "ClockDrift", "Thread main loop started");
-
     HighResolutionSleeper sleeper;
-    if (!sleeper.IsHighResolution()) {
-        Logger::Log(Logger::Level::WARN, "ClockDrift",
-                    "High-resolution timer unavailable (Error: %lu); sampling at the system timer rate",
-                    GetLastError());
-    }
 
     while (m_running) {
         uint64_t cyclesBefore = __rdtsc();
@@ -95,7 +81,6 @@ void ClockDriftCollector::CollectionLoop() {
         uint64_t cycleDelta = cyclesAfter - cyclesBefore;
 
         if (cycleDelta == 0 || cycleDelta > 1000000000) {
-             Logger::Log(Logger::Level::WARN, "ClockDrift", "Anomalous delta detected: %llu", cycleDelta);
              continue;
         }
 

@@ -1,6 +1,5 @@
 #include "raw_input_thread.h"
 #include "entropy_common.h"
-#include "../logging/logger.h"
 #include <algorithm>
 #include <utility>
 
@@ -11,6 +10,10 @@ namespace {
 constexpr const wchar_t* MESSAGE_WINDOW_CLASS = L"TRNGRawInput";
 constexpr DWORD RECEIVE_ONLY_WHILE_IN_FOREGROUND = 0;
 constexpr UINT RAW_INPUT_READ_FAILED = static_cast<UINT>(-1);
+
+void WakeAheadOfBusyThreadsSoTimestampsAreTakenOnArrival() {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+}
 
 HWND CreateMessageWindow() {
     WNDCLASSEXW windowClass{};
@@ -35,10 +38,8 @@ RawInputThread::~RawInputThread() {
     Stop();
 }
 
-bool RawInputThread::Start(std::vector<HidUsage> devices, InputHandler handler,
-                           const char* logModule) {
+bool RawInputThread::Start(std::vector<HidUsage> devices, InputHandler handler) {
     m_handler = std::move(handler);
-    m_logModule = logModule;
 
     std::promise<bool> started;
     std::future<bool> startResult = started.get_future();
@@ -58,16 +59,13 @@ void RawInputThread::Stop() {
 }
 
 void RawInputThread::Run(std::vector<HidUsage> devices, std::promise<bool> started) {
-    // Each input is timestamped when this thread wakes, so it must wake ahead of busy threads
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    WakeAheadOfBusyThreadsSoTimestampsAreTakenOnArrival();
 
     HWND window = CreateMessageWindow();
     std::vector<RAWINPUTDEVICE> registrations;
     for (const HidUsage& device : devices)
         registrations.push_back({device.page, device.usage, RECEIVE_ONLY_WHILE_IN_FOREGROUND, window});
     if (!window || !RegisterDevices(registrations)) {
-        Logger::Log(Logger::Level::ERR, m_logModule, "Failed to register for Raw Input! Error: %lu",
-                    GetLastError());
         if (window)
             DestroyWindow(window);
         started.set_value(false);

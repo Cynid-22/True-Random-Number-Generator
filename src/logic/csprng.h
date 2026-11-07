@@ -18,8 +18,8 @@ enum class GenerationMode {
 
 const char* ModeName(GenerationMode mode);
 
-// SP 800-90C 6.4.2: the DRBG of an RBG3(XOR) is reseeded after 2^17 bits of output
-constexpr uint64_t TRUE_PATH_RESEED_INTERVAL_BYTES = 16384;
+constexpr uint64_t RBG3_XOR_RESEED_INTERVAL_BITS = uint64_t(1) << 17;
+constexpr uint64_t TRUE_PATH_RESEED_INTERVAL_BYTES = RBG3_XOR_RESEED_INTERVAL_BITS / 8;
 constexpr size_t TRUE_PATH_RESEED_BYTES = 32;
 constexpr size_t GENERATOR_RESERVE_SEED_BYTES =
     static_cast<size_t>(AppConfig::MINIMUM_ENTROPY_BITS) / 8;

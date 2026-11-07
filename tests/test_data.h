@@ -77,10 +77,9 @@ inline const std::set<Entropy::EntropySource> MICROPHONE_AND_KEYSTROKE{
 constexpr double MICROPHONE_BITS_PER_POINT = 8.0;
 constexpr double KEYSTROKE_BITS_PER_POINT = 2.0;
 constexpr int KEYSTROKE_VALUE_SHIFT = 8;
-constexpr uint64_t FIRST_SAMPLE_SEED = 1;
-constexpr uint64_t SECOND_SAMPLE_SEED = 2;
+constexpr uint64_t FIRST_FULL_CREDIT_SEED = 1;
+constexpr uint64_t SECOND_FULL_CREDIT_SEED = 2;
 
-// Every value of these seeds earns the source's full credit cap (checked in Python)
 inline Entropy::EntropyDataVector SamplePoints(Entropy::EntropySource source, uint64_t seed,
                                                size_t firstIndex, size_t count,
                                                int valueShift = 0) {

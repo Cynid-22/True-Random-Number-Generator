@@ -1,6 +1,5 @@
 #include "format_options.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../widgets.h"
 #include "imgui.h"
 #include <algorithm>
@@ -30,9 +29,6 @@ static bool RenderOrderingMethodRow() {
   if (ImGui::Combo("##V7Method", &g_state.uuidV7Ordering, orderingNames,
                    IM_ARRAYSIZE(orderingNames))) {
     changed = true;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [UUIDv7]: Ordering set to %s",
-                orderingNames[g_state.uuidV7Ordering]);
   }
 
   if (g_state.uuidV7Ordering == UUIDV7_DEDICATED_COUNTER) {
@@ -41,11 +37,7 @@ static bool RenderOrderingMethodRow() {
     ImGui::Text("Counter bits:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(130);
-    if (ImGui::InputInt("##V7CounterBits", &g_state.uuidV7CounterBits)) {
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Output Config [UUIDv7]: Counter bits set to %d",
-                  g_state.uuidV7CounterBits);
-    }
+    ImGui::InputInt("##V7CounterBits", &g_state.uuidV7CounterBits);
     g_state.uuidV7CounterBits = std::clamp(g_state.uuidV7CounterBits,
                                            AppConfig::UUIDV7_MIN_COUNTER_BITS,
                                            AppConfig::UUIDV7_MAX_COUNTER_BITS);
@@ -62,11 +54,7 @@ static bool RenderOrderingMethodRow() {
     ImGui::Text("Increment:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(130);
-    if (ImGui::InputInt("random bits", &g_state.uuidV7IncrementBits)) {
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Output Config [UUIDv7]: Increment bits set to %d",
-                  g_state.uuidV7IncrementBits);
-    }
+    ImGui::InputInt("random bits", &g_state.uuidV7IncrementBits);
     g_state.uuidV7IncrementBits = std::clamp(g_state.uuidV7IncrementBits,
                                              AppConfig::UUIDV7_MIN_INCREMENT_BITS,
                                              AppConfig::UUIDV7_MAX_INCREMENT_BITS);
@@ -200,17 +188,9 @@ static bool RenderUuidV7Options() {
 
 bool RenderUuidOptions() {
   BeginOptionRow("Style:");
-  if (ImGui::Checkbox("Uppercase", &g_state.uuidUppercase)) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [UUID]: Uppercase toggled %s",
-                g_state.uuidUppercase ? "ON" : "OFF");
-  }
+  ImGui::Checkbox("Uppercase", &g_state.uuidUppercase);
   ImGui::SameLine();
-  if (ImGui::Checkbox("Hyphens", &g_state.uuidHyphens)) {
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "Output Config [UUID]: Hyphens toggled %s",
-                g_state.uuidHyphens ? "ON" : "OFF");
-  }
+  ImGui::Checkbox("Hyphens", &g_state.uuidHyphens);
 
   if (g_state.outputFormat == FORMAT_UUID_V4) {
     ImGui::SameLine();

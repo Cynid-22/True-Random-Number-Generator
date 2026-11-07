@@ -3,7 +3,6 @@
 
 #include "format_options.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../../logic/formats/one_time_pad_format.h"
 #include "../../logic/logic.h"
 #include "../../platform/unicode_path.h"
@@ -14,8 +13,7 @@
 #include <string>
 
 static void ClearSelectedOneTimePadFile() {
-  SecureZeroMemory(g_state.oneTimePadFilePath.data(),
-                   g_state.oneTimePadFilePath.size());
+  WipeInputTextBufferKeepingItsSize(g_state.oneTimePadFilePath);
   g_state.oneTimePadFileSize = 0;
   g_state.oneTimePadFileLastWriteTime = 0;
 }
@@ -34,9 +32,6 @@ static void BrowseForOneTimePadFile() {
   if (GetOpenFileNameW(&dialog) != TRUE) {
     DWORD dialogError = CommDlgExtendedError();
     if (dialogError != 0) {
-      Logger::Log(Logger::Level::ERR, "GUI",
-                  "Output Config [OTP]: File dialog failed. Error code: %lu",
-                  dialogError);
       ClearSelectedOneTimePadFile();
       UpdateTargetEntropy();
     }
@@ -46,35 +41,24 @@ static void BrowseForOneTimePadFile() {
   std::string utf8Path = Platform::WideToUtf8(selectedPath);
   Platform::FileStamp stamp;
   ClearSelectedOneTimePadFile();
-  if (utf8Path.empty() || utf8Path.size() >= g_state.oneTimePadFilePath.size()) {
-    Logger::Log(Logger::Level::ERR, "GUI",
-                "Output Config [OTP]: Failed to load file. The path could not "
-                "be converted.");
-  } else {
+  const bool pathFitsBuffer =
+      !utf8Path.empty() && utf8Path.size() < g_state.oneTimePadFilePath.size();
+  if (pathFitsBuffer) {
     memcpy(g_state.oneTimePadFilePath.data(), utf8Path.c_str(),
            utf8Path.size() + 1);
     if (Platform::FileStampOf(g_state.oneTimePadFilePath.data(), stamp)) {
       g_state.oneTimePadFileSize = stamp.size;
       g_state.oneTimePadFileLastWriteTime = stamp.lastWriteTime;
-      Logger::Log(Logger::Level::INFO, "GUI",
-                  "Output Config [OTP]: File loaded successfully. "
-                  "Size: %lld bytes",
-                  g_state.oneTimePadFileSize);
     } else {
-      Logger::Log(Logger::Level::ERR, "GUI",
-                  "Output Config [OTP]: Failed to load file. Error code: %lu",
-                  GetLastError());
       ClearSelectedOneTimePadFile();
     }
   }
   UpdateTargetEntropy();
 }
 
-static void SelectOneTimePadInputMode(int inputMode, const char *tabName) {
+static void SelectOneTimePadInputMode(int inputMode) {
   if (g_state.oneTimePadInputMode == inputMode)
     return;
-  Logger::Log(Logger::Level::INFO, "GUI",
-              "Output Config [OTP]: Switched to %s", tabName);
   g_state.oneTimePadInputMode = inputMode;
   UpdateTargetEntropy();
 }
@@ -85,7 +69,7 @@ static int DiscardNonOneTimePadCharacter(ImGuiInputTextCallbackData *data) {
 
 static void RenderTextInputTab() {
   if (ImGui::BeginTabItem("Text Input")) {
-    SelectOneTimePadInputMode(ONE_TIME_PAD_TEXT_INPUT, "Text Input");
+    SelectOneTimePadInputMode(ONE_TIME_PAD_TEXT_INPUT);
     ImGui::Spacing();
     ImGui::Text("Enter your message:");
     HelpMarker("Only letters (A-Z, a-z), numbers (0-9) and spaces are\n"
@@ -111,8 +95,7 @@ static void RenderTextInputTab() {
 
 static void RenderMessageLengthInputTab() {
   if (ImGui::BeginTabItem("Message Length")) {
-    SelectOneTimePadInputMode(ONE_TIME_PAD_MESSAGE_LENGTH_INPUT,
-                              "Message Length");
+    SelectOneTimePadInputMode(ONE_TIME_PAD_MESSAGE_LENGTH_INPUT);
     ImGui::Spacing();
     ImGui::Text("Length of your message:");
     HelpMarker("Generates a pad of this many random characters\n"
@@ -137,7 +120,7 @@ static void RenderMessageLengthInputTab() {
 
 static void RenderFileInputTab() {
   if (ImGui::BeginTabItem("File Input")) {
-    SelectOneTimePadInputMode(ONE_TIME_PAD_FILE_INPUT, "File Input");
+    SelectOneTimePadInputMode(ONE_TIME_PAD_FILE_INPUT);
     ImGui::Spacing();
 
     ImGui::Text("File to process:");

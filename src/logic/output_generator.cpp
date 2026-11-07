@@ -2,7 +2,6 @@
 #include "../../config/AppConfig.h"
 #include "../core/app_state.h"
 #include "../crypto/secure_mem.h"
-#include "../logging/logger.h"
 #include "../platform/unicode_path.h"
 #include "csprng.h"
 #include "formats/cancellation.h"
@@ -256,9 +255,6 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
 
       for (unsigned retry = 1;
            allDrawsRejected && retry <= AppConfig::INTEGER_MAX_RETRIES; retry++) {
-        Logger::Log(Logger::Level::INFO, "CSPRNG",
-                    "Integer item %zu: all draws rejected, retry %u",
-                    i + 1, retry);
         Crypto::SecureClearVector(itemBytes);
         itemBytes = GenerateRandomBytes(input, bytesPerItem, mode);
         item = GenerateInteger(itemBytes, settings.integerMin,
@@ -329,8 +325,6 @@ GenerationResult GenerateOutput(
   result.success = false;
   result.cancelled = false;
   result.mode = GenerationMode::PseudoRandom;
-  result.entropyConsumed = 0.0f;
-  result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
 
   if (g_state.selfTestFailed) {
@@ -379,12 +373,6 @@ GenerationResult GenerateOutput(
   };
   try {
     input = g_state.entropyPool.CopyGenerationInput(includedSources, reserveBytesToCopy);
-    Logger::Log(Logger::Level::INFO, "CSPRNG",
-                "Generation %llu: %zu new data points, %.1f bits credited, "
-                "%zu reserve bytes copied, generator %s",
-                static_cast<unsigned long long>(generationNumber),
-                input.newPoints.size(), input.CreditBits(), input.reserveBytes.size(),
-                input.generator ? "continued" : "new");
 
     const bool generatorSeedTooShort =
         input.previouslyUsedBits + input.CreditBits() < AppConfig::MINIMUM_ENTROPY_BITS;
@@ -412,10 +400,6 @@ GenerationResult GenerateOutput(
           "doesn't cover the pad. Collect more entropy.";
       return result;
     }
-    Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
-                mode == GenerationMode::TrueRandom
-                    ? "TRUE RANDOM - the reserve covers every byte drawn"
-                    : "PSEUDO-RANDOM - the reserve doesn't cover the output");
 
     const std::string generationInfo =
         BuildGenerationInfo(settings, bytesNeeded, generationNumber);
@@ -426,7 +410,6 @@ GenerationResult GenerateOutput(
           {reinterpret_cast<const uint8_t *>(generationInfo.data()),
            generationInfo.size()},
           &reseedSource);
-      result.rawBytesGenerated = randomBytes.size();
       ThrowIfGenerationCancelled();
       return isList ? WriteListOutput(settings, format, quantity, bytesPerItem,
                                       randomBytes, itemBytes, input, outputMode, result)
@@ -439,9 +422,6 @@ GenerationResult GenerateOutput(
     } catch (const ReserveRanOut &) {
       if (!isList)
         throw;
-      Logger::Log(Logger::Level::INFO, "CSPRNG",
-                  "Reserve ran out during rejected draws, making the output "
-                  "PSEUDO-RANDOM instead");
       wipeOutput();
       mode = GenerationMode::PseudoRandom;
       written = generateAndWrite(mode);
@@ -458,34 +438,25 @@ GenerationResult GenerateOutput(
     }
 
     g_state.entropyPool.UseGenerationInput(input);
-    result.entropyConsumed = static_cast<float>(input.CreditBits());
 
     input.SecureWipe();
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
 
     result.success = true;
-    Logger::Log(Logger::Level::INFO, "CSPRNG",
-                "Output generated successfully. Format: %d, Items: %zu, Mode: "
-                "%s, Bytes: %zu",
-                format, quantity, ModeName(mode), result.rawBytesGenerated);
-
   } catch (const GenerationCancelled &cancelled) {
     wipeAll();
     result.errorMessage = cancelled.what();
     result.cancelled = true;
     result.success = false;
-    Logger::Log(Logger::Level::INFO, "CSPRNG", "Generation cancelled by user.");
   } catch (const std::bad_alloc &) {
     wipeAll();
     result.errorMessage = "Memory allocation failed! The requested amount is too large for the system's available RAM/Paging file. Reduce the generation size bounds.";
     result.success = false;
-    Logger::Log(Logger::Level::ERR, "CSPRNG", "std::bad_alloc caught! Generation request exceeded available memory.");
   } catch (const std::exception &e) {
     wipeAll();
     result.errorMessage = std::string("Unexpected generation error: ") + e.what();
     result.success = false;
-    Logger::Log(Logger::Level::ERR, "CSPRNG", "std::exception caught during generation.");
   }
 
   return result;

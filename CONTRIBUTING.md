@@ -25,7 +25,7 @@ Thank you for your interest in contributing! This project deals with cryptograph
 ## Guidelines
 
 ### Code Style
-- Use 4-space indentation
+- Match the indentation of the file you edit (some files use 2 spaces, some 4)
 - Follow existing naming conventions (`camelCase` for variables, `PascalCase` for classes/functions)
 - Keep comments to a minimum: clear names and named constants should explain the code
 - Comment only a non-obvious reason that no name can express, in one short line
@@ -34,16 +34,16 @@ Thank you for your interest in contributing! This project deals with cryptograph
 
 Since this is a cryptographic application, all contributions **must**:
 
-- **Never log sensitive data**: No entropy values, keys, or generated output in log messages
+- **No logging**: TRNG has no logger. Never write entropy values, keys or generated output to a file, the console or the debugger output, except a file the user exports
 - **Wipe all buffers**: Use `SecureZeroMemory` for any buffer that held sensitive data
 - **Use atomic operations**: All shared state between threads must use `std::atomic` or `std::mutex`
 - **Avoid `std::string` for secrets**: Use `std::vector<char>` or `std::vector<uint8_t>` with explicit secure wiping
-- **No debug logging in production**: The `DEBUG` log level has been removed by design
 
 ### Pull Request Checklist
 
 - [ ] Code compiles without warnings (`-Wall`)
-- [ ] No sensitive data in log output
+- [ ] Regression tests pass (`./build_tests.sh`)
+- [ ] No sensitive data written anywhere except user exports
 - [ ] All temporary buffers are securely wiped
 - [ ] Thread safety verified for shared state
 - [ ] Existing functionality is not broken

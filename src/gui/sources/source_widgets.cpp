@@ -1,6 +1,5 @@
 #include "source_widgets.h"
 #include "../../core/app_state.h"
-#include "../../logging/logger.h"
 #include "../widgets.h"
 #include <cstdarg>
 
@@ -21,13 +20,9 @@ void RenderUsedDataWarning() {
   }
 }
 
-void RenderSourceToggle(const char *checkboxLabel, bool *enabled,
-                        const char *sourceName) {
+void RenderSourceToggle(const char *checkboxLabel, bool *enabled) {
   ImGui::BeginDisabled(g_state.isCollecting);
-  if (ImGui::Checkbox(checkboxLabel, enabled)) {
-    Logger::Log(Logger::Level::INFO, "GUI", "%s source toggled: %s",
-                sourceName, *enabled ? "ON" : "OFF");
-  }
+  ImGui::Checkbox(checkboxLabel, enabled);
   ImGui::EndDisabled();
 }
 
@@ -69,13 +64,10 @@ bool CanFinishStartupEarly(Entropy::EntropySource source) {
          HardwareSourcesPassedStartup();
 }
 
-void RenderHealthTestFailureButtons(Entropy::EntropySource source, bool *enabled,
-                                    const char *sourceName) {
+void RenderHealthTestFailureButtons(Entropy::EntropySource source, bool *enabled) {
   ImGui::PushID(static_cast<int>(source));
   if (ImGui::SmallButton("Turn off")) {
     *enabled = false;
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "%s turned off after a failed health test", sourceName);
   }
   ImGui::SetItemTooltip(
       "Stop this source. Nothing from it is credited or mixed into the seed.\n"
@@ -83,9 +75,6 @@ void RenderHealthTestFailureButtons(Entropy::EntropySource source, bool *enabled
   ImGui::SameLine();
   if (ImGui::SmallButton("Test again")) {
     g_state.entropyPool.RestartSourceStartup(source);
-    Logger::Log(Logger::Level::INFO, "GUI",
-                "%s start-up test restarted after a failed health test",
-                sourceName);
   }
   ImGui::SetItemTooltip(
       "Discard this source's test results and run its full start-up test "

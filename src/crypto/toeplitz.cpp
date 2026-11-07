@@ -13,7 +13,8 @@ constexpr size_t BITS_PER_WORD = 64;
 constexpr size_t BITS_PER_HEX_DIGIT = 4;
 constexpr size_t HEX_DIGITS_PER_WORD = BITS_PER_WORD / BITS_PER_HEX_DIGIT;
 constexpr size_t WORDS_PER_PULSE = 8;
-constexpr size_t PULSE_COUNT = std::size(TOEPLITZ_SEED_PULSES);
+constexpr auto& SEED_PULSES = NIST_BEACON_CHAIN_2_OUTPUT_VALUES_OF_PULSES_2007938_TO_2008194;
+constexpr size_t PULSE_COUNT = std::size(SEED_PULSES);
 constexpr size_t SEED_WORDS = PULSE_COUNT * WORDS_PER_PULSE;
 constexpr size_t OUTPUT_WORDS = ToeplitzExtractor::OUTPUT_BITS / BITS_PER_WORD;
 
@@ -45,7 +46,7 @@ const SeedWords& Seed() {
         for (size_t pulse = 0; pulse < PULSE_COUNT; pulse++) {
             for (size_t word = 0; word < WORDS_PER_PULSE; word++) {
                 parsed[pulse * WORDS_PER_PULSE + word] =
-                    ParseHexWord(TOEPLITZ_SEED_PULSES[pulse] + word * HEX_DIGITS_PER_WORD);
+                    ParseHexWord(SEED_PULSES[pulse] + word * HEX_DIGITS_PER_WORD);
             }
         }
         return parsed;
