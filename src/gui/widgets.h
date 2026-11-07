@@ -27,6 +27,8 @@ const char *CurrentSpinnerFrame();
 
 std::string WithThousandsSeparators(uint64_t value);
 
+void SetOutputFont(ImFont *font);
+
 void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText);
 

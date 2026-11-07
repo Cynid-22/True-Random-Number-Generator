@@ -15,7 +15,10 @@
 #include "gui/sample_export.h"
 #endif
 
+#include <climits>
 #include <cstdlib>
+#include <fstream>
+#include <vector>
 #include <malloc.h>
 #include <shellscalingapi.h>
 #include <windows.h>
@@ -281,7 +284,9 @@ static void FreeImGuiMemory(void* memory, void*) {
     free(memory);
 }
 
-static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
+using FontFileData = std::vector<unsigned char>;
+
+static std::vector<FontFileData> LoadFallbackFontFiles() {
     static const char* const CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS[] = {
         "C:\\Windows\\Fonts\\msyh.ttc",
         "C:\\Windows\\Fonts\\YuGothM.ttc",
@@ -291,17 +296,51 @@ static void MergeFallbackFontsIntoMainFont(ImGuiIO& io, float fontSize) {
         "C:\\Windows\\Fonts\\seguisym.ttf",
     };
 
+    std::vector<FontFileData> files;
+    for (const char* path : CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS) {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file)
+            continue;
+        const std::streamoff size = file.tellg();
+        if (size <= 0 || size > INT_MAX)
+            continue;
+        FontFileData data(static_cast<size_t>(size));
+        file.seekg(0);
+        if (file.read(reinterpret_cast<char*>(data.data()), size))
+            files.push_back(std::move(data));
+    }
+    return files;
+}
+
+static void MergeFallbackFontsIntoLastFont(ImGuiIO& io, float fontSize,
+                                           std::vector<FontFileData>& fallbackFonts) {
     ImFontConfig mergeConfig;
     mergeConfig.MergeMode = true;
     mergeConfig.OversampleH = 1;
     mergeConfig.OversampleV = 1;
     mergeConfig.PixelSnapH = true;
+    mergeConfig.FontDataOwnedByAtlas = false;
     mergeConfig.Flags |= ImFontFlags_NoLoadError;
 
-    for (const char* path : CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS) {
-        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES)
-            io.Fonts->AddFontFromFileTTF(path, fontSize, &mergeConfig);
-    }
+    for (FontFileData& data : fallbackFonts)
+        io.Fonts->AddFontFromMemoryTTF(data.data(), static_cast<int>(data.size()), fontSize,
+                                       &mergeConfig);
+}
+
+static ImFont* AddEmbeddedOutputFont(ImGuiIO& io, float fontSize, ImFontConfig fontConfig) {
+    HRSRC resourceInfo =
+        FindResourceA(nullptr, MAKEINTRESOURCEA(IDR_FONT_OUTPUT), (LPCSTR)RT_RCDATA);
+    if (!resourceInfo)
+        return nullptr;
+    HGLOBAL resourceHandle = LoadResource(nullptr, resourceInfo);
+    void* fontData = resourceHandle ? LockResource(resourceHandle) : nullptr;
+    const DWORD fontDataSize = SizeofResource(nullptr, resourceInfo);
+    if (!fontData || fontDataSize == 0 || fontDataSize > INT_MAX)
+        return nullptr;
+    fontConfig.FontDataOwnedByAtlas = false;
+    fontConfig.Flags |= ImFontFlags_NoLoadError;
+    return io.Fonts->AddFontFromMemoryTTF(fontData, static_cast<int>(fontDataSize), fontSize,
+                                          &fontConfig);
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
@@ -376,7 +415,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!font) {
         io.Fonts->AddFontDefault();
     }
-    MergeFallbackFontsIntoMainFont(io, fontSize);
+    std::vector<FontFileData> fallbackFontFiles = LoadFallbackFontFiles();
+    MergeFallbackFontsIntoLastFont(io, fontSize, fallbackFontFiles);
+
+    ImFont* outputFont = AddEmbeddedOutputFont(io, fontSize, fontConfig);
+    if (outputFont) {
+        MergeFallbackFontsIntoLastFont(io, fontSize, fallbackFontFiles);
+    } else {
+        Logger::Log(Logger::Level::WARN, "Main",
+                    "Embedded output font could not be loaded, using the main font");
+    }
+    SetOutputFont(outputFont);
 
     ImGui::GetStyle().ScaleAllSizes(dpiScale);
 

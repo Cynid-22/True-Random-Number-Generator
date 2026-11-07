@@ -307,6 +307,15 @@ double EntropyPool::GetReserveBits(const std::set<EntropySource>& includedSource
     return static_cast<double>(reserveBytes) * BITS_PER_BYTE;
 }
 
+double EntropyPool::GetUnfinishedChunkBits(const std::set<EntropySource>& includedSources) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    double bits = 0.0;
+    for (EntropySource source : includedSources) {
+        bits += m_sources[static_cast<size_t>(source)].chunkBits;
+    }
+    return bits;
+}
+
 uint64_t EntropyPool::GetGeneratorBytesSinceFullReseed() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_generatorBytesSinceFullReseed;

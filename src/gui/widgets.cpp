@@ -41,8 +41,13 @@ static void RenderWrappedText(const char *begin, const char *end) {
   ImGui::PopTextWrapPos();
 }
 
+static ImFont *s_outputFont = nullptr;
+
+void SetOutputFont(ImFont *font) { s_outputFont = font; }
+
 void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText) {
+  ImGui::PushFont(s_outputFont, 0.0f);
   if (truncateLongText && length > 1000) {
     RenderWrappedText(text, text + 500);
 
@@ -54,6 +59,7 @@ void RenderTruncatableText(const char *text, size_t length,
   } else {
     RenderWrappedText(text, text + length);
   }
+  ImGui::PopFont();
 }
 
 static void WipeTextBuffer(ImVector<char> &text) {

@@ -128,10 +128,7 @@ void CollectFinishedGeneration() {
     g_state.generatedAtText = generatedAt;
     g_state.generationTimeText = FormatElapsedTime(s_finishedElapsedMs);
 
-    const char *modeName =
-        (s_finishedResult.mode == CSPRNG::GenerationMode::EntropyBacked)
-            ? "ENTROPY-BACKED"
-            : "EXPANDED";
+    const char *modeName = CSPRNG::ModeName(s_finishedResult.mode);
     g_state.generatedOutputDetails = std::move(s_runningGenerationDetails);
     g_state.generatedOutputDetails.securityMode = modeName;
     Logger::Log(Logger::Level::INFO, "GUI",

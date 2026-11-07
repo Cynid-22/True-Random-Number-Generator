@@ -12,8 +12,8 @@ If you discover a security vulnerability in this project, **please do not open a
 
 Instead, report it privately:
 
-1. **Email**: [your-email@example.com] *(replace with your actual contact)*
-2. **GitHub**: Use [Security Advisories](https://github.com/yourusername/TRNG/security/advisories/new) to report privately
+1. **Email**: [macaw-karma-crouch@duck.com](mailto:macaw-karma-crouch@duck.com)
+2. **GitHub**: Use [Security Advisories](https://github.com/Cynid-22/True-Random-Number-Generator/security/advisories/new) to report privately
 
 ### What to Include
 
@@ -42,8 +42,8 @@ This application implements the following security measures:
 
 ### True Random Reserve
 - After the generator's first 512 credited bits, each source's data is condensed into a reserve by a **Toeplitz extractor** (universal hashing, no hash function): every 640 credited bits of one source become 512 reserve bits, within 2^-65 of uniform (averaged over the extractor's seed) by the leftover hash lemma if the credit holds. The bound, the extractor's public seed (257 NIST Randomness Beacon pulses) and the rules are in [docs/stochastic_models.md](docs/stochastic_models.md#the-true-random-reserve)
-- **ENTROPY-BACKED** outputs are reserve bits XOR HMAC_DRBG output (NIST SP 800-90C RBG3(XOR)), only when the reserve covers every byte the output draws; otherwise the output is HMAC_DRBG alone. There is never a partly covered output
-- Data that seeds the generator never goes into the reserve, and reserve bits used for an XOR are never used to seed the generator (SP 800-90C 6.4.2). If the ticked sources hold less than 512 bits for the generator when it is created, it is seeded with 512 reserve bits that are then never used for an XOR. During ENTROPY-BACKED outputs the generator is reseeded with 256 reserve bits after every 16 KiB it produces
+- **TRUE RANDOM** outputs are reserve bits XOR HMAC_DRBG output (NIST SP 800-90C RBG3(XOR)), only when the reserve covers every byte the output draws; otherwise the output is HMAC_DRBG alone. There is never a partly covered output
+- Data that seeds the generator never goes into the reserve, and reserve bits used for an XOR are never used to seed the generator (SP 800-90C 6.4.2). If the ticked sources hold less than 512 bits for the generator when it is created, it is seeded with 512 reserve bits that are then never used for an XOR. During TRUE RANDOM outputs the generator is reseeded with 256 reserve bits after every 16 KiB it produces
 - Used reserve bits are wiped and never handed out again; a cancelled or failed generation uses none up
 - If a source fails a health test, the chunk it was filling is wiped and dropped, so its data no longer reaches the reserve (AIS 31 total-failure reaction)
 - The extractor processes every input bit the same way, without branches on the data, so its timing and memory accesses depend only on the input's length

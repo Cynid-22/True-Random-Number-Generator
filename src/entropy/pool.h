@@ -58,6 +58,8 @@ public:
 
     double GetReserveBits(const std::set<EntropySource>& includedSources) const;
 
+    double GetUnfinishedChunkBits(const std::set<EntropySource>& includedSources) const;
+
     uint64_t GetGeneratorBytesSinceFullReseed() const;
 
     double GetCreditedBits(EntropySource source) const;

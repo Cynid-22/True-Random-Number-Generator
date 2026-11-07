@@ -58,6 +58,7 @@ struct AppState : OutputSettings {
     double availableEntropyBits = 0.0;
     double usedEntropyBits = 0.0;
     double reserveBits = 0.0;
+    double unfinishedChunkBits = 0.0;
     double truePathReserveBits = 0.0;
 
     struct TrailPoint { float x, y; };

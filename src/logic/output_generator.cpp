@@ -322,17 +322,13 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
   return true;
 }
 
-static const char *ModeName(GenerationMode mode) {
-  return mode == GenerationMode::EntropyBacked ? "ENTROPY-BACKED" : "EXPANDED";
-}
-
 GenerationResult GenerateOutput(
     const std::set<Entropy::EntropySource> &includedSources,
     const OutputSettings &settings) {
   GenerationResult result;
   result.success = false;
   result.cancelled = false;
-  result.mode = GenerationMode::Expanded;
+  result.mode = GenerationMode::PseudoRandom;
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
@@ -407,19 +403,19 @@ GenerationResult GenerateOutput(
     GenerationMode mode =
         input.reserveBytes.size() - input.reserveBytesUsed >=
                 TruePathReserveBytes(bytesNeeded, input.generatorBytesSinceFullReseed)
-            ? GenerationMode::EntropyBacked
-            : GenerationMode::Expanded;
-    if (!isList && mode != GenerationMode::EntropyBacked) {
+            ? GenerationMode::TrueRandom
+            : GenerationMode::PseudoRandom;
+    if (!isList && mode != GenerationMode::TrueRandom) {
       wipeAll();
       result.errorMessage =
-          "One-Time Pad requires ENTROPY-BACKED mode: the true random reserve "
+          "One-Time Pad requires TRUE RANDOM mode: the true random reserve "
           "doesn't cover the pad. Collect more entropy.";
       return result;
     }
     Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
-                mode == GenerationMode::EntropyBacked
-                    ? "ENTROPY-BACKED - the reserve covers every byte drawn"
-                    : "EXPANDED - the reserve doesn't cover the output");
+                mode == GenerationMode::TrueRandom
+                    ? "TRUE RANDOM - the reserve covers every byte drawn"
+                    : "PSEUDO-RANDOM - the reserve doesn't cover the output");
 
     const std::string generationInfo =
         BuildGenerationInfo(settings, bytesNeeded, generationNumber);
@@ -445,9 +441,9 @@ GenerationResult GenerateOutput(
         throw;
       Logger::Log(Logger::Level::INFO, "CSPRNG",
                   "Reserve ran out during rejected draws, making the output "
-                  "EXPANDED instead");
+                  "PSEUDO-RANDOM instead");
       wipeOutput();
-      mode = GenerationMode::Expanded;
+      mode = GenerationMode::PseudoRandom;
       written = generateAndWrite(mode);
     }
     if (!written) {

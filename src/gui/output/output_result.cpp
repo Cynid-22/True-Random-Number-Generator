@@ -72,8 +72,8 @@ static void RenderEntropyWarning(bool hasMinimumEntropy, bool canUseTruePath) {
     ImGui::Spacing();
   } else if (!canUseTruePath) {
     ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-    ImGui::Text("WARNING: Using EXPANDED mode: the true random reserve doesn't "
-                "cover this output. Collect more for ENTROPY-BACKED.");
+    ImGui::Text("WARNING: Using PSEUDO-RANDOM mode: the true random reserve doesn't "
+                "cover this output. Collect more for TRUE RANDOM.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
   }
@@ -142,7 +142,7 @@ static const char *FindErrorPreventingGeneration(bool canUseTruePath) {
   if (const char *inputError = FindOneTimePadInputError())
     return inputError;
   if (!canUseTruePath)
-    return "One-Time Pad requires ENTROPY-BACKED mode.\n"
+    return "One-Time Pad requires TRUE RANDOM mode.\n"
            "Collect more entropy until the true random reserve bar reaches "
            "100%.\n"
            "Each pad uses up the reserve bits it draws; they never count "

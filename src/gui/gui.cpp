@@ -431,6 +431,7 @@ static void ClearAllEntropyData() {
   g_state.availableEntropyBits = 0.0;
   g_state.usedEntropyBits = 0.0;
   g_state.reserveBits = 0.0;
+  g_state.unfinishedChunkBits = 0.0;
 
   Logger::Log(Logger::Level::INFO, "GUI",
               "All recorded entropy data cleared by user");
@@ -492,7 +493,7 @@ static void RenderEntropyProgressBar() {
         "generator,\nwhich every output uses. After that, each source's "
         "collected data is condensed\ninto the true random reserve: every "
         "640 credited bits become 512 reserve bits.\n\n"
-        "An output is ENTROPY-BACKED when the reserve covers every byte it "
+        "An output is TRUE RANDOM when the reserve covers every byte it "
         "draws,\nincluding draws that rejection sampling throws away. It "
         "takes only those bits,\nand they are wiped. During such outputs the "
         "generator is also reseeded with\n256 reserve bits after every 16 KiB "
@@ -513,22 +514,49 @@ static void RenderSecurityMode() {
   ImGui::SameLine();
 
   if (g_state.canUseTruePath()) {
-    ImGui::TextColored(UiColor::StatusActive, "ENTROPY-BACKED");
+    ImGui::TextColored(UiColor::StatusActive, "TRUE RANDOM");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "The true random reserve covers every byte this output draws.\n"
           "Output = reserve bits XOR HMAC_DRBG output (NIST SP 800-90C "
           "RBG3(XOR)):\ntrue randomness if the sources' credit estimates "
-          "hold, and never weaker than EXPANDED.");
+          "hold, and never weaker than PSEUDO-RANDOM.");
     }
   } else {
-    ImGui::TextColored(UiColor::Warning, "EXPANDED");
+    ImGui::TextColored(UiColor::Warning, "PSEUDO-RANDOM");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "The true random reserve doesn't cover this output.\n"
           "HMAC_DRBG stretches its seed to the output size.\nSecurity is "
-          "computational. One-Time Pad needs ENTROPY-BACKED.");
+          "computational. One-Time Pad needs TRUE RANDOM.");
     }
+  }
+}
+
+static void RenderReserveCounter() {
+  InlineDivider();
+  const uint64_t reserveBits = static_cast<uint64_t>(g_state.reserveBits);
+  ImGui::TextColored(UiColor::LabelText, "Reserve: %s bits",
+                     WithThousandsSeparators(reserveBits).c_str());
+  const bool hovered = ImGui::IsItemHovered();
+  const uint64_t chunkBits = static_cast<uint64_t>(g_state.unfinishedChunkBits);
+  bool chunkHovered = false;
+  if (chunkBits > 0) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("+%s in chunks", WithThousandsSeparators(chunkBits).c_str());
+    chunkHovered = ImGui::IsItemHovered();
+  }
+  if (hovered || chunkHovered) {
+    ImGui::SetTooltip(
+        "True random reserve of the ticked sources: %s bits (%s bytes).\n"
+        "Each ticked source fills its own chunk. A chunk becomes 512 reserve "
+        "bits\nonce it holds 640 credited bits; the chunks now hold %s "
+        "credited bits.\nReserve bits a TRUE RANDOM output uses are wiped "
+        "and never count again.",
+        WithThousandsSeparators(reserveBits).c_str(),
+        WithThousandsSeparators(
+            static_cast<uint64_t>(g_state.reserveBits / BITS_PER_BYTE)).c_str(),
+        WithThousandsSeparators(chunkBits).c_str());
   }
 }
 
@@ -613,6 +641,8 @@ void RenderEntropyPoolBar() {
   g_state.availableEntropyBits = g_state.entropyPool.GetAvailableBits(includedSources);
   g_state.usedEntropyBits = g_state.entropyPool.GetUsedBits();
   g_state.reserveBits = g_state.entropyPool.GetReserveBits(includedSources);
+  g_state.unfinishedChunkBits =
+      g_state.entropyPool.GetUnfinishedChunkBits(includedSources);
   const size_t truePathReserveBytes = CSPRNG::TruePathReserveBytes(
       CSPRNG::RandomByteCount(g_state),
       g_state.entropyPool.GetGeneratorBytesSinceFullReseed());
@@ -622,6 +652,7 @@ void RenderEntropyPoolBar() {
 
   RenderEntropyProgressBar();
   RenderSecurityMode();
+  RenderReserveCounter();
   RenderCollectionControls();
 }
 
@@ -727,9 +758,9 @@ void RenderAboutModal() {
     ImGui::Text("Version %s", APP_VERSION);
     ImGui::Separator();
     ImGui::Text("A high-security cryptographic randomness tool.");
-    ImGui::Text("EXPANDED outputs come from HMAC_DRBG (SHA-512, NIST SP "
+    ImGui::Text("PSEUDO-RANDOM outputs come from HMAC_DRBG (SHA-512, NIST SP "
                 "800-90A), seeded with the collected");
-    ImGui::Text("entropy; its security strength is 256 bits. ENTROPY-BACKED "
+    ImGui::Text("entropy; its security strength is 256 bits. TRUE RANDOM "
                 "outputs XOR that with true random");
     ImGui::Text("reserve bits condensed from the collected entropy by a "
                 "Toeplitz extractor (NIST SP 800-90C RBG3(XOR)).");

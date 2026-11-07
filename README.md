@@ -13,10 +13,10 @@ TRNG collects entropy from physical and system sources (hardware timing, user in
 - Everything collected after that is condensed into a **true random reserve** by a Toeplitz extractor: every 640 credited bits of a source become 512 reserve bits.
 
 The application supports two security modes:
-- **ENTROPY-BACKED**: When the true random reserve covers every byte the output draws, the output is reserve bits XOR HMAC_DRBG output (NIST SP 800-90C RBG3(XOR)). This is true randomness if the sources' credit estimates hold, and never weaker than EXPANDED if they don't.
-- **EXPANDED**: When the reserve doesn't cover the output, HMAC_DRBG stretches its seed to the output size. This provides computational security, and needs no new collection once the generator has its 512 bits.
+- **TRUE RANDOM**: When the true random reserve covers every byte the output draws, the output is reserve bits XOR HMAC_DRBG output (NIST SP 800-90C RBG3(XOR)). This is true randomness if the sources' credit estimates hold, and never weaker than PSEUDO-RANDOM if they don't.
+- **PSEUDO-RANDOM**: When the reserve doesn't cover the output, HMAC_DRBG stretches its seed to the output size. This provides computational security, and needs no new collection once the generator has its 512 bits.
 
-An ENTROPY-BACKED output takes only the reserve bits it draws; they are wiped, and the rest stay for later outputs (see [Entropy Accounting](#entropy-accounting-and-generator-state)).
+A TRUE RANDOM output takes only the reserve bits it draws; they are wiped, and the rest stay for later outputs (see [Entropy Accounting](#entropy-accounting-and-generator-state)).
 
 ### Screenshots
 
@@ -24,7 +24,7 @@ An ENTROPY-BACKED output takes only the reserve bits it draws; they are wiped, a
 
 ![Input tab while collecting](images/input-screen.png)
 
-**Output tab:** 100 UUID v4 identifiers generated in ENTROPY-BACKED mode, with the entropy they required.
+**Output tab:** 100 UUID v4 identifiers generated in TRUE RANDOM mode, with the entropy they required.
 
 ![Output tab with generated UUIDs](images/output-screen.png)
 
@@ -111,7 +111,7 @@ Pick a category, then a type within it:
   - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
 - **Encryption**
-  - One-Time Pad (Vernam cipher with a key from the true random reserve XOR HMAC_DRBG; see [Generation Modes](#generation-modes)). Needs ENTROPY-BACKED mode, and each pad uses up the reserve bits it draws
+  - One-Time Pad (Vernam cipher with a key from the true random reserve XOR HMAC_DRBG; see [Generation Modes](#generation-modes)). Needs TRUE RANDOM mode, and each pad uses up the reserve bits it draws
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
     - Message Length: a pad (key) of a given number of characters, without typing the message
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
@@ -125,7 +125,7 @@ File > Export Output (Ctrl+S) saves the output in the format picked under "Save 
 
 - **.txt**: the text as shown.
 - **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines (layout below).
-- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column.
+- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column. The settings and security mode are only in .json.
 - **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`.
 
 In .txt, .csv and .json, One-Time Pad File results are written as hex.
@@ -141,7 +141,7 @@ In .txt, .csv and .json, One-Time Pad File results are written as hex.
     "uppercase": false,
     "hyphens": true
   },
-  "securityMode": "ENTROPY-BACKED",
+  "securityMode": "TRUE RANDOM",
   "generatedAt": "2026-10-19 14:03:22 (UTC+0700)",
   "items": [
     "0f8e2c4a-6b1d-4e3f-9a7c-5d2b8e1f4a6c",
@@ -242,7 +242,7 @@ TRNG/
 │   │   ├── logic.h/.cpp      # Entropy requirement
 │   │   ├── word_lists.h/.cpp # Embedded passphrase word lists
 │   │   ├── csprng.h/.cpp     # HMAC_DRBG output, XORed with the reserve
-│   │   │                     # for ENTROPY-BACKED outputs
+│   │   │                     # for TRUE RANDOM outputs
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
 │   │   ├── output_export.h/.cpp     # CSV and JSON export
 │   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
@@ -265,7 +265,9 @@ TRNG/
 │   ├── eff_large_wordlist.txt
 │   ├── diceware8k.txt
 │   ├── BIP39-English.txt
-│   └── Wordlist_specs.md       # Word count, bits per word and use of each list
+│   ├── Wordlist_specs.md       # Word count, bits per word and use of each list
+│   └── fonts/                  # Monaspace Argon NF (output font, embedded in the exe)
+│                               # and its SIL Open Font License
 ├── external/
 │   └── imgui/                # Dear ImGui (auto-downloaded)
 └── build.sh                  # Build script (--sample-export: test build
@@ -281,6 +283,73 @@ TRNG/
 The application enforces a **512-bit minimum** for all output generation, regardless of the selected format: the generator must have received at least 512 bits of credited entropy from the ticked sources (its unused seed data plus entropy used by earlier generations in the session). Until then, all credited data goes to the generator. If the ticked sources hold less than that when the generator is created (for example after unticking the source that supplied its seed), it is seeded with 512 bits from the ticked sources' true random reserve instead; those bits are never XORed into output. This ensures a baseline level of security even for small outputs. The 512 bits are needed once per session, not per output.
 
 ### Cryptographic Architecture
+
+```
+                 +--------------------------------------------+
+                 | SOURCES: microphone, keystrokes, mouse,    |
+                 | Clock Drift, CPU Jitter                    |
+                 +--------------------------------------------+
+                                        |
+                                        v
+                 +--------------------------------------------+
+                 | ENTROPY POOL, per source                   |
+                 | - credit below the measured min-entropy    |
+                 | - SP 800-90B start-up and online tests     |
+                 | - software and repeated input dropped      |
+                 | - no timing credit under a VM              |
+                 +--------------------------------------------+
+                   |                                         |
+   first 512 bits  |                                         | everything after
+                   v                                         v
+PIPELINE 1: GENERATOR                     PIPELINE 2: RESERVE
++------------------------------------+    +------------------------------------+
+| SP 800-90A HMAC_DRBG (SHA-512)     |    | Each source fills its own chunk    |
+|                                    |    | to >= 640 credited bits            |
+| Created, then reseeded at every    |    |           |                        |
+| generation and every 64 MiB, with: |    |           v                        |
+|   new seed data from the sources   |    | Toeplitz extractor (no hash):      |
+|   + time, generation counter       |    |   640 credited bits -> 512 bits    |
+|   + Windows RNG (not credited)     |    | chunk wiped after use, dropped     |
+|                                    |    | if its source fails a test         |
+| State K + V, 256-bit strength,     |    |           |                        |
+| rewritten after every request      |    |           v                        |
+| of at most 64 KiB                  |    | TRUE RANDOM RESERVE                |
+|                                    |    |   locked memory, grows as you      |
+| Reseeded from the reserve: 256     |<---|   collect (512 bits per 640        |
+| bits per 16 KiB of TRUE RANDOM     |    |   credited bits)                   |
+| output                             |    |                                    |
++------------------------------------+    +------------------------------------+
+                   | generator output                        | reserve bits
+                   v                                         v
++------------------------------------------------------------------------------+
+| MODE DECISION, per output                                                    |
+|                                                                              |
+| Generator has its 512 bits (from the sources, or from the reserve            |
+| if the ticked sources hold too little)? If not: blocked.                     |
+| Does the reserve cover every byte the output draws, rejected                 |
+| draws included?                                                              |
++------------------------------------------------------------------------------+
+                   | no                                      | yes
+                   v                                         v
++------------------------------------+    +------------------------------------+
+| PSEUDO-RANDOM                      |    | TRUE RANDOM                        |
+|                                    |    |                                    |
+| output = generator output          |    | output = reserve bits XOR          |
+| - 256-bit computational strength   |    |          generator output          |
+| - no new collection needed         |    |          (SP 800-90C RBG3(XOR))    |
+|                                    |    | - used reserve bits wiped          |
+|                                    |    | - never weaker than PSEUDO-RANDOM  |
++------------------------------------+    +------------------------------------+
+                   |                                         |
+                   +-----------------------------------------+
+                                        v
+              +--------------------------------------------------+
+              | FORMAT: password, passphrase, UUID, Raw Data,    |
+              | One-Time Pad (TRUE RANDOM only), ...             |
+              +--------------------------------------------------+
+                                        v
+                                     OUTPUT
+```
 
 **Pipeline 1: HMAC_DRBG (SHA-512).** One instance per session, as specified in NIST SP 800-90A Rev. 1:
 
@@ -299,27 +368,38 @@ The security strength is 256 bits. The generator's state (1,024 bits) is kept in
 | Collected Entropy | Mode | Security Level |
 |-------------------|------|----------------|
 | Generator seed < 512 bits and reserve < 512 bits | Blocked | Generation disabled |
-| Generator seeded, reserve doesn't cover the output | EXPANDED | Computational (HMAC_DRBG, 256-bit strength) |
-| Generator seeded, reserve covers every byte the output draws | ENTROPY-BACKED | Reserve bits XOR HMAC_DRBG output: true randomness if the credit estimates hold, never weaker than EXPANDED |
+| Generator seeded, reserve doesn't cover the output | PSEUDO-RANDOM | Computational (HMAC_DRBG, 256-bit strength) |
+| Generator seeded, reserve covers every byte the output draws | TRUE RANDOM | Reserve bits XOR HMAC_DRBG output: true randomness if the credit estimates hold, never weaker than PSEUDO-RANDOM |
 
-An ENTROPY-BACKED output follows the RBG3(XOR) construction of NIST SP 800-90C:
+A TRUE RANDOM output follows the RBG3(XOR) construction of NIST SP 800-90C:
 - "Every byte the output draws" includes draws that rejection sampling throws away. A 16-digit Decimal, for example, draws 64 bytes for about 53 bits of entropy, while 256 bits of Raw Data in Hex draw exactly 32 bytes.
 - Data that seeds the generator never goes into the reserve, and reserve bits used for the XOR never seed the generator.
-- During an ENTROPY-BACKED output, the generator is reseeded with 256 reserve bits after every 16 KiB it produces (SP 800-90C 6.4.2); the bar counts those bits too.
-- There is never a partly covered output. In the rare case that an Integer output's extra draws find the reserve empty, the whole output is made again as EXPANDED.
+- During a TRUE RANDOM output, the generator is reseeded with 256 reserve bits after every 16 KiB it produces (SP 800-90C 6.4.2); the bar counts those bits too.
+- There is never a partly covered output. In the rare case that an Integer output's extra draws find the reserve empty, the whole output is made again as PSEUDO-RANDOM.
 
-The One-Time Pad always uses ENTROPY-BACKED mode: its key is a true one-time pad if the sources' credit estimates hold, and still as strong as HMAC_DRBG if they don't. Not certified: SP 800-90C's RBG3 calls for validated physical entropy sources, so TRNG is designed after it, not compliant with it.
+The One-Time Pad always uses TRUE RANDOM mode: its key is a true one-time pad if the sources' credit estimates hold, and still as strong as HMAC_DRBG if they don't. Not certified: SP 800-90C's RBG3 calls for validated physical entropy sources, so TRNG is designed after it, not compliant with it.
 
 ### Entropy Accounting and Generator State
 
 - The entropy bar first shows the credited bits for the generator's seed against the 512-bit minimum. Once that is met, or the ticked reserve holds 512 bits that can seed the generator instead, it shows the true random reserve of the ticked sources against the bits the configured output would draw.
 - Each source keeps its own reserve, and an output draws only from the ticked sources' reserves. Every 512 reserve bits cost 640 credited bits, so about 20% of the credit goes to condensing. Up to 639 credited bits per source wait in an unfinished chunk until it fills.
-- An ENTROPY-BACKED output takes only the reserve bits it draws. They are wiped and never handed out again; the rest stay for later outputs.
+- A TRUE RANDOM output takes only the reserve bits it draws. They are wiped and never handed out again; the rest stay for later outputs.
+- Next to the security mode, a counter shows the reserve of the ticked sources and the credited bits still waiting in unfinished chunks.
 - Seed data used by a generation reseeds the generator and is then wiped. The generator's state carries its effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
 - A generation works on a copy of the generator and of the reserve bits it may need. A cancelled or failed generation uses nothing up and leaves both as they were.
 - **Clear** wipes the data, the credit, the reserve and the generator; the next generation creates a new one.
 - Each time the generator is created or reseeded, 64 bytes from Windows' own random generator (BCryptGenRandom) are mixed in. They are never credited: they don't count toward the entropy bar, the modes or the One-Time Pad, they never enter the reserve, and the program works the same if Windows can't supply them.
 - The additional input of each generation holds the current time and a per-process generation counter, so two generations never share it.
+
+### Design Classes
+
+TRNG is designed after the random number generator classes of BSI AIS 20/31. It is not certified or evaluated against them.
+
+| Part | Designed after | How |
+|------|----------------|-----|
+| Entropy sources | NTG.1 (non-physical true RNG) | Mostly non-physical sources (user input, operating system timing), each with a stochastic model, conservative credit, start-up and online health tests, and a total-failure reaction (a failing source's chunk is dropped) |
+| Pipeline 1, PSEUDO-RANDOM | DRG.4 (hybrid deterministic RNG) | HMAC_DRBG rewrites its state after every request, so a later copy of memory can't recover earlier output, and is reseeded with new data at every generation and every 64 MiB |
+| Pipeline 2, TRUE RANDOM | PTG.3 and NIST SP 800-90C RBG3(XOR) | Entropy source with online tests, then cryptographic post-processing with memory (the XOR with HMAC_DRBG), so the output stays as strong as the generator if the sources fail. PTG.3 assumes a physical noise source, and only the microphone is one, so this follows its structure, not its class |
 
 ## Documentation & Standards
 
@@ -330,6 +410,7 @@ The One-Time Pad always uses ENTROPY-BACKED mode: its key is a true one-time pad
 | Random bit generator | SP 800-90A Rev. 1 (HMAC_DRBG), CAVP test vectors | NIST |
 | True random reserve | SP 800-90C (RBG3(XOR) construction), Toeplitz extractor with the leftover hash lemma, seed from the NIST Randomness Beacon ([docs/stochastic_models.md](docs/stochastic_models.md#the-true-random-reserve)) | NIST |
 | Entropy sources | SP 800-90B (measurement, health tests), AIS 31 (stochastic models: [docs/stochastic_models.md](docs/stochastic_models.md)) | NIST, BSI |
+| Generator classes | AIS 20/31 (NTG.1, DRG.4, PTG.3; see [Design Classes](#design-classes)), ISO/IEC 20543 (test and analysis methods for random bit generators) | BSI, ISO/IEC |
 
 ## Statistical Validation Results
 
@@ -491,7 +572,7 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 
 1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
 2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
-3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws; the security mode shows ENTROPY-BACKED or EXPANDED. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
+3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws; the security mode shows TRUE RANDOM or PSEUDO-RANDOM. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
 4. **Configure Output**: Select output format and parameters in the Output tab
 5. **Generate**: Click Generate when sufficient entropy is collected
 
@@ -502,6 +583,7 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 - [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI (auto-downloaded)
 - DirectX 11 - Windows graphics API
 - Windows API - Audio capture, Raw Input, high-resolution timers
+- [Monaspace](https://github.com/githubnext/monaspace) Argon NF - Font of the generated output, embedded in the exe (SIL Open Font License 1.1, [assets/fonts/Monaspace-LICENSE.txt](assets/fonts/Monaspace-LICENSE.txt))
 
 ---
 

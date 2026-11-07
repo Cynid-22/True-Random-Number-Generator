@@ -179,11 +179,15 @@ size_t TruePathReserveBytes(size_t outputBytes, uint64_t generatorBytesSinceFull
   return outputBytes + static_cast<size_t>(reseedBytes);
 }
 
+const char *ModeName(GenerationMode mode) {
+  return mode == GenerationMode::TrueRandom ? "TRUE RANDOM" : "PSEUDO-RANDOM";
+}
+
 std::vector<uint8_t> GenerateRandomBytes(Entropy::GenerationInput &input, size_t byteCount,
                                          GenerationMode mode,
                                          Crypto::ByteSpan additionalInput,
                                          const ReseedSource *reseedSource) {
-  const bool xorWithReserve = mode == GenerationMode::EntropyBacked;
+  const bool xorWithReserve = mode == GenerationMode::TrueRandom;
   std::vector<uint8_t> bytes(byteCount);
   try {
     size_t written = 0;

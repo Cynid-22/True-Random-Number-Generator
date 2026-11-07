@@ -292,7 +292,7 @@ TRNG adds the credits as if the sources were independent. That is an assumption,
 
 ## The true random reserve
 
-ENTROPY-BACKED outputs draw on a reserve of bits condensed from the collected data. This section gives the condensing step's guarantee, the public seed it uses and the rules around it, since NIST SP 800-90B does not list it as a vetted conditioning function.
+TRUE RANDOM outputs draw on a reserve of bits condensed from the collected data. This section gives the condensing step's guarantee, the public seed it uses and the rules around it, since NIST SP 800-90B does not list it as a vetted conditioning function.
 
 ### How data is condensed
 
@@ -330,10 +330,10 @@ SP 800-90B section 3.1.5.1.1 lists HMAC, CMAC, CBC-MAC, the approved hash functi
 
 ### How the reserve is used (SP 800-90C RBG3(XOR))
 
-- An ENTROPY-BACKED output is reserve bits XOR HMAC_DRBG output, the RBG3(XOR) construction of NIST SP 800-90C section 6.4.
+- A TRUE RANDOM output is reserve bits XOR HMAC_DRBG output, the RBG3(XOR) construction of NIST SP 800-90C section 6.4.
 - An output uses the reserve only when it covers every byte the output draws, including draws that rejection sampling throws away and the reseeds below. Otherwise the output is HMAC_DRBG alone. There is never a partly covered output: if an Integer output's rare extra draws find the reserve empty, the whole output is made again from HMAC_DRBG alone.
 - **SP 800-90C 6.4.2, item 2:** data that seeds the generator never goes into the reserve, and reserve bits used for the XOR are never used to seed the generator. If the ticked sources hold less than 512 bits for the generator when it is created (for example after unticking the source that supplied its seed), it is seeded with 512 bits of the ticked reserve instead; those bits are taken out of the reserve and never XORed into output.
-- **SP 800-90C 6.4.2, item 3:** during an ENTROPY-BACKED output, the generator is reseeded with 256 reserve bits (and 64 uncredited bytes from Windows) whenever it has produced 2^17 bits (16 KiB) since it was created or last reseeded this way. Those 256 bits are never XORed into output.
+- **SP 800-90C 6.4.2, item 3:** during a TRUE RANDOM output, the generator is reseeded with 256 reserve bits (and 64 uncredited bytes from Windows) whenever it has produced 2^17 bits (16 KiB) since it was created or last reseeded this way. Those 256 bits are never XORed into output.
 - Each output takes only the reserve bits it draws. Used bits are wiped and never handed out again. A cancelled or failed generation uses none.
 - If the reserve bits were weaker than claimed, the output is still at least as strong as HMAC_DRBG alone: the two halves come from separate data, and only someone who can predict the generator's output could cancel it.
 

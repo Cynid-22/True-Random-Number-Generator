@@ -12,9 +12,11 @@
 namespace CSPRNG {
 
 enum class GenerationMode {
-    EntropyBacked,
-    Expanded
+    TrueRandom,
+    PseudoRandom
 };
+
+const char* ModeName(GenerationMode mode);
 
 // SP 800-90C 6.4.2: the DRBG of an RBG3(XOR) is reseeded after 2^17 bits of output
 constexpr uint64_t TRUE_PATH_RESEED_INTERVAL_BYTES = 16384;
