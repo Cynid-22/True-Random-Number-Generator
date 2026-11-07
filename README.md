@@ -192,6 +192,21 @@ cd TRNG
 ./build/TRNG.exe
 ```
 
+### Regression Tests
+
+```bash
+./build_tests.sh
+```
+
+Builds `build/TRNG_tests.exe` from the program's own logic, entropy and crypto code (no GUI) and runs it. Each test prints PASS or FAIL, and the run ends with the number of failed tests (exit code 1 if any failed). The tests cover:
+
+- **Crypto:** the launch self-tests, SHA-512 at the padding boundaries and in pieces, HMAC-SHA-512 (RFC 4231 cases 3, 4 and 7), HMAC_DRBG request limits and state changes, and the Toeplitz extractor (zero input, linearity, trailing zero bytes, input size limit).
+- **Entropy pool:** per-sample credit and its caps, repeated values, the health and start-up tests, the generator's 512-bit seed before the reserve, 640-bit chunks becoming 512 reserve bits, a failing source's chunk being dropped, unticked sources and Clear.
+- **Generation rules:** TRUE RANDOM output equal to reserve XOR HMAC_DRBG output with the used reserve wiped, the 16 KiB reserve reseeds, the bytes each format draws, the mode chosen from reserve coverage, the One-Time Pad refusing PSEUDO-RANDOM, a cancelled generation using nothing, and the reserve seeding the generator when the ticked sources hold too little.
+- **Formats and exports:** rejection sampling in every format, the Raw Data encodings (RFC 4648, RFC 9285 and Base85 vectors), UUID v4 and v7, One-Time Pad keys, text and files, the embedded word lists, and CSV and JSON escaping.
+
+The pool and generation tests feed fixed sample data, so they don't need any input device.
+
 ### Sample Export Test Build
 
 For measuring the entropy sources with the NIST SP 800-90B tool ([SP800-90B_EntropyAssessment](https://github.com/usnistgov/SP800-90B_EntropyAssessment)), a separate test build writes each source's raw values to files:
@@ -270,6 +285,8 @@ TRNG/
 │                               # and its SIL Open Font License
 ├── external/
 │   └── imgui/                # Dear ImGui (auto-downloaded)
+├── tests/                    # Regression tests (build_tests.sh)
+├── build_tests.sh            # Builds and runs the regression tests
 └── build.sh                  # Build script (--sample-export: test build
                               # that records raw source samples)
 ```
