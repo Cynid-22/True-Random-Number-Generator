@@ -5,7 +5,7 @@
 
 bool IsGenerationRunning();
 
-void StartGeneration(CSPRNG::GenerationMode mode);
+void StartGeneration();
 
 void CollectFinishedGeneration();
 

@@ -109,6 +109,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/entropy/source_credit.cpp \
     src/crypto/sha512.cpp \
     src/crypto/hmac_drbg.cpp \
+    src/crypto/toeplitz.cpp \
     src/crypto/self_test.cpp \
     "${SAMPLE_EXPORT_SOURCES[@]}" \
     external/imgui/imgui.cpp \

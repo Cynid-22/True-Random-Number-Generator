@@ -1,9 +1,11 @@
 #include "self_test.h"
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <vector>
 #include "hmac_drbg.h"
 #include "sha512.h"
+#include "toeplitz.h"
 
 namespace Crypto {
 
@@ -105,6 +107,26 @@ static const DrbgTestVector HMAC_DRBG_TESTS[] = {
      "049477dcce8c57fdbd576711c91301e9bd6bb0d3e72dc46d480ed8f61fd63811"},
 };
 
+static const uint64_t SHORT_TOEPLITZ_INPUT_VALUES[] = {
+    0x0123456789ABCDEF, 0xFEDCBA9876543210, 0x0F1E2D3C4B5A6978};
+static constexpr uint64_t FULL_TOEPLITZ_INPUT_STEP = 0x9E3779B97F4A7C15;
+static constexpr size_t FULL_TOEPLITZ_INPUT_VALUE_COUNT =
+    ToeplitzExtractor::MAX_INPUT_BYTES / sizeof(uint64_t);
+static constexpr uint8_t FIRST_INPUT_BIT_ONLY = 0x80;
+
+// Equals seed bits 131,071 to 131,582: the window a lone first input bit selects
+static const char TOEPLITZ_FIRST_BIT_OUTPUT[] =
+    "7a44cc244edaff911daaa573554ddeade05d5b57ae0f5bcc76337891cc07bda0"
+    "969123b4d320e462bf1c6c7c61b7d0e95d40f352bca751c18ce788fd44347439";
+
+static const char TOEPLITZ_SHORT_OUTPUT[] =
+    "aedc3a2b3aa8173e27ebd84d1d6a395b26c5b964ccb62a56f8a64b53eebaee9c"
+    "5b846df14382dc394141eb67bc55419e830cf283d7103cf70be2c3a2dbd88f83";
+
+static const char TOEPLITZ_FULL_OUTPUT[] =
+    "c71ac9eec87f7d82e341848fd779d9c4aae891b7ee8bc11f785e489fa7c1ebe7"
+    "7e57488adafa4950d225da41d1bad0e5418ac69549f9ee955ce677a6302fb78b";
+
 static uint8_t HexDigitValue(char digit) {
     if (digit >= '0' && digit <= '9')
         return static_cast<uint8_t>(digit - '0');
@@ -172,6 +194,43 @@ static bool PassesDrbgTest(const DrbgTestVector& test) {
     return output == expected;
 }
 
+static std::vector<uint8_t> BigEndianBytes(const std::vector<uint64_t>& values) {
+    std::vector<uint8_t> bytes;
+    bytes.reserve(values.size() * sizeof(uint64_t));
+    for (uint64_t value : values) {
+        for (size_t i = sizeof(uint64_t); i-- > 0;)
+            bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
+    }
+    return bytes;
+}
+
+static std::vector<uint64_t> FullToeplitzInputValues() {
+    std::vector<uint64_t> values(FULL_TOEPLITZ_INPUT_VALUE_COUNT);
+    for (size_t i = 0; i < values.size(); i++)
+        values[i] = FULL_TOEPLITZ_INPUT_STEP * (2 * i + 1);
+    return values;
+}
+
+static bool ToeplitzOutputMatches(const std::vector<uint8_t>& input, const char* expectedHex) {
+    uint8_t output[ToeplitzExtractor::OUTPUT_BYTES];
+    if (!ToeplitzExtractor::Extract(input.data(), input.size(), output))
+        return false;
+    const std::vector<uint8_t> expected = HexToBytes(expectedHex);
+    return std::equal(output, output + sizeof(output), expected.begin(), expected.end());
+}
+
+static const char* FindFailingToeplitzTest() {
+    if (!ToeplitzOutputMatches({FIRST_INPUT_BIT_ONLY}, TOEPLITZ_FIRST_BIT_OUTPUT))
+        return "Toeplitz extractor first input bit";
+    const std::vector<uint64_t> shortValues(std::begin(SHORT_TOEPLITZ_INPUT_VALUES),
+                                            std::end(SHORT_TOEPLITZ_INPUT_VALUES));
+    if (!ToeplitzOutputMatches(BigEndianBytes(shortValues), TOEPLITZ_SHORT_OUTPUT))
+        return "Toeplitz extractor short input";
+    if (!ToeplitzOutputMatches(BigEndianBytes(FullToeplitzInputValues()), TOEPLITZ_FULL_OUTPUT))
+        return "Toeplitz extractor full input";
+    return nullptr;
+}
+
 const char* FindFailingSelfTest() {
     for (const HashTestVector& test : SHA512_TESTS) {
         if (!PassesHashTest(test))
@@ -187,7 +246,7 @@ const char* FindFailingSelfTest() {
         if (!PassesDrbgTest(test))
             return test.name;
     }
-    return nullptr;
+    return FindFailingToeplitzTest();
 }
 
 }

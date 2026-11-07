@@ -27,7 +27,7 @@ The measured numbers come from [Measured Source Entropy](../README.md#measured-s
 - a compromised Windows or hypervisor;
 - tampering with the hardware.
 
-**Clock:** every value is stamped with a steady clock that only moves forward and is not changed by time sync, usually in 100 ns steps. Timestamps are hashed into the seed but never credited.
+**Clock:** every value is stamped with a steady clock that only moves forward and is not changed by time sync, usually in 100 ns steps. Timestamps of the data that seeds the generator are hashed into it; the reserve's extractor takes the values only. Timestamps are never credited.
 
 ## How credit works for every source
 
@@ -50,7 +50,11 @@ The measured numbers come from [Measured Source Entropy](../README.md#measured-s
 5. **Start-up test.** Each time collection starts, a source's first 1,024 samples must pass both health tests before any of their credit counts.
 6. **Credit adds up across sources.** Credits from different sources are added as if the sources were independent. Where they are not, see [Dependencies between sources](#dependencies-between-sources).
 
-All values and their timestamps go into HMAC_DRBG (SHA-512) as entropy input, when it is created or reseeded. The credit counts the min-entropy that went in. The 64 bytes from Windows' random generator that are mixed in beside it are not part of any model and are not credited. How the generator uses it is described in the README's [Security Considerations](../README.md#security-considerations).
+Each value goes to exactly one of two places:
+- **The generator's seed.** The first 512 credited bits of the session, with their timestamps, go into HMAC_DRBG (SHA-512) as entropy input when it is created or reseeded. So does data that can't serve the reserve: data that earns no credit on this machine (Clock Drift and CPU Jitter in a virtual machine), data from a source after it fails a health test, start-up samples whose test did not finish, and chunks that reach 2,048 values without 640 credited bits. If the ticked sources hold less than 512 bits for the generator when it is created, 512 reserve bits seed it instead (see [How the reserve is used](#how-the-reserve-is-used-sp-800-90c-rbg3xor)).
+- **The true random reserve.** Everything else is condensed by the Toeplitz extractor, as described in [The true random reserve](#the-true-random-reserve).
+
+The credit counts the min-entropy that went in. The 64 bytes from Windows' random generator that are mixed into the generator are not part of any model and are not credited. How the generator uses it is described in the README's [Security Considerations](../README.md#security-considerations).
 
 ### Where the credit comes from
 
@@ -283,6 +287,69 @@ Each depends on everything else the computer is doing at that microsecond.
 - The microphone's electronic noise and the hand's motion are physical processes separate from the CPU's timing.
 
 TRNG adds the credits as if the sources were independent. That is an assumption, and the margins are meant to cover the overlaps above.
+
+---
+
+## The true random reserve
+
+ENTROPY-BACKED outputs draw on a reserve of bits condensed from the collected data. This section gives the condensing step's guarantee, the public seed it uses and the rules around it, since NIST SP 800-90B does not list it as a vetted conditioning function.
+
+### How data is condensed
+
+- Each source fills its own **chunk**, so a chunk never mixes sources. Data joins a chunk only after the source's start-up test has passed, each value with its own credit.
+- When a chunk holds at least **640 credited bits**, its values are condensed into **512 reserve bits** and then wiped. Each value is used in exactly one chunk.
+- The input is the chunk's values in collection order, 64 bits each, most significant bit first. A chunk holds at most 2,048 values (131,072 bits). A chunk that reaches 2,048 values with less than 640 credited bits goes to the generator's seed instead, with its credit.
+- Each source keeps its own reserve. An output draws only from the reserves of the ticked sources.
+
+### The extractor
+
+The 512 output bits are y = T·x over GF(2), where x is the chunk's input padded with zeros to 131,072 bits and T is a 512 × 131,072 **Toeplitz matrix** (constant along each diagonal): T[i][j] = s[i − j + 131,071], where s is a fixed seed of 131,583 bits. The code is in `src/crypto/toeplitz.cpp`. It processes every input bit the same way, without branches on the data, so its timing and memory accesses depend only on the input's length.
+
+**Why it is close to uniform.**
+- Toeplitz matrices with a uniformly random seed form a 2-universal hash family: for two different inputs, the chance over the seed that their outputs match is 2^-512 (Mansour, Nisan and Tiwari, 1990). Each output row brings in a seed bit no earlier row uses, so T·d is uniform for every nonzero d.
+- The **leftover hash lemma** (Impagliazzo, Levin and Luby, 1989; Håstad, Impagliazzo, Levin and Luby, 1999): if the input has at least k bits of min-entropy and the hash is drawn from a 2-universal family with m output bits, the output is within statistical distance ½·2^((m−k)/2) of uniform, averaged over the seed. With k = 640 and m = 512 that is **2^-65**, inside the 2^-64 the design aims for.
+- The 128 bits between 640 and 512 are the price of this proof: 20% of the credit goes to condensing (a SHA-based conditioner would need 64).
+- Padding loses nothing. A chunk ends at the first value that brings it to 640 credited bits, so no chunk is the start of another, and two different chunks never become the same padded input.
+
+**What the guarantee rests on.**
+- **The credit.** The lemma needs 640 bits of min-entropy in the chunk; TRNG counts 640 credited bits. If the caps were too high, the reserve bits would be less than uniform. The output would still be as strong as HMAC_DRBG alone (see below).
+- **A seed independent of the data.** The bound is an average over the choice of seed. TRNG uses one fixed seed, drawn from a public random source independently of anything collected. For a given source, a fixed seed can only be bad with small probability over that one draw: by Markov's inequality, the output is within 2^-33 of uniform except with probability 2^-32. The seed is public by design; the lemma needs it independent of the data, not secret.
+- **No dependence on the seed.** The sources' noise can't depend on the seed. An attacker who knows it could try to shape inputs, but credit only counts what the stochastic models above say they can't control.
+
+### The seed
+
+The seed is 131,583 bits: 131,072 input bits plus 512 output bits, minus one. It is the `outputValue` of 257 consecutive pulses of the **NIST Randomness Beacon 2.0**, chain 2, pulses 2007938 to 2008194 (2026-11-01 00:00 to 04:16 UTC), concatenated in order, most significant bit first. The last of the 131,584 bits is unused. It is embedded in `src/crypto/toeplitz_seed.h`, and anyone can check it against the beacon, for example `https://beacon.nist.gov/beacon/2.0/chain/2/pulse/2007938`.
+
+The redesign plan expected a seed of 1,151 bits (512 + 640 − 1). That size would only fit inputs of 640 bits, while the extractor's input is the raw chunk, up to 131,072 bits, and a Toeplitz matrix needs input length plus output length minus one seed bits.
+
+**Self-tests.** At launch, the extractor is checked against three known answers: a lone first input bit (which must return seed bits 131,071 to 131,582, checkable by hand from the last two pulses), a 3-value input, and a full 2,048-value input whose answer depends on every seed bit. The expected values were computed with independent reference code that builds the matrix from its definition.
+
+### Why not a vetted conditioning function
+
+SP 800-90B section 3.1.5.1.1 lists HMAC, CMAC, CBC-MAC, the approved hash functions, Hash_df and Block_Cipher_df as vetted conditioning components. Their output entropy rests on assumptions about the hash or block cipher. The Toeplitz extractor's rests on the leftover hash lemma instead, which needs no such assumption. The generator uses SHA-512 and the reserve uses no hash function, so a break in SHA-2 cannot weaken the reserve's half of an output.
+
+### How the reserve is used (SP 800-90C RBG3(XOR))
+
+- An ENTROPY-BACKED output is reserve bits XOR HMAC_DRBG output, the RBG3(XOR) construction of NIST SP 800-90C section 6.4.
+- An output uses the reserve only when it covers every byte the output draws, including draws that rejection sampling throws away and the reseeds below. Otherwise the output is HMAC_DRBG alone. There is never a partly covered output: if an Integer output's rare extra draws find the reserve empty, the whole output is made again from HMAC_DRBG alone.
+- **SP 800-90C 6.4.2, item 2:** data that seeds the generator never goes into the reserve, and reserve bits used for the XOR are never used to seed the generator. If the ticked sources hold less than 512 bits for the generator when it is created (for example after unticking the source that supplied its seed), it is seeded with 512 bits of the ticked reserve instead; those bits are taken out of the reserve and never XORed into output.
+- **SP 800-90C 6.4.2, item 3:** during an ENTROPY-BACKED output, the generator is reseeded with 256 reserve bits (and 64 uncredited bytes from Windows) whenever it has produced 2^17 bits (16 KiB) since it was created or last reseeded this way. Those 256 bits are never XORed into output.
+- Each output takes only the reserve bits it draws. Used bits are wiped and never handed out again. A cancelled or failed generation uses none.
+- If the reserve bits were weaker than claimed, the output is still at least as strong as HMAC_DRBG alone: the two halves come from separate data, and only someone who can predict the generator's output could cancel it.
+
+### Health test failures (AIS 31 total-failure reaction)
+
+When a source fails a health test:
+- the chunk it was filling is wiped and dropped;
+- its start-up samples still waiting for the test go to the generator's seed, uncredited;
+- its later data goes to the generator's seed, uncredited, until the source is tested again.
+
+Reserve bits condensed before the failure stay: their data had passed the tests when it was condensed.
+
+### Limits of the reserve
+
+- **Not certified.** SP 800-90C's RBG3 constructions call for validated physical entropy sources. TRNG's sources are not validated, and most are not physical, so the reserve is designed after RBG3(XOR), not compliant with it.
+- **The credit is the weak point.** The extractor's proof is exact, but its input assumption is the credit, which rests on the measurements and margins above.
 
 ## Limits
 

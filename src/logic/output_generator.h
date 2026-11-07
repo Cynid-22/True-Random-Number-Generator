@@ -6,13 +6,9 @@
 #include <vector>
 #include "../core/output_settings.h"
 #include "../entropy/entropy_common.h"
+#include "csprng.h"
 
 namespace CSPRNG {
-
-enum class GenerationMode {
-    EntropyBacked,
-    Expanded
-};
 
 struct GenerationResult {
     bool success;
@@ -30,8 +26,9 @@ struct GenerationResult {
     std::string oneTimePadFileName;
 };
 
-GenerationResult GenerateOutput(GenerationMode mode,
-                                const std::set<Entropy::EntropySource>& includedSources,
+size_t RandomByteCount(const OutputSettings& settings);
+
+GenerationResult GenerateOutput(const std::set<Entropy::EntropySource>& includedSources,
                                 const OutputSettings& settings);
 
 }

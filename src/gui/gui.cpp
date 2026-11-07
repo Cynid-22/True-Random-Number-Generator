@@ -430,17 +430,26 @@ static void ClearAllEntropyData() {
 
   g_state.availableEntropyBits = 0.0;
   g_state.usedEntropyBits = 0.0;
+  g_state.reserveBits = 0.0;
 
   Logger::Log(Logger::Level::INFO, "GUI",
               "All recorded entropy data cleared by user");
 }
 
+static constexpr double BITS_PER_BYTE = 8.0;
+
 static void RenderEntropyProgressBar() {
   const float barHeight = 30.0f;
 
-  const float progress = std::min(
-      1.0f, static_cast<float>(g_state.availableEntropyBits /
-                               g_state.targetEntropyBits));
+  const bool hasMinimumEntropy = g_state.hasMinimumEntropy();
+  const double generatorBits =
+      std::floor(g_state.availableEntropyBits + g_state.usedEntropyBits);
+  const double filledBits = hasMinimumEntropy ? g_state.reserveBits : generatorBits;
+  const double neededBits =
+      hasMinimumEntropy ? g_state.truePathReserveBits : AppConfig::MINIMUM_ENTROPY_BITS;
+  const float progress =
+      neededBits > 0.0 ? std::min(1.0f, static_cast<float>(filledBits / neededBits))
+                       : 1.0f;
 
   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.9f, 1.0f));
 
@@ -461,14 +470,13 @@ static void RenderEntropyProgressBar() {
   drawList->AddRect(barMin, barMax, ImGui::GetColorU32(ImGuiCol_Border));
 
   char overlay[96];
-  if (g_state.usedEntropyBits > 0.0) {
-    snprintf(overlay, sizeof(overlay),
-             "Entropy: %.0f / %.0f bits available (%.0f used)",
-             g_state.availableEntropyBits, g_state.targetEntropyBits,
-             g_state.usedEntropyBits);
+  if (hasMinimumEntropy) {
+    snprintf(overlay, sizeof(overlay), "True random reserve: %.0f / %.0f bits",
+             g_state.reserveBits, g_state.truePathReserveBits);
   } else {
-    snprintf(overlay, sizeof(overlay), "Entropy: %.0f / %.0f bits",
-             g_state.availableEntropyBits, g_state.targetEntropyBits);
+    snprintf(overlay, sizeof(overlay),
+             "Entropy: %.0f / %.0f bits to seed the generator", generatorBits,
+             AppConfig::MINIMUM_ENTROPY_BITS);
   }
 
   ImVec2 textSize = ImGui::CalcTextSize(overlay);
@@ -480,13 +488,22 @@ static void RenderEntropyProgressBar() {
   ImGui::PopStyleColor();
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Available: entropy credited to new data from the ticked sources.\n"
+        "The first %.0f credited bits of the ticked sources seed the HMAC_DRBG "
+        "generator,\nwhich every output uses. After that, each source's "
+        "collected data is condensed\ninto the true random reserve: every "
+        "640 credited bits become 512 reserve bits.\n\n"
+        "An output is ENTROPY-BACKED when the reserve covers every byte it "
+        "draws,\nincluding draws that rejection sampling throws away. It "
+        "takes only those bits,\nand they are wiped. During such outputs the "
+        "generator is also reseeded with\n256 reserve bits after every 16 KiB "
+        "it produces.\n\n"
         "Credit is conservative (at most 1 or 2 bits per timing or "
         "movement, 8 bits per\n64 microphone samples) and stops for a "
         "source that fails an SP 800-90B health test.\n\n"
-        "A generation uses up all available entropy. Used data is wiped "
-        "after it reseeds\nthe generator, which every later output depends "
-        "on, and doesn't count toward the bar again.");
+        "If the ticked sources hold less than %.0f bits for the generator when "
+        "it is\ncreated, it is seeded with %.0f reserve bits instead.",
+        AppConfig::MINIMUM_ENTROPY_BITS, AppConfig::MINIMUM_ENTROPY_BITS,
+        AppConfig::MINIMUM_ENTROPY_BITS);
   }
 }
 
@@ -495,20 +512,21 @@ static void RenderSecurityMode() {
   ImGui::Text("Security Mode:");
   ImGui::SameLine();
 
-  if (g_state.hasReachedTargetEntropy()) {
+  if (g_state.canUseTruePath()) {
     ImGui::TextColored(UiColor::StatusActive, "ENTROPY-BACKED");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "Unused collected entropy (as estimated) covers the bits the "
-          "output needs.\nThe output is still HMAC_DRBG output, so security "
-          "is computational,\nnot information-theoretic.");
+          "The true random reserve covers every byte this output draws.\n"
+          "Output = reserve bits XOR HMAC_DRBG output (NIST SP 800-90C "
+          "RBG3(XOR)):\ntrue randomness if the sources' credit estimates "
+          "hold, and never weaker than EXPANDED.");
     }
   } else {
     ImGui::TextColored(UiColor::Warning, "EXPANDED");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "Unused collected entropy is below the bits the output needs.\n"
-          "HMAC_DRBG stretches the seed to the output size.\nSecurity is "
+          "The true random reserve doesn't cover this output.\n"
+          "HMAC_DRBG stretches its seed to the output size.\nSecurity is "
           "computational. One-Time Pad needs ENTROPY-BACKED.");
     }
   }
@@ -590,9 +608,17 @@ static void RenderCollectionControls() {
 }
 
 void RenderEntropyPoolBar() {
-  g_state.availableEntropyBits =
-      g_state.entropyPool.GetAvailableBits(g_state.enabledEntropySources());
+  const std::set<Entropy::EntropySource> includedSources =
+      g_state.enabledEntropySources();
+  g_state.availableEntropyBits = g_state.entropyPool.GetAvailableBits(includedSources);
   g_state.usedEntropyBits = g_state.entropyPool.GetUsedBits();
+  g_state.reserveBits = g_state.entropyPool.GetReserveBits(includedSources);
+  const size_t truePathReserveBytes = CSPRNG::TruePathReserveBytes(
+      CSPRNG::RandomByteCount(g_state),
+      g_state.entropyPool.GetGeneratorBytesSinceFullReseed());
+  g_state.truePathReserveBits = static_cast<double>(truePathReserveBytes) * BITS_PER_BYTE;
+  if (!g_state.generatorSeedFromSources())
+    g_state.truePathReserveBits += AppConfig::MINIMUM_ENTROPY_BITS;
 
   RenderEntropyProgressBar();
   RenderSecurityMode();
@@ -701,12 +727,14 @@ void RenderAboutModal() {
     ImGui::Text("Version %s", APP_VERSION);
     ImGui::Separator();
     ImGui::Text("A high-security cryptographic randomness tool.");
-    ImGui::Text("Every output, in both security modes, comes from HMAC_DRBG "
-                "(SHA-512, NIST SP 800-90A)");
-    ImGui::Text("seeded and reseeded with the collected entropy. Its "
-                "security strength is 256 bits;");
-    ImGui::Text("security is computational. The cryptographic code is "
-                "checked against known answers at launch.");
+    ImGui::Text("EXPANDED outputs come from HMAC_DRBG (SHA-512, NIST SP "
+                "800-90A), seeded with the collected");
+    ImGui::Text("entropy; its security strength is 256 bits. ENTROPY-BACKED "
+                "outputs XOR that with true random");
+    ImGui::Text("reserve bits condensed from the collected entropy by a "
+                "Toeplitz extractor (NIST SP 800-90C RBG3(XOR)).");
+    ImGui::Text("The cryptographic code is checked against known answers at "
+                "launch.");
     ImGui::Spacing();
     ImGui::Text("Entropy sources: Clock Drift, CPU Jitter, Keystrokes, Mouse, Mic.");
     ImGui::Separator();

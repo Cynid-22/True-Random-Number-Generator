@@ -106,12 +106,29 @@ static size_t CalculateBytesPerItem(const OutputSettings &settings, int format) 
     break;
   }
 
-  if ((format == FORMAT_DECIMAL || format == FORMAT_INTEGER ||
-       format == FORMAT_RANDOM_CHARACTERS) &&
-      bytesPerItem < AppConfig::REJECTION_MIN_BYTES_PER_ITEM)
+  const bool usesRejectionSampling =
+      format == FORMAT_DECIMAL || format == FORMAT_INTEGER ||
+      format == FORMAT_RANDOM_CHARACTERS ||
+      (format == FORMAT_ONE_TIME_PAD &&
+       settings.oneTimePadInputMode != ONE_TIME_PAD_FILE_INPUT);
+  if (usesRejectionSampling && bytesPerItem < AppConfig::REJECTION_MIN_BYTES_PER_ITEM)
     bytesPerItem = AppConfig::REJECTION_MIN_BYTES_PER_ITEM;
 
   return bytesPerItem;
+}
+
+static size_t OutputQuantity(const OutputSettings &settings) {
+  if (settings.outputFormat == FORMAT_ONE_TIME_PAD)
+    return 1;
+  return static_cast<size_t>(std::max(settings.outputQuantity, 1));
+}
+
+size_t RandomByteCount(const OutputSettings &settings) {
+  const size_t bytesPerItem = CalculateBytesPerItem(settings, settings.outputFormat);
+  const size_t quantity = OutputQuantity(settings);
+  if (bytesPerItem > 0 && quantity > SIZE_MAX / bytesPerItem)
+    return SIZE_MAX;
+  return bytesPerItem * quantity;
 }
 
 static const char *FileNameOfPath(const char *path) {
@@ -199,7 +216,7 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
                             size_t quantity, size_t bytesPerItem,
                             const std::vector<uint8_t> &randomBytes,
                             std::vector<uint8_t> &itemBytes,
-                            Crypto::HmacDrbg &generator,
+                            Entropy::GenerationInput &input, GenerationMode mode,
                             GenerationResult &result) {
   const WordLists::WordList &wordList =
       WordLists::Get(settings.passphraseWordList);
@@ -243,7 +260,7 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
                     "Integer item %zu: all draws rejected, retry %u",
                     i + 1, retry);
         Crypto::SecureClearVector(itemBytes);
-        itemBytes = GenerateRandomBytes(generator, bytesPerItem);
+        itemBytes = GenerateRandomBytes(input, bytesPerItem, mode);
         item = GenerateInteger(itemBytes, settings.integerMin,
                                settings.integerMax, allDrawsRejected,
                                itemBinary);
@@ -305,14 +322,17 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
   return true;
 }
 
+static const char *ModeName(GenerationMode mode) {
+  return mode == GenerationMode::EntropyBacked ? "ENTROPY-BACKED" : "EXPANDED";
+}
+
 GenerationResult GenerateOutput(
-    GenerationMode mode,
     const std::set<Entropy::EntropySource> &includedSources,
     const OutputSettings &settings) {
   GenerationResult result;
   result.success = false;
   result.cancelled = false;
-  result.mode = mode;
+  result.mode = GenerationMode::Expanded;
   result.entropyConsumed = 0.0f;
   result.rawBytesGenerated = 0;
   result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
@@ -325,8 +345,7 @@ GenerationResult GenerateOutput(
 
   const int format = settings.outputFormat;
   const bool isList = (format != FORMAT_ONE_TIME_PAD);
-  const size_t quantity =
-      isList ? static_cast<size_t>(std::max(settings.outputQuantity, 1)) : 1;
+  const size_t quantity = OutputQuantity(settings);
 
   const size_t bytesPerItem = CalculateBytesPerItem(settings, format);
 
@@ -335,17 +354,21 @@ GenerationResult GenerateOutput(
         "Requested output is too large. Reduce the quantity or item size.";
     return result;
   }
-  size_t bytesNeeded = bytesPerItem * quantity;
-
-  if (bytesNeeded < 64)
-    bytesNeeded = 64;
+  const size_t bytesNeeded = bytesPerItem * quantity;
+  const size_t integerRetryBytes = (format == FORMAT_INTEGER) ? bytesNeeded : 0;
+  const size_t outputReserveBytes = TruePathReserveBytes(
+      bytesNeeded > SIZE_MAX - integerRetryBytes ? SIZE_MAX : bytesNeeded + integerRetryBytes,
+      TRUE_PATH_RESEED_INTERVAL_BYTES);
+  const size_t reserveBytesToCopy =
+      outputReserveBytes > SIZE_MAX - GENERATOR_RESERVE_SEED_BYTES
+          ? SIZE_MAX
+          : outputReserveBytes + GENERATOR_RESERVE_SEED_BYTES;
 
   const uint64_t generationNumber = ++s_generationCount;
   Entropy::GenerationInput input;
   std::vector<uint8_t> randomBytes;
   std::vector<uint8_t> itemBytes;
-  auto wipeAll = [&]() {
-    input.SecureWipe();
+  auto wipeOutput = [&]() {
     Crypto::SecureClearVector(randomBytes);
     Crypto::SecureClearVector(itemBytes);
     Crypto::SecureClearVector(result.output);
@@ -354,46 +377,84 @@ GenerationResult GenerateOutput(
     Crypto::SecureClearVector(result.oneTimePadCiphertext);
     result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
   };
+  auto wipeAll = [&]() {
+    input.SecureWipe();
+    wipeOutput();
+  };
   try {
-    input = g_state.entropyPool.CopyGenerationInput(includedSources);
+    input = g_state.entropyPool.CopyGenerationInput(includedSources, reserveBytesToCopy);
     Logger::Log(Logger::Level::INFO, "CSPRNG",
                 "Generation %llu: %zu new data points, %.1f bits credited, "
-                "generator %s",
+                "%zu reserve bytes copied, generator %s",
                 static_cast<unsigned long long>(generationNumber),
-                input.newPoints.size(), input.CreditBits(),
+                input.newPoints.size(), input.CreditBits(), input.reserveBytes.size(),
                 input.generator ? "continued" : "new");
 
-    if (input.newPoints.empty() && !input.generator) {
+    const bool generatorSeedTooShort =
+        input.previouslyUsedBits + input.CreditBits() < AppConfig::MINIMUM_ENTROPY_BITS;
+    if (generatorSeedTooShort &&
+        (!GeneratorNeedsReserveSeed(input) ||
+         input.reserveBytes.size() < GENERATOR_RESERVE_SEED_BYTES)) {
       wipeAll();
-      result.errorMessage = "No entropy data available";
+      result.errorMessage =
+          "Collect at least " +
+          std::to_string(static_cast<int>(AppConfig::MINIMUM_ENTROPY_BITS)) +
+          " bits of entropy before generating.";
       return result;
     }
 
+    SeedGenerator(input, generationNumber);
+    GenerationMode mode =
+        input.reserveBytes.size() - input.reserveBytesUsed >=
+                TruePathReserveBytes(bytesNeeded, input.generatorBytesSinceFullReseed)
+            ? GenerationMode::EntropyBacked
+            : GenerationMode::Expanded;
+    if (!isList && mode != GenerationMode::EntropyBacked) {
+      wipeAll();
+      result.errorMessage =
+          "One-Time Pad requires ENTROPY-BACKED mode: the true random reserve "
+          "doesn't cover the pad. Collect more entropy.";
+      return result;
+    }
     Logger::Log(Logger::Level::INFO, "CSPRNG", "Mode: %s",
                 mode == GenerationMode::EntropyBacked
-                    ? "ENTROPY-BACKED - unused entropy met the target"
-                    : "EXPANDED - unused entropy below the target");
+                    ? "ENTROPY-BACKED - the reserve covers every byte drawn"
+                    : "EXPANDED - the reserve doesn't cover the output");
 
-    SeedGenerator(input, generationNumber);
     const std::string generationInfo =
         BuildGenerationInfo(settings, bytesNeeded, generationNumber);
-    const ReseedSource reseedSource{g_state.entropyPool, includedSources, input};
-    randomBytes = GenerateRandomBytes(
-        *input.generator, bytesNeeded,
-        {reinterpret_cast<const uint8_t *>(generationInfo.data()),
-         generationInfo.size()},
-        &reseedSource);
-    result.rawBytesGenerated = randomBytes.size();
-    ThrowIfGenerationCancelled();
+    const ReseedSource reseedSource{g_state.entropyPool, includedSources};
+    auto generateAndWrite = [&](GenerationMode outputMode) {
+      randomBytes = GenerateRandomBytes(
+          input, bytesNeeded, outputMode,
+          {reinterpret_cast<const uint8_t *>(generationInfo.data()),
+           generationInfo.size()},
+          &reseedSource);
+      result.rawBytesGenerated = randomBytes.size();
+      ThrowIfGenerationCancelled();
+      return isList ? WriteListOutput(settings, format, quantity, bytesPerItem,
+                                      randomBytes, itemBytes, input, outputMode, result)
+                    : WriteOneTimePadOutput(settings, randomBytes, result);
+    };
 
-    const bool written =
-        isList ? WriteListOutput(settings, format, quantity, bytesPerItem, randomBytes,
-                                 itemBytes, *input.generator, result)
-               : WriteOneTimePadOutput(settings, randomBytes, result);
+    bool written = false;
+    try {
+      written = generateAndWrite(mode);
+    } catch (const ReserveRanOut &) {
+      if (!isList)
+        throw;
+      Logger::Log(Logger::Level::INFO, "CSPRNG",
+                  "Reserve ran out during rejected draws, making the output "
+                  "EXPANDED instead");
+      wipeOutput();
+      mode = GenerationMode::Expanded;
+      written = generateAndWrite(mode);
+    }
     if (!written) {
       wipeAll();
       return result;
     }
+    result.mode = mode;
 
     if (result.oneTimePadResultMode == ONE_TIME_PAD_NO_RESULT) {
       Crypto::ReserveWithoutLeavingCopies(result.output, 1);
@@ -411,10 +472,7 @@ GenerationResult GenerateOutput(
     Logger::Log(Logger::Level::INFO, "CSPRNG",
                 "Output generated successfully. Format: %d, Items: %zu, Mode: "
                 "%s, Bytes: %zu",
-                format, quantity,
-                mode == GenerationMode::EntropyBacked ? "ENTROPY-BACKED"
-                                                      : "EXPANDED",
-                result.rawBytesGenerated);
+                format, quantity, ModeName(mode), result.rawBytesGenerated);
 
   } catch (const GenerationCancelled &cancelled) {
     wipeAll();

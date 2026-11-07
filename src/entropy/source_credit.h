@@ -29,9 +29,7 @@ public:
 
     StartupStatus Startup() const;
 
-    double FinishStartupEarly(EntropySource source);
-
-    void DiscardHeldStartupBits() { m_heldStartupBits = 0.0; }
+    bool FinishStartupEarly(EntropySource source);
 
     void Reset();
 
@@ -48,7 +46,7 @@ private:
     bool RepeatsRecentValue(uint64_t value) const;
     void RememberValue(uint64_t value);
     double ChangeBits(EntropySource source, uint64_t value);
-    double ReleaseHeldStartupBits();
+    void CompleteStartup();
 
     bool m_healthTestFailed = false;
 

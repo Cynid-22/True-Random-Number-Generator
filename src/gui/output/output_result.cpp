@@ -63,22 +63,17 @@ static void RenderOutputText() {
   ImGui::PopStyleColor();
 }
 
-static void RenderEntropyWarning(bool hasMinimumEntropy, bool hasTargetEntropy) {
+static void RenderEntropyWarning(bool hasMinimumEntropy, bool canUseTruePath) {
   if (!hasMinimumEntropy) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
     ImGui::Text("BLOCKED: Collect at least %.0f bits before generating.",
                 AppConfig::MINIMUM_ENTROPY_BITS);
     ImGui::PopStyleColor();
     ImGui::Spacing();
-  } else if (!hasTargetEntropy) {
+  } else if (!canUseTruePath) {
     ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-    if (g_state.usedEntropyBits > 0.0)
-      ImGui::Text("WARNING: Using EXPANDED mode. Entropy used by earlier "
-                  "outputs doesn't count again; collect more for "
-                  "ENTROPY-BACKED.");
-    else
-      ImGui::Text("WARNING: Using EXPANDED mode (CSPRNG expansion). Collect "
-                  "more for ENTROPY-BACKED.");
+    ImGui::Text("WARNING: Using EXPANDED mode: the true random reserve doesn't "
+                "cover this output. Collect more for ENTROPY-BACKED.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
   }
@@ -129,7 +124,7 @@ static const char *FindOneTimePadInputError() {
   return nullptr;
 }
 
-static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
+static const char *FindErrorPreventingGeneration(bool canUseTruePath) {
   if (g_state.outputFormat == FORMAT_RANDOM_CHARACTERS &&
       !g_state.includeNumbers && !g_state.includeUppercase &&
       !g_state.includeLowercase && !g_state.includeSpecial)
@@ -146,25 +141,25 @@ static const char *FindErrorPreventingGeneration(bool hasTargetEntropy) {
     return nullptr;
   if (const char *inputError = FindOneTimePadInputError())
     return inputError;
-  if (!hasTargetEntropy)
+  if (!canUseTruePath)
     return "One-Time Pad requires ENTROPY-BACKED mode.\n"
-           "Collect more entropy until the bar reaches 100%.\n"
-           "Each pad needs new entropy: data used by earlier outputs doesn't "
-           "count.";
+           "Collect more entropy until the true random reserve bar reaches "
+           "100%.\n"
+           "Each pad uses up the reserve bits it draws; they never count "
+           "again.";
   return nullptr;
 }
 
-static void RenderGenerateButton(bool hasMinimumEntropy, bool hasTargetEntropy) {
+static void RenderGenerateButton(bool hasMinimumEntropy, bool canUseTruePath) {
   const bool canGenerate = hasMinimumEntropy && !g_state.selfTestFailed;
   if (!canGenerate)
     ImGui::BeginDisabled();
 
   if (ImGui::Button("Generate", ImVec2(100, 0))) {
-    if (const char *error = FindErrorPreventingGeneration(hasTargetEntropy)) {
+    if (const char *error = FindErrorPreventingGeneration(canUseTruePath)) {
       ShowOutputText(std::string("[ERROR] ") + error);
     } else {
-      StartGeneration(hasTargetEntropy ? CSPRNG::GenerationMode::EntropyBacked
-                                       : CSPRNG::GenerationMode::Expanded);
+      StartGeneration();
     }
   }
   if (g_state.selfTestFailed &&
@@ -231,7 +226,7 @@ static void RenderOutputFooter() {
 
 void RenderOutputSection() {
   bool hasMinimumEntropy = g_state.hasMinimumEntropy();
-  bool hasTargetEntropy = g_state.hasReachedTargetEntropy();
+  bool canUseTruePath = g_state.canUseTruePath();
 
   ImGui::Spacing();
   ImGui::Separator();
@@ -240,13 +235,13 @@ void RenderOutputSection() {
   if (IsGenerationRunning())
     RenderGenerationProgress();
   else
-    RenderGenerateButton(hasMinimumEntropy, hasTargetEntropy);
+    RenderGenerateButton(hasMinimumEntropy, canUseTruePath);
 
   ImGui::SameLine();
 
   RenderCopyAndClearButtons();
 
-  RenderEntropyWarning(hasMinimumEntropy, hasTargetEntropy);
+  RenderEntropyWarning(hasMinimumEntropy, canUseTruePath);
 
   RenderOutputHeader();
   RenderOutputText();

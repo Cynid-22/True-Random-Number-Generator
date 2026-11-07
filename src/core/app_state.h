@@ -57,6 +57,8 @@ struct AppState : OutputSettings {
     bool isCollecting = false;
     double availableEntropyBits = 0.0;
     double usedEntropyBits = 0.0;
+    double reserveBits = 0.0;
+    double truePathReserveBits = 0.0;
 
     struct TrailPoint { float x, y; };
     std::vector<TrailPoint> mouseTrail;
@@ -92,12 +94,16 @@ struct AppState : OutputSettings {
     std::string errorModalText;
     bool showErrorModal = false;
 
-    bool hasMinimumEntropy() const {
+    bool generatorSeedFromSources() const {
         return availableEntropyBits + usedEntropyBits >= AppConfig::MINIMUM_ENTROPY_BITS;
     }
 
-    bool hasReachedTargetEntropy() const {
-        return availableEntropyBits >= targetEntropyBits;
+    bool hasMinimumEntropy() const {
+        return generatorSeedFromSources() || reserveBits >= AppConfig::MINIMUM_ENTROPY_BITS;
+    }
+
+    bool canUseTruePath() const {
+        return hasMinimumEntropy() && reserveBits >= truePathReserveBits;
     }
 
     std::set<Entropy::EntropySource> enabledEntropySources() const {

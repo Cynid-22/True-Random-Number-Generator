@@ -26,6 +26,8 @@ static const char *HEALTH_TEST_FAILED_TOOLTIP =
     "512-sample window.\n\n"
     "Its data is still mixed into the seed, but it no longer counts toward "
     "the entropy bar.\n"
+    "The reserve chunk it was filling was discarded, and its data no longer "
+    "goes into\nthe true random reserve.\n"
     "Turn it off, or test it again, with the buttons below the source.";
 
 static const char *HEALTH_TEST_FAILED_NOTICE =

@@ -64,12 +64,12 @@ static GeneratedOutputDetails CaptureOutputDetails() {
   return details;
 }
 
-static void StartGenerationThread(CSPRNG::GenerationMode mode) {
-  std::thread([mode, includedSources = g_state.enabledEntropySources(),
+static void StartGenerationThread() {
+  std::thread([includedSources = g_state.enabledEntropySources(),
                settings = OutputSettings(g_state)]() {
     auto startTime = std::chrono::steady_clock::now();
     CSPRNG::GenerationResult result =
-        CSPRNG::GenerateOutput(mode, includedSources, settings);
+        CSPRNG::GenerateOutput(includedSources, settings);
     long long elapsedMilliseconds =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime)
@@ -85,7 +85,7 @@ static void StartGenerationThread(CSPRNG::GenerationMode mode) {
   }).detach();
 }
 
-void StartGeneration(CSPRNG::GenerationMode mode) {
+void StartGeneration() {
   s_generationRunning.store(true);
   s_resultReady.store(false);
   g_state.cancelGenerationRequested = false;
@@ -93,7 +93,7 @@ void StartGeneration(CSPRNG::GenerationMode mode) {
 
   try {
     s_runningGenerationDetails = CaptureOutputDetails();
-    StartGenerationThread(mode);
+    StartGenerationThread();
   } catch (const std::exception &error) {
     s_generationRunning.store(false);
     ShowOutputText(std::string("[ERROR] The generation could not start: ") +

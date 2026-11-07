@@ -33,12 +33,21 @@ Instead, report it privately:
 This application implements the following security measures:
 
 ### Cryptographic Generator
-- **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first collected data, reseeded with new data at every generation and every 64 MiB during long outputs, state rewritten after every request of at most 64 KiB
+- **HMAC_DRBG (SHA-512)** from NIST SP 800-90A Rev. 1, 256-bit security strength: created from the first 512 credited bits collected (or from 512 reserve bits if the ticked sources hold less), reseeded at every generation (with any new data meant for it) and every 64 MiB during long outputs, state rewritten after every request of at most 64 KiB
 - **SHA-512** (FIPS 180-4) and **HMAC-SHA-512** (FIPS 198-1) underneath it; no table lookups, so no cache-timing leak
-- **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231) and HMAC_DRBG (NIST CAVP vectors) are checked against known answers; if one fails, generating is turned off
+- **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231), HMAC_DRBG (NIST CAVP vectors) and the Toeplitz extractor (vectors from an independent reference computation) are checked against known answers; if one fails, generating is turned off
 - Windows' random generator (BCryptGenRandom) adds 64 bytes every time the generator is created or reseeded. They are uncredited: never counted as entropy, so they can only add to the output's unpredictability and never prop up a claim. If Windows can't supply them, generation continues without them
 - The generator's state is kept in locked memory and wiped on Clear, logoff and exit; a generation works on a copy that replaces it only when the generation succeeds
 - The statistical results in the README are from the earlier quad-layer pipeline (ChaCha20, AES-256) and have not been rerun for HMAC_DRBG yet
+
+### True Random Reserve
+- After the generator's first 512 credited bits, each source's data is condensed into a reserve by a **Toeplitz extractor** (universal hashing, no hash function): every 640 credited bits of one source become 512 reserve bits, within 2^-65 of uniform (averaged over the extractor's seed) by the leftover hash lemma if the credit holds. The bound, the extractor's public seed (257 NIST Randomness Beacon pulses) and the rules are in [docs/stochastic_models.md](docs/stochastic_models.md#the-true-random-reserve)
+- **ENTROPY-BACKED** outputs are reserve bits XOR HMAC_DRBG output (NIST SP 800-90C RBG3(XOR)), only when the reserve covers every byte the output draws; otherwise the output is HMAC_DRBG alone. There is never a partly covered output
+- Data that seeds the generator never goes into the reserve, and reserve bits used for an XOR are never used to seed the generator (SP 800-90C 6.4.2). If the ticked sources hold less than 512 bits for the generator when it is created, it is seeded with 512 reserve bits that are then never used for an XOR. During ENTROPY-BACKED outputs the generator is reseeded with 256 reserve bits after every 16 KiB it produces
+- Used reserve bits are wiped and never handed out again; a cancelled or failed generation uses none up
+- If a source fails a health test, the chunk it was filling is wiped and dropped, so its data no longer reaches the reserve (AIS 31 total-failure reaction)
+- The extractor processes every input bit the same way, without branches on the data, so its timing and memory accesses depend only on the input's length
+- The reserve is kept in locked memory and wiped on Clear, logoff and exit
 
 ### Memory Security
 - Collected entropy data, the seed material and the generator's state use an allocator that locks their pages in RAM (`VirtualLock`, best effort: the process asks for a 128 MB minimum working set, and larger pools can still be paged) and wipes every block when it is freed, including the old blocks a growing buffer leaves behind

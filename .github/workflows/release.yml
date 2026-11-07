@@ -94,6 +94,7 @@ jobs:
               src/entropy/source_credit.cpp \
               src/crypto/sha512.cpp \
               src/crypto/hmac_drbg.cpp \
+              src/crypto/toeplitz.cpp \
               src/crypto/self_test.cpp \
               external/imgui/imgui.cpp \
               external/imgui/imgui_draw.cpp \

@@ -195,13 +195,12 @@ double SourceCreditEstimator::Credit(EntropySource source, uint64_t value) {
         (repeatsRecentValue || !IsCreditedOnThisMachine(source))
             ? 0.0
             : std::max(0.0, std::min(changeBits, MaxCreditBitsPerSample(source)));
-    if (m_startupComplete)
-        return sampleBits;
-
-    m_heldStartupBits += sampleBits;
-    if (++m_startupSamplesTested < STARTUP_SAMPLE_COUNT)
-        return 0.0;
-    return ReleaseHeldStartupBits();
+    if (!m_startupComplete) {
+        m_heldStartupBits += sampleBits;
+        if (++m_startupSamplesTested >= STARTUP_SAMPLE_COUNT)
+            CompleteStartup();
+    }
+    return sampleBits;
 }
 
 StartupStatus SourceCreditEstimator::Startup() const {
@@ -209,19 +208,18 @@ StartupStatus SourceCreditEstimator::Startup() const {
             m_startupFinishedEarly};
 }
 
-double SourceCreditEstimator::FinishStartupEarly(EntropySource source) {
+bool SourceCreditEstimator::FinishStartupEarly(EntropySource source) {
     if (m_startupComplete || m_healthTestFailed ||
         m_startupSamplesTested < EarlyStartupSampleCount(source))
-        return 0.0;
+        return false;
     m_startupFinishedEarly = true;
-    return ReleaseHeldStartupBits();
+    CompleteStartup();
+    return true;
 }
 
-double SourceCreditEstimator::ReleaseHeldStartupBits() {
+void SourceCreditEstimator::CompleteStartup() {
     m_startupComplete = true;
-    const double releasedBits = m_heldStartupBits;
     m_heldStartupBits = 0.0;
-    return releasedBits;
 }
 
 void SourceCreditEstimator::Reset() {

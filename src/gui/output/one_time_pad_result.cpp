@@ -12,7 +12,8 @@
 #include <vector>
 
 static const char *const ONE_TIME_PAD_METHOD_TEXT =
-    "Method: Vernam cipher with a key from HMAC_DRBG (SHA-512)";
+    "Method: Vernam cipher with a key from the true random reserve XOR "
+    "HMAC_DRBG (SHA-512)";
 
 static bool IsFileResult() {
   return g_state.oneTimePadResultMode == ONE_TIME_PAD_FILE_INPUT;
@@ -37,11 +38,11 @@ static std::wstring ResultFileNameWithoutExtension() {
 static void RenderKeyWarning() {
   ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
   ImGui::TextWrapped("Save the key. Without it the ciphertext can't be "
-                     "decrypted in practice, and this program can't recover "
-                     "it either. The key is HMAC_DRBG output seeded from "
-                     "the collected entropy, so this security is "
-                     "computational, not the information-theoretic security "
-                     "of a true one-time pad.");
+                     "decrypted, and this program can't recover it either. "
+                     "The key is true random reserve bits XORed with "
+                     "HMAC_DRBG output: a true one-time pad if the sources' "
+                     "credit estimates hold, and still as strong as HMAC_DRBG "
+                     "if they don't.");
   ImGui::PopStyleColor();
 }
 

@@ -95,7 +95,7 @@ static void HarvestSource(Collector& collector) {
     if (RecordSampleExportData(data))
         return;
 #endif
-    g_state.entropyPool.AddDataPoints(data);
+    g_state.entropyPool.AddDataPoints(data, g_state.enabledEntropySources());
 }
 
 static void UpdateEntropyCollection() {

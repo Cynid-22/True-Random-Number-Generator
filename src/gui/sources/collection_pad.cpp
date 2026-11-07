@@ -143,7 +143,7 @@ static void RenderEarlyStartupChoice(Entropy::EntropySource source,
   ImGui::SameLine();
   ImGui::PushID(static_cast<int>(source));
   if (ImGui::SmallButton("Use now")) {
-    g_state.entropyPool.FinishStartupEarly(source);
+    g_state.entropyPool.FinishStartupEarly(source, g_state.enabledEntropySources());
     Logger::Log(Logger::Level::INFO, "GUI",
                 "%s start-up test finished early after %u samples",
                 text.sourceName, startup.samplesTested);
