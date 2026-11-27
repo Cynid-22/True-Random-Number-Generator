@@ -10,6 +10,9 @@ CalculateAvg.py
 commands.txt
 TRNG_UI_Aesthetic_Guide.md
 internal_update_notes
+.claude
+CLAUDE.md
+graphify-out
 
 # C++ Build Artifacts
 build/
