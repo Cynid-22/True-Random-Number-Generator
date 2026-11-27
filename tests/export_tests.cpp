@@ -40,6 +40,28 @@ TEST(CsvNumberedItemsSkipBlankLines) {
              std::string("\"#\",\"T\"\r\n\"1\",\"foo\"\r\n\"2\",\"bar\"\r\n"));
 }
 
+TEST(CsvKeepsSpreadsheetsFromRunningGeneratedTextAsFormulas) {
+    GeneratedOutputDetails details;
+    details.type = "T";
+
+    details.format = FORMAT_RANDOM_CHARACTERS;
+    CHECK_EQ(Csv(details, "=1\nab"), std::string("\"T\"\r\n\"'=1\"\r\n\"ab\"\r\n"));
+
+    details.format = FORMAT_RAW_DATA;
+    CHECK_EQ(Csv(details, "+ab/\n-cd_"), std::string("\"T\"\r\n\"'+ab/\"\r\n\"'-cd_\"\r\n"));
+
+    details.format = FORMAT_PASSPHRASE;
+    details.numberedItems = true;
+    CHECK_EQ(Csv(details, "1. @-word"), std::string("\"#\",\"T\"\r\n\"1\",\"'@-word\"\r\n"));
+}
+
+TEST(CsvKeepsIntegerItemsAsPlainNumbers) {
+    GeneratedOutputDetails details;
+    details.type = "T";
+    details.format = FORMAT_INTEGER;
+    CHECK_EQ(Csv(details, "-5\n7"), std::string("\"T\"\r\n\"-5\"\r\n\"7\"\r\n"));
+}
+
 TEST(OneTimePadCsvWritesFileResultsAsHex) {
     const char key[] = {'\x00', '\xAB'};
     const char ciphertext[] = {'\xFF', '\x10'};

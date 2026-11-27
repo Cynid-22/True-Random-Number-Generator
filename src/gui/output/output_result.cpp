@@ -195,11 +195,7 @@ static void RenderGenerateButton(bool hasMinimumEntropy, bool canUseTruePath) {
 
 static void RenderCopyAndClearButtons() {
   const bool hasOutput = !g_state.generatedOutput.empty();
-  const bool isOneTimePadFileInput =
-      g_state.outputFormat == FORMAT_ONE_TIME_PAD &&
-      g_state.oneTimePadInputMode == ONE_TIME_PAD_FILE_INPUT;
-  const bool canCopy = hasOutput && !isOneTimePadFileInput;
-  if (!canCopy)
+  if (!hasOutput)
     ImGui::BeginDisabled();
   if (ImGui::Button("Copy", ImVec2(80, 0))) {
     size_t length = g_state.generatedOutput.size();
@@ -208,7 +204,7 @@ static void RenderCopyAndClearButtons() {
     CopySecretText(g_state.generatedOutput.data(), length);
   }
   RenderSecretCopyTooltip();
-  if (!canCopy)
+  if (!hasOutput)
     ImGui::EndDisabled();
 
   ImGui::SameLine();

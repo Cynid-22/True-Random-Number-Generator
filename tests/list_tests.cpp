@@ -413,8 +413,4 @@ TEST(ListCsvKeepsSpreadsheetsFromRunningItemsAsFormulas) {
     CHECK_EQ(TextOf(BuildOutputCsv(details, text.data(), text.size())),
              std::string("\"Pick From List\"\r\n\"'=1+1\"\r\n\"plain\"\r\n\"'-5\"\r\n"
                          "\"'@SUM(A1)\"\r\n\"'+x\"\r\n"));
-
-    details.format = FORMAT_RANDOM_CHARACTERS;
-    details.type = "T";
-    CHECK_EQ(TextOf(BuildOutputCsv(details, "=1", 2)), std::string("\"T\"\r\n\"=1\"\r\n"));
 }

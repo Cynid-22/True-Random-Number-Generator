@@ -447,6 +447,8 @@ void RenderMenuBar() {
 
 static void ClearAllEntropyData() {
   g_state.isCollecting = false;
+  if (IsGenerationRunning())
+    g_state.cancelGenerationRequested = true;
 
   g_state.entropyPool.SecureWipe();
 
@@ -585,6 +587,8 @@ static void RenderClearConfirmation() {
     ImGui::Text(
         "Warning: You are about to clear %.0f bits of collected entropy.\n\n",
         g_state.entropyPool.GetTotalCreditedBits());
+    if (IsGenerationRunning())
+      ImGui::Text("The generation in progress will be cancelled.\n\n");
     ImGui::Text("This action cannot be undone.\n\n");
     ImGui::Separator();
 
@@ -648,7 +652,8 @@ static void RenderCollectionControls() {
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Clear all collected entropy data from all sources.\n"
                       "This will reset all counters to zero.\n"
-                      "Collection will be stopped if active.");
+                      "Collection will be stopped if active, and a\n"
+                      "generation in progress is cancelled.");
   }
 
   RenderClearConfirmation();

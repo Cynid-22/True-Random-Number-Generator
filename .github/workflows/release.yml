@@ -119,11 +119,26 @@ jobs:
 
           echo "Build complete: build/TRNG.exe"
 
-      - name: Keep TRNG.exe for the release job
+      - name: Record the toolchain that built TRNG.exe
+        shell: msys2 {0}
+        run: |
+          {
+            echo "Compiler: $(g++ --version | head -n 1)"
+            echo "Linker:   $(ld --version | head -n 1)"
+            echo "Resource compiler: $(windres --version | head -n 1)"
+            echo
+            echo "Installed MSYS2 packages:"
+            pacman -Q
+          } > build/TRNG-toolchain.txt
+          cat build/TRNG-toolchain.txt
+
+      - name: Keep TRNG.exe and the toolchain record for the release job
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trng-exe
-          path: build/TRNG.exe
+          path: |
+            build/TRNG.exe
+            build/TRNG-toolchain.txt
           if-no-files-found: error
           retention-days: 1
 
@@ -136,7 +151,7 @@ jobs:
       attestations: write
 
     steps:
-      - name: Download TRNG.exe
+      - name: Download TRNG.exe and the toolchain record
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: trng-exe
@@ -147,9 +162,11 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: TRNG.exe
+          subject-path: |
+            TRNG.exe
+            TRNG-toolchain.txt
 
-      - name: Upload TRNG.exe and checksum to Release
+      - name: Upload TRNG.exe, checksum and toolchain record to Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" TRNG.exe TRNG.exe.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$GITHUB_REF_NAME" TRNG.exe TRNG-toolchain.txt TRNG.exe.sha256 --clobber --repo "$GITHUB_REPOSITORY"

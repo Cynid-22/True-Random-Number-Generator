@@ -284,8 +284,8 @@ static void AppendCsvField(ExportWriter &csv, const std::string &field) {
   AppendCsvField(csv, field.data(), field.size());
 }
 
-static void AppendCsvTextTypedByUser(ExportWriter &csv, const char *field,
-                                     size_t length) {
+static void AppendCsvTextCell(ExportWriter &csv, const char *field,
+                             size_t length) {
   const bool spreadsheetWouldRunIt =
       CSPRNG::StartsLikeSpreadsheetFormula(field, length);
   AppendCsvField(csv, field, length,
@@ -328,18 +328,18 @@ static void WriteItemsCsv(ExportWriter &csv,
   AppendCsvField(csv, details.type);
   csv.Append(CSV_LINE_END);
 
-  const bool itemsTypedByUser = IsListFormat(details.format);
+  const bool itemsAreSignedNumbers = details.format == FORMAT_INTEGER;
   ForEachItem(text, length, details,
-              [&csv, &details, itemsTypedByUser](size_t index, const char *item,
-                                                 size_t itemLength) {
+              [&csv, &details, itemsAreSignedNumbers](size_t index, const char *item,
+                                                      size_t itemLength) {
                 if (details.numberedItems) {
                   AppendCsvField(csv, std::to_string(index + 1));
                   csv.Append(",");
                 }
-                if (itemsTypedByUser)
-                  AppendCsvTextTypedByUser(csv, item, itemLength);
-                else
+                if (itemsAreSignedNumbers)
                   AppendCsvField(csv, item, itemLength);
+                else
+                  AppendCsvTextCell(csv, item, itemLength);
                 csv.Append(CSV_LINE_END);
               });
 }
