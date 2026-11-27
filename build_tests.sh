@@ -29,6 +29,13 @@ g++ -std=c++17 -O2 \
     tests/generation_tests.cpp \
     tests/format_tests.cpp \
     tests/export_tests.cpp \
+    tests/list_tests.cpp \
+    tests/list_edge_tests.cpp \
+    tests/statistics_tests.cpp \
+    tests/output_tests.cpp \
+    tests/crypto_vector_tests.cpp \
+    tests/entropy_credit_tests.cpp \
+    src/logic/logic.cpp \
     src/logic/csprng.cpp \
     src/logic/output_generator.cpp \
     src/logic/output_export.cpp \
