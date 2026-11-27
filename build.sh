@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 echo "========================================"
 echo "TRNG Build Script (MinGW)"
 echo "========================================"
@@ -42,7 +44,8 @@ echo "Compiling..."
 
 BUILD_VERSION="${VERSION:-dev}"
 
-g++ -std=c++17 -O2 -s -mwindows \
+if ! g++ -std=c++17 -O2 -s -mwindows \
+    -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
     -DAPP_VERSION="\"${BUILD_VERSION}\"" \
     -D_WIN32_WINNT=0x0A00 \
     -DIMGUI_USE_WCHAR32 \
@@ -83,6 +86,7 @@ g++ -std=c++17 -O2 -s -mwindows \
     src/platform/secure_clipboard.cpp \
     src/platform/virtual_machine.cpp \
     src/platform/os_random.cpp \
+    src/platform/screen_capture.cpp \
     src/entropy/clock_drift/clock_drift.cpp \
     src/entropy/cpu_jitter/cpu_jitter.cpp \
     src/entropy/raw_input_thread.cpp \
@@ -104,16 +108,15 @@ g++ -std=c++17 -O2 -s -mwindows \
     external/imgui/backends/imgui_impl_dx11.cpp \
     build/resource.res \
     -static \
-    -ldxgi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32 -lole32 -loleaut32 -luuid -lmmdevapi -lksuser
-
-if [ $? -eq 0 ]; then
-    echo "========================================"
-    echo "Build successful!"
-    echo "Executable: $OUTPUT_EXE"
-    echo "========================================"
-else
+    -Wl,--dynamicbase,--nxcompat,--high-entropy-va \
+    -ldxgi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32 -lole32 -loleaut32 -luuid -lmmdevapi -lksuser; then
     echo "========================================"
     echo "Build FAILED!"
     echo "========================================"
     exit 1
 fi
+
+echo "========================================"
+echo "Build successful!"
+echo "Executable: $OUTPUT_EXE"
+echo "========================================"

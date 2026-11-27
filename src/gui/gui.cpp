@@ -3,6 +3,7 @@
 #include "../logic/logic.h"
 #include "../logic/output_export.h"
 #include "widgets.h"
+#include "../platform/screen_capture.h"
 #include "../platform/secure_clipboard.h"
 #include "../platform/unicode_path.h"
 #include "output/generation_task.h"
@@ -363,6 +364,23 @@ static void ExportOutput() {
   }
 }
 
+void ApplyScreenCaptureSetting() {
+  const bool applied = Platform::SetScreenCaptureAllowed(g_state.allowScreenCapture);
+  g_state.screenCaptureBlocked = !g_state.allowScreenCapture && applied;
+}
+
+static const char *ScreenCaptureTooltip() {
+  if (g_state.allowScreenCapture)
+    return "Screenshots, screen recordings, screen sharing and Windows Recall\n"
+           "can capture this window, generated secrets included.";
+  if (g_state.screenCaptureBlocked)
+    return "Screenshots, screen recordings, screen sharing and Windows Recall\n"
+           "show this window as black or leave it out, so they keep no\n"
+           "generated secrets. Tick this to take a screenshot of TRNG.";
+  return "Windows refused to hide this window from screen capture, so\n"
+         "screenshots and screen sharing can still capture it.";
+}
+
 static void ResetSettings() {
   g_state.microphoneEnabled = true;
   g_state.keystrokeEnabled = true;
@@ -373,6 +391,8 @@ static void ResetSettings() {
   g_state.rawDataGroupingEnabled = AppState::DEFAULT_RAW_DATA_GROUPING_ENABLED;
   g_state.rawDataGroupSize = AppState::DEFAULT_RAW_DATA_GROUP_SIZE;
   g_state.rawDataUppercase = AppState::DEFAULT_RAW_DATA_UPPERCASE;
+  g_state.allowScreenCapture = false;
+  ApplyScreenCaptureSetting();
   SelectOutputType(0, 0);
 }
 
@@ -401,6 +421,9 @@ void RenderMenuBar() {
 
     if (ImGui::BeginMenu("Options")) {
       ImGui::MenuItem("Show Used Data Warning", nullptr, &g_state.showUsedDataWarning);
+      if (ImGui::MenuItem("Allow Screen Capture", nullptr, &g_state.allowScreenCapture))
+        ApplyScreenCaptureSetting();
+      ImGui::SetItemTooltip("%s", ScreenCaptureTooltip());
       ImGui::Separator();
       if (ImGui::MenuItem("Reset Settings", nullptr, false,
                           !IsGenerationRunning() && !g_state.isCollecting)) {
@@ -506,14 +529,14 @@ static void RenderEntropyProgressBar() {
 
 static void RenderSecurityMode() {
   ImGui::AlignTextToFramePadding();
-  ImGui::Text("Security Mode:");
+  ImGui::Text("Next output:");
   ImGui::SameLine();
 
   if (g_state.canUseTruePath()) {
     ImGui::TextColored(UiColor::StatusActive, "TRUE RANDOM");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "The true random reserve covers every byte this output draws.\n"
+          "The true random reserve covers every byte the next output draws.\n"
           "Output = reserve bits XOR HMAC_DRBG output (NIST SP 800-90C "
           "RBG3(XOR)):\ntrue randomness if the sources' credit estimates "
           "hold, and never weaker than PSEUDO-RANDOM.");
@@ -522,7 +545,7 @@ static void RenderSecurityMode() {
     ImGui::TextColored(UiColor::Warning, "PSEUDO-RANDOM");
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "The true random reserve doesn't cover this output.\n"
+          "The true random reserve doesn't cover the next output.\n"
           "HMAC_DRBG stretches its seed to the output size.\nSecurity is "
           "computational. One-Time Pad needs TRUE RANDOM.");
     }
@@ -728,6 +751,14 @@ void RenderStatusBar() {
   if (!g_state.exportStatusText.empty()) {
     status.Divider();
     status.Text(UiColor::LabelText, g_state.exportStatusText.c_str());
+  }
+
+  if (g_state.allowScreenCapture) {
+    status.Divider();
+    status.Text(UiColor::Warning, "Screen capture allowed");
+  } else if (!g_state.screenCaptureBlocked) {
+    status.Divider();
+    status.Text(UiColor::Warning, "Screen capture not blocked");
   }
 
   const int clipboardClearSeconds = Platform::SecondsUntilSecretClipboardClear();

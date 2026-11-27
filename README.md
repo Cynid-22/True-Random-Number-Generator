@@ -20,7 +20,7 @@ A TRUE RANDOM output takes only the reserve bits it draws; they are wiped, and t
 
 ### Screenshots
 
-**Input tab:** collecting from all five sources: the source list with each source's status and description, the microphone level, the Clock Drift and CPU Jitter sample rates, and the keystroke preview and mouse path with their start-up tests still running. The bar shows the true random reserve, with the reserve counter next to the security mode.
+**Input tab:** collecting from all five sources: the source list with each source's status and description, the microphone level, the Clock Drift and CPU Jitter sample rates, and the keystroke preview and mouse path with their start-up tests still running. The bar shows the true random reserve, with the reserve counter next to the mode the next output will use.
 
 ![Input tab while collecting](images/input-screen.png)
 
@@ -200,8 +200,8 @@ Releases published before the checksum and attestation were added have neither.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/TRNG.git
-cd TRNG
+git clone https://github.com/Cynid-22/True-Random-Number-Generator.git
+cd True-Random-Number-Generator
 
 # Build (Dear ImGui is included in external/imgui)
 ./build.sh
@@ -290,7 +290,8 @@ TRNG/
 │   │   ├── os_random.h/.cpp  # Windows random generator (BCryptGenRandom)
 │   │   ├── secure_clipboard.h/.cpp  # Copy kept out of clipboard history, cleared after 60 s
 │   │   ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
-│   │   └── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+│   │   ├── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+│   │   └── screen_capture.h/.cpp   # Window kept out of screenshots and screen sharing
 │   └── tools/                # trng_gen (HMAC_DRBG stream for test suites),
 │                             # testu01_stdin (TestU01 reader)
 ├── config/
@@ -307,7 +308,8 @@ TRNG/
 │   └── fonts/                  # Monaspace Argon NF (output font, embedded in the exe)
 │                               # and its SIL Open Font License
 ├── external/
-│   └── imgui/                # Dear ImGui (vendored, two backend files changed for DLL loading)
+│   └── imgui/                # Dear ImGui v1.92.6 (vendored, two backend files changed for
+│                             # DLL loading; see README-TRNG.md there)
 ├── tests/                    # Regression tests (build_tests.sh)
 ├── build_tests.sh            # Builds and runs the regression tests
 ├── build_gen.sh              # Builds trng_gen.exe for the statistical tests
@@ -322,6 +324,10 @@ TRNG/
 ### Minimum Entropy Requirement
 
 The application enforces a **512-bit minimum** for all output generation, regardless of the selected format: the generator must have received at least 512 bits of credited entropy from the ticked sources (its unused seed data plus entropy used by earlier generations in the session). Until then, all credited data goes to the generator. If the ticked sources hold less than that when the generator is created (for example after unticking the source that supplied its seed), it is seeded with 512 bits from the ticked sources' true random reserve instead; those bits are never XORed into output. This ensures a baseline level of security even for small outputs. The 512 bits are needed once per session, not per output.
+
+### Screen Capture
+
+The TRNG window is kept out of screenshots, screen recordings, screen sharing and Windows Recall (`SetWindowDisplayAffinity`), so they keep no copy of a generated secret. Windows 10 version 2004 and later leave the window out; older versions show it as black. To take a screenshot of TRNG, tick **Options > Allow Screen Capture**; the status bar then shows "Screen capture allowed" until you untick it. If Windows refuses to hide the window, the status bar shows "Screen capture not blocked". A camera pointed at the screen, or a program with administrator rights, can still see it.
 
 ### Cryptographic Architecture
 
@@ -425,7 +431,8 @@ The One-Time Pad always uses TRUE RANDOM mode: its key is a true one-time pad if
 - The entropy bar first shows the credited bits for the generator's seed against the 512-bit minimum. Once that is met, or the ticked reserve holds 512 bits that can seed the generator instead, it shows the true random reserve of the ticked sources against the bits the configured output would draw.
 - Each source keeps its own reserve, and an output draws only from the ticked sources' reserves. Every 512 reserve bits cost 640 credited bits, so about 20% of the credit goes to condensing. Up to 639 credited bits per source wait in an unfinished chunk until it fills.
 - A TRUE RANDOM output takes only the reserve bits it draws. They are wiped and never handed out again; the rest stay for later outputs.
-- Next to the security mode, a counter shows the reserve of the ticked sources and the credited bits still waiting in unfinished chunks.
+- **Next output** shows the mode the next generation will use. Next to it, a counter shows the reserve of the ticked sources and the credited bits still waiting in unfinished chunks.
+- The header above a generated output shows the mode that made that output ("Made in TRUE RANDOM" or "Made in PSEUDO-RANDOM"). It can differ from Next output, for example once a TRUE RANDOM output has used the reserve up.
 - Seed data used by a generation reseeds the generator and is then wiped. The generator's state carries its effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
 - A generation works on a copy of the generator and of the reserve bits it may need. A cancelled or failed generation uses nothing up and leaves both as they were.
 - **Clear** wipes the data, the credit, the reserve and the generator; the next generation creates a new one.
@@ -613,7 +620,7 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 
 1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
 2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
-3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws; the security mode shows TRUE RANDOM or PSEUDO-RANDOM. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
+3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws; Next output shows TRUE RANDOM or PSEUDO-RANDOM, and after you generate, the output header shows the mode that made the output. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
 4. **Configure Output**: Select output format and parameters in the Output tab
 5. **Generate**: Click Generate when sufficient entropy is collected
 
@@ -621,7 +628,7 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 
 ## Dependencies
 
-- [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI (vendored in `external/imgui`)
+- [Dear ImGui](https://github.com/ocornut/imgui) v1.92.6 - Immediate mode GUI (vendored in `external/imgui`, MIT License; the local changes are listed in [external/imgui/README-TRNG.md](external/imgui/README-TRNG.md))
 - DirectX 11 - Windows graphics API
 - Windows API - Audio capture, Raw Input, high-resolution timers
 - [Monaspace](https://github.com/githubnext/monaspace) Argon NF - Font of the generated output, embedded in the exe (SIL Open Font License 1.1, [assets/fonts/Monaspace-LICENSE.txt](assets/fonts/Monaspace-LICENSE.txt))

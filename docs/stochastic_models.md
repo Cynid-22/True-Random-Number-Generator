@@ -210,7 +210,7 @@ Each depends on everything else the computer is doing at that microsecond.
 **What is read:**
 - The CPU's time-stamp counter, read before and after a 1 ms wait on a high-resolution Windows timer. The lowest 16 bits of the difference are kept.
 - Differences of 0 or over 10^9 ticks are skipped.
-- Without the high-resolution timer (Windows 10 before version 1803), TRNG falls back to the normal sleep and logs a warning.
+- Without the high-resolution timer (Windows 10 before version 1803), TRNG falls back to the normal sleep.
 
 **Model.**
 - The difference is the counter rate times (1 ms + L), where L is the wake-up delay.

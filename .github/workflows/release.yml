@@ -29,6 +29,10 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-binutils
 
+      - name: Run regression tests
+        shell: msys2 {0}
+        run: bash build_tests.sh
+
       - name: Extract version from tag
         id: version
         shell: bash
@@ -46,6 +50,7 @@ jobs:
 
           echo "Compiling TRNG v${VERSION}..."
           g++ -std=c++17 -O2 -s -mwindows \
+              -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
               -DAPP_VERSION="\"${VERSION}\"" \
               -D_WIN32_WINNT=0x0A00 \
               -DIMGUI_USE_WCHAR32 \
@@ -85,6 +90,7 @@ jobs:
               src/platform/secure_clipboard.cpp \
               src/platform/virtual_machine.cpp \
               src/platform/os_random.cpp \
+              src/platform/screen_capture.cpp \
               src/entropy/clock_drift/clock_drift.cpp \
               src/entropy/cpu_jitter/cpu_jitter.cpp \
               src/entropy/raw_input_thread.cpp \
@@ -105,6 +111,7 @@ jobs:
               external/imgui/backends/imgui_impl_dx11.cpp \
               build/resource.res \
               -static \
+              -Wl,--dynamicbase,--nxcompat,--high-entropy-va \
               -ldxgi -lshcore -luser32 -lgdi32 -limm32 -lcomdlg32 -lole32 -loleaut32 -luuid -lmmdevapi -lksuser
 
           echo "Build complete: build/TRNG.exe"

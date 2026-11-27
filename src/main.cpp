@@ -9,6 +9,7 @@
 #include "logic/word_lists.h"
 #include "gui/widgets.h"
 #include "platform/dx11.h"
+#include "platform/screen_capture.h"
 #include "platform/secure_clipboard.h"
 #include "platform/unicode_path.h"
 #ifdef TRNG_SAMPLE_EXPORT
@@ -390,6 +391,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
+
+    Platform::SetCaptureProtectedWindow(hwnd);
+    ApplyScreenCaptureSetting();
 
     IMGUI_CHECKVERSION();
     ImGui::SetAllocatorFunctions(AllocateImGuiMemory, FreeImGuiMemory, nullptr);

@@ -13,12 +13,29 @@
 
 static const int OUTPUT_BOX_MIN_LINES = 6;
 
+static void RenderGeneratedOutputMode() {
+  const std::string &mode = g_state.generatedOutputDetails.securityMode;
+  if (mode.empty())
+    return;
+  const bool isTrueRandom =
+      mode == CSPRNG::ModeName(CSPRNG::GenerationMode::TrueRandom);
+  InlineDivider();
+  ImGui::TextColored(UiColor::LabelText, "Made in");
+  ImGui::SameLine();
+  ImGui::TextColored(isTrueRandom ? UiColor::StatusActive : UiColor::Warning,
+                     "%s", mode.c_str());
+  ImGui::SetItemTooltip("The mode that made the output shown below.\n"
+                        "Next output, at the top, is the mode the next "
+                        "generation will use.");
+}
+
 static void RenderOutputHeader() {
   ImGui::Spacing();
   ImGui::AlignTextToFramePadding();
   ImGui::Text("Generated Output:");
   ImGui::SameLine();
   ImGui::TextColored(UiColor::DimText, "(Result is NOT logged)");
+  RenderGeneratedOutputMode();
 
   ImGui::SameLine();
   float availableWidth = ImGui::GetContentRegionAvail().x;
@@ -72,8 +89,8 @@ static void RenderEntropyWarning(bool hasMinimumEntropy, bool canUseTruePath) {
     ImGui::Spacing();
   } else if (!canUseTruePath) {
     ImGui::PushStyleColor(ImGuiCol_Text, UiColor::Warning);
-    ImGui::Text("WARNING: Using PSEUDO-RANDOM mode: the true random reserve doesn't "
-                "cover this output. Collect more for TRUE RANDOM.");
+    ImGui::Text("WARNING: The next output will be PSEUDO-RANDOM: the true random "
+                "reserve doesn't cover it. Collect more for TRUE RANDOM.");
     ImGui::PopStyleColor();
     ImGui::Spacing();
   }

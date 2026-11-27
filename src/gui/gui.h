@@ -34,6 +34,8 @@ void ReportExportOutOfMemory(const char *exportName);
 
 void SetupNativeStyle();
 
+void ApplyScreenCaptureSetting();
+
 void RenderMenuBar();
 
 void BeginCollectionPadFrame();

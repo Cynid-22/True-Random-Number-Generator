@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 echo "========================================"
 echo "TRNG Regression Tests (MinGW)"
 echo "========================================"
@@ -16,6 +18,7 @@ windres src/resource.rc -O coff -o build/resource_tests.res || exit 1
 
 echo "Compiling tests..."
 g++ -std=c++17 -O2 \
+    -fstack-protector-strong -D_FORTIFY_SOURCE=2 \
     -D_WIN32_WINNT=0x0A00 \
     -I"src" -I"src/core" -I"src/logic" -I"src/platform" -I"src/entropy" \
     -I"src/entropy/clock_drift" -I"src/entropy/cpu_jitter" -I"src/entropy/microphone" -I"src/crypto" \

@@ -86,6 +86,9 @@ struct AppState : OutputSettings {
 
     bool showUsedDataWarning = true;
 
+    bool allowScreenCapture = false;
+    bool screenCaptureBlocked = false;
+
     bool showAboutModal = false;
 
     bool selfTestFailed = false;

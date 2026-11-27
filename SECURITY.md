@@ -67,10 +67,14 @@ This application implements the following security measures:
 
 ### Release Integrity
 - The release build runs in a job that can only read the repository: every Action is pinned to a full commit SHA, the checkout keeps no token, MSYS2 is not upgraded or restored from a cache, and Dependabot proposes updates to the pins
+- The same job runs the regression tests (`build_tests.sh`) before it builds `TRNG.exe`; a failing test stops the release
+- The release build uses `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2` and the ASLR (high-entropy), DEP linker flags
+- Dear ImGui is vendored from its `v1.92.6` tag; the two local changes (System32-only DLL loading) are listed in [external/imgui/README-TRNG.md](external/imgui/README-TRNG.md)
 - A second job, which runs no build tools, uploads `TRNG.exe` with `TRNG.exe.sha256` and a GitHub build provenance attestation. To check a download, see [Verifying a Download](README.md#verifying-a-download)
 
 ## Known Limitations
 
+- **Screen capture**: The window is kept out of screenshots, screen recordings, screen sharing and Windows Recall unless **Options > Allow Screen Capture** is ticked. A camera pointed at the screen, or a program with administrator rights, can still see it. Windows before 10 version 2004 show the window as black instead of leaving it out
 - **Clipboard**: Copied output, and text copied or cut from TRNG's own text boxes such as the One-Time Pad message, is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
 - **Memory locking**: Outputs, One-Time Pad keys and messages are wiped but not locked in RAM, so they can reach the pagefile
 - **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests. The caps sit below the min-entropy an SP 800-90B assessment of raw samples measured, but on one laptop only ([Measured Source Entropy](README.md#measured-source-entropy-nist-sp-800-90b)); other hardware can measure differently

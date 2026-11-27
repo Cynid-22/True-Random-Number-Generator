@@ -7,6 +7,7 @@ static constexpr int THREAD_USAGE_PERCENT = 50;
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <thread>
 
@@ -18,6 +19,9 @@ static constexpr int THREAD_USAGE_PERCENT = 50;
 #endif
 
 #include "../crypto/hmac_drbg.h"
+#include "../platform/os_random.h"
+
+static constexpr size_t OS_RANDOM_SEED_BYTES = 64;
 
 template <typename T>
 static void AppendRawBytes(std::vector<uint8_t>& bytes, const T& value) {
@@ -51,6 +55,11 @@ static std::vector<uint8_t> CollectHardwareSeed() {
     uint32_t threadId = GetCurrentThreadId();
     AppendRawBytes(seed, processId);
     AppendRawBytes(seed, threadId);
+
+    std::array<uint8_t, OS_RANDOM_SEED_BYTES> osRandom{};
+    if (Platform::FillOsRandom(osRandom.data(), osRandom.size()))
+        seed.insert(seed.end(), osRandom.begin(), osRandom.end());
+    SecureZeroMemory(osRandom.data(), osRandom.size());
 
     return seed;
 }
@@ -86,6 +95,8 @@ int main() {
 #ifdef _WIN32
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
+    fprintf(stderr, "trng_gen: test stream for statistical test suites only. "
+                    "Do not use it for keys, passwords or other secrets.\n");
 
     static char outputBuffer[4 * 1024 * 1024];
     setvbuf(stdout, outputBuffer, _IOFBF, sizeof(outputBuffer));

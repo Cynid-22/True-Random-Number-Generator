@@ -11,11 +11,21 @@ Install all required MSYS2 packages first:
 pacman -S git unzip mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-jsoncpp mingw-w64-ucrt-x86_64-bzip2 mingw-w64-ucrt-x86_64-openssl
 ```
 
+The test tools below are built from third-party source code. Install them into their own folder, never into `/ucrt64`: `/ucrt64` holds the compiler and libraries that build TRNG, and `make install` there could change them.
+```bash
+export TEST_TOOLS="$HOME/trng-test-tools"
+mkdir -p "$TEST_TOOLS"
+```
+
+Check every download before you build it. Where a project publishes a checksum, compare it with `sha256sum` (or `sha1sum`). Where it publishes none, write down the `sha256sum` of your first download, so you can compare later downloads with it.
+
 ---
 
 ## Step 1: Build the CLI Generator
 
-The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the same HMAC_DRBG (SHA-512) code as the main application, with no GUI dependencies: each 4 MiB chunk comes from its own generator, seeded from hardware timing and the chunk number.
+The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the same HMAC_DRBG (SHA-512) code as the main application, with no GUI dependencies: each 4 MiB chunk comes from its own generator, seeded from hardware timing, 64 bytes from Windows' random generator and the chunk number.
+
+> **Test stream only**: `trng_gen` does not collect or credit entropy the way TRNG does. Use its output only to feed the test suites, never for keys, passwords or other secrets. It prints this warning to `stderr` when it starts.
 
 1.  Open your **MSYS2 UCRT64** terminal.
 2.  Navigate to the TRNG project root:
@@ -30,9 +40,9 @@ The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the s
 
 > **Multithreading**: The generator uses parallel batch generation across all available CPU cores. To adjust CPU usage, edit the constant at the top of `src/tools/trng_gen.cpp`:
 > ```cpp
-> static constexpr int THREAD_USAGE_PERCENT = 75; // 1-100
+> static constexpr int THREAD_USAGE_PERCENT = 50; // 1-100
 > ```
-> At 75% (default), a 16-thread CPU uses 12 workers. Set to `100` for maximum speed. Rebuild after changing.
+> At 50% (default), a 16-thread CPU uses 8 workers. Set to `100` for maximum speed. Rebuild after changing.
 
 4.  **Quick sanity check** (dump 1 MB to a file):
     ```bash
@@ -114,6 +124,7 @@ A passing score is **> 96%** per test (e.g., 96/100 streams).
 **Download & Install**:
 1. Download from SourceForge: https://sourceforge.net/projects/pracrand/files/
    - Download the latest `.zip` (e.g., `PractRand-pre0.95.zip`)
+   - Compare `sha1sum` of the zip with the SHA1 that SourceForge shows in the file's details (the "i" icon next to the file)
 2. Extract to your Desktop (you'll get a `PractRand/` folder)
 3. Build in MSYS2:
 ```bash
@@ -154,26 +165,27 @@ length= 2 megabytes (2^21 bytes), time= 0.5 seconds
 **What it tests**: 106 tests in the Big Crush battery — the most thorough academic test suite.
 
 **Download & Install**:
-1. Download TestU01 from: http://simul.iro.umontreal.ca/testu01/tu01.html
+1. Download TestU01 from: https://simul.iro.umontreal.ca/testu01/tu01.html
    - Click the **"Source files (zip archive)"** download link.
+   - The site publishes no checksum: write down the `sha256sum` of the zip.
 2. Extract the `.zip` to your Desktop (you will get a folder like `TestU01-1.2.3`)
-2. Build in MSYS2:
+3. Build in MSYS2, into `$TEST_TOOLS`:
 ```bash
 cd $TESTU01_DIR
 
 # Compiling 1990s C code with modern GCC 14 requires restoring old GNU standards:
 export CFLAGS="-std=gnu89 -Wno-int-conversion -Wno-implicit-function-declaration -Wno-implicit-int -Wno-incompatible-pointer-types"
-LIBS="-lws2_32" ./configure --prefix=/ucrt64
+LIBS="-lws2_32" ./configure --prefix="$TEST_TOOLS" --disable-shared
 
 make
 make install
 ```
-> **Important**: The `LIBS="-lws2_32"` flag is required on MSYS2. Without it, the build fails with `undefined reference to gethostname`.
-3. Build the stdin wrapper (included in this project at `src/tools/testu01_stdin.c`):
+> **Important**: The `LIBS="-lws2_32"` flag is required on MSYS2. Without it, the build fails with `undefined reference to gethostname`. `--disable-shared` builds static libraries, so `testu01_stdin` needs no DLLs from `$TEST_TOOLS` at run time.
+4. Build the stdin wrapper (included in this project at `src/tools/testu01_stdin.c`):
 ```bash
 cd $TRNG_DIR
 gcc -std=c99 -O2 -o testu01_stdin src/tools/testu01_stdin.c \
-    -I/ucrt64/include -L/ucrt64/lib \
+    -I"$TEST_TOOLS/include" -L"$TEST_TOOLS/lib" \
     -ltestu01 -lprobdist -lmylib -lm -lws2_32
 ```
 
@@ -211,10 +223,13 @@ $TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin BigCrush | tee $TESTU01_DIR/big
 
 Requires the prerequisite packages from above, plus `libdivsufsort` (built from source):
 ```bash
-# Build libdivsufsort (not available via pacman):
-git clone https://github.com/y-256/libdivsufsort.git /tmp/libdivsufsort
-cd /tmp/libdivsufsort && mkdir build && cd build
-cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=/ucrt64 -DBUILD_DIVSUFSORT64=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+# Build libdivsufsort 2.0.1 (not available via pacman), pinned to its release commit:
+LIBDIVSUFSORT_DIR=$(mktemp -d)
+git clone https://github.com/y-256/libdivsufsort.git "$LIBDIVSUFSORT_DIR"
+cd "$LIBDIVSUFSORT_DIR"
+git checkout 82b01f764e342f1858d4473c17b56844aac9c12d
+mkdir build && cd build
+cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX="$TEST_TOOLS" -DBUILD_SHARED_LIBS=OFF -DBUILD_DIVSUFSORT64=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
 make && make install
 ```
 
@@ -222,9 +237,9 @@ make && make install
 # Clone from GitHub:
 git clone https://github.com/usnistgov/SP800-90B_EntropyAssessment.git $SP90B_DIR
 
-# Build the C++ estimators:
+# Build the C++ estimators; CPATH and LIBRARY_PATH let gcc find libdivsufsort in $TEST_TOOLS:
 cd $SP90B_DIR/cpp
-make
+CPATH="$TEST_TOOLS/include" LIBRARY_PATH="$TEST_TOOLS/lib" make
 ```
 This produces the executables (`ea_non_iid`, `ea_iid`, `ea_restart`, `ea_conditioning`) in the `cpp/` folder.
 
