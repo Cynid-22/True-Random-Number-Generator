@@ -72,6 +72,11 @@ static void WipeTextBuffer(ImVector<char> &text) {
   text.clear();
 }
 
+static void WipeTextBufferKeepingItsAllocation(ImVector<char> &text) {
+  if (text.Data)
+    SecureZeroMemory(text.Data, static_cast<size_t>(text.Capacity));
+}
+
 void WipeTextInputBuffers() {
   if (!ImGui::GetCurrentContext())
     return;
@@ -92,4 +97,5 @@ void WipeTextInputBuffers() {
   WipeTextBuffer(context.InputTextDeactivatedState.TextA);
   context.InputTextDeactivatedState.ID = 0;
   WipeTextBuffer(context.ClipboardHandlerData);
+  WipeTextBufferKeepingItsAllocation(context.TempBuffer);
 }

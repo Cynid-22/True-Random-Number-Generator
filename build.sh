@@ -29,23 +29,8 @@ if ! command -v g++ &> /dev/null; then
 fi
 
 if [ ! -d "external/imgui" ]; then
-    echo "Downloading Dear ImGui..."
-    mkdir -p external/imgui/backends
-    curl -L -o external/imgui/imgui.h https://raw.githubusercontent.com/ocornut/imgui/master/imgui.h
-    curl -L -o external/imgui/imgui.cpp https://raw.githubusercontent.com/ocornut/imgui/master/imgui.cpp
-    curl -L -o external/imgui/imgui_internal.h https://raw.githubusercontent.com/ocornut/imgui/master/imgui_internal.h
-    curl -L -o external/imgui/imgui_draw.cpp https://raw.githubusercontent.com/ocornut/imgui/master/imgui_draw.cpp
-    curl -L -o external/imgui/imgui_tables.cpp https://raw.githubusercontent.com/ocornut/imgui/master/imgui_tables.cpp
-    curl -L -o external/imgui/imgui_widgets.cpp https://raw.githubusercontent.com/ocornut/imgui/master/imgui_widgets.cpp
-    curl -L -o external/imgui/imstb_rectpack.h https://raw.githubusercontent.com/ocornut/imgui/master/imstb_rectpack.h
-    curl -L -o external/imgui/imstb_textedit.h https://raw.githubusercontent.com/ocornut/imgui/master/imstb_textedit.h
-    curl -L -o external/imgui/imstb_truetype.h https://raw.githubusercontent.com/ocornut/imgui/master/imstb_truetype.h
-    curl -L -o external/imgui/imconfig.h https://raw.githubusercontent.com/ocornut/imgui/master/imconfig.h
-    curl -L -o external/imgui/backends/imgui_impl_win32.h https://raw.githubusercontent.com/ocornut/imgui/master/backends/imgui_impl_win32.h
-    curl -L -o external/imgui/backends/imgui_impl_win32.cpp https://raw.githubusercontent.com/ocornut/imgui/master/backends/imgui_impl_win32.cpp
-    curl -L -o external/imgui/backends/imgui_impl_dx11.h https://raw.githubusercontent.com/ocornut/imgui/master/backends/imgui_impl_dx11.h
-    curl -L -o external/imgui/backends/imgui_impl_dx11.cpp https://raw.githubusercontent.com/ocornut/imgui/master/backends/imgui_impl_dx11.cpp
-    echo "ImGui downloaded!"
+    echo "ERROR: external/imgui is missing. Restore it with: git checkout -- external/imgui"
+    exit 1
 fi
 
 mkdir -p build

@@ -51,10 +51,11 @@ This application implements the following security measures:
 
 ### Memory Security
 - Collected entropy data, the seed material and the generator's state use an allocator that locks their pages in RAM (`VirtualLock`, best effort: the process asks for a 128 MB minimum working set, and larger pools can still be paged) and wipes every block when it is freed, including the old blocks a growing buffer leaves behind
-- Dear ImGui's memory is wiped when freed, and Clear, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy)
-- Output buffers, keys and the pool are wiped with `SecureZeroMemory`; the generation thread works on a snapshot of the settings that is wiped when it ends
+- Dear ImGui's memory is wiped when freed, and Clear, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy, and the scratch buffer a copy goes through)
+- Output buffers, keys and the pool are wiped with `SecureZeroMemory`; outputs are built in buffers sized before they are filled, so no smaller copy is left behind when one grows; the generation thread works on a snapshot of the settings that is wiped when it ends
 - Logoff and shutdown (`WM_ENDSESSION`) wipe the pool, outputs, One-Time Pad message and clipboard
 - System DLLs load from System32 only (`SetDefaultDllDirectories`; d3d11, d3dcompiler, dwmapi and bcrypt are loaded at run time from System32; gamepad support is compiled out), so a DLL placed next to the exe is not loaded
+- System fonts are read from the Fonts folder of the Windows folder that Windows reports (`GetSystemWindowsDirectoryW`), never from a fixed `C:\Windows` path that another user could create when Windows is on another drive
 
 ### Thread Safety
 - `std::atomic` for all shared collector state
@@ -64,8 +65,12 @@ This application implements the following security measures:
 ### Logging
 - TRNG has no logging: no entropy values, timing data, seeds, keys or output reach a log file, the console or the debugger output
 
+### Release Integrity
+- The release build runs in a job that can only read the repository: every Action is pinned to a full commit SHA, the checkout keeps no token, MSYS2 is not upgraded or restored from a cache, and Dependabot proposes updates to the pins
+- A second job, which runs no build tools, uploads `TRNG.exe` with `TRNG.exe.sha256` and a GitHub build provenance attestation. To check a download, see [Verifying a Download](README.md#verifying-a-download)
+
 ## Known Limitations
 
-- **Clipboard**: Copied output is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
+- **Clipboard**: Copied output, and text copied or cut from TRNG's own text boxes such as the One-Time Pad message, is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
 - **Memory locking**: Outputs, One-Time Pad keys and messages are wiped but not locked in RAM, so they can reach the pagefile
 - **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests. The caps sit below the min-entropy an SP 800-90B assessment of raw samples measured, but on one laptop only ([Measured Source Entropy](README.md#measured-source-entropy-nist-sp-800-90b)); other hardware can measure differently

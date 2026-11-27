@@ -10,13 +10,16 @@
 #include "gui/widgets.h"
 #include "platform/dx11.h"
 #include "platform/secure_clipboard.h"
+#include "platform/unicode_path.h"
 #ifdef TRNG_SAMPLE_EXPORT
 #include "gui/sample_export.h"
 #endif
 
 #include <climits>
 #include <cstdlib>
-#include <fstream>
+#include <cstdint>
+#include <cstring>
+#include <string>
 #include <vector>
 #include <malloc.h>
 #include <shellscalingapi.h>
@@ -269,29 +272,45 @@ static void FreeImGuiMemory(void* memory, void*) {
     free(memory);
 }
 
-using FontFileData = std::vector<unsigned char>;
+static void CopyImGuiTextAsSecret(ImGuiContext*, const char* text) {
+    Platform::CopySecretTextToClipboard(text, strlen(text));
+}
 
-static std::vector<FontFileData> LoadFallbackFontFiles() {
-    static const char* const CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS[] = {
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\YuGothM.ttc",
-        "C:\\Windows\\Fonts\\malgun.ttf",
-        "C:\\Windows\\Fonts\\Nirmala.ttc",
-        "C:\\Windows\\Fonts\\Nirmala.ttf",
-        "C:\\Windows\\Fonts\\seguisym.ttf",
+using FontFileData = std::vector<uint8_t>;
+
+static std::string SystemFontsFolder() {
+    wchar_t windowsFolder[MAX_PATH] = {};
+    const UINT length = GetSystemWindowsDirectoryW(windowsFolder, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return std::string();
+    const std::string windowsFolderUtf8 = Platform::WideToUtf8(windowsFolder);
+    if (windowsFolderUtf8.empty())
+        return std::string();
+    return windowsFolderUtf8 + "\\Fonts\\";
+}
+
+static std::vector<FontFileData> LoadFallbackFontFiles(const std::string& fontsFolder) {
+    static const char* const CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_FILE_NAMES[] = {
+        "msyh.ttc",
+        "YuGothM.ttc",
+        "malgun.ttf",
+        "Nirmala.ttc",
+        "Nirmala.ttf",
+        "seguisym.ttf",
     };
 
     std::vector<FontFileData> files;
-    for (const char* path : CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_PATHS) {
-        std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file)
+    if (fontsFolder.empty())
+        return files;
+    for (const char* fileName : CJK_INDIC_AND_SYMBOL_FALLBACK_FONT_FILE_NAMES) {
+        const std::string path = fontsFolder + fileName;
+        Platform::FileStamp stamp;
+        if (!Platform::FileStampOf(path.c_str(), stamp) || stamp.size <= 0 ||
+            stamp.size > INT_MAX)
             continue;
-        const std::streamoff size = file.tellg();
-        if (size <= 0 || size > INT_MAX)
-            continue;
-        FontFileData data(static_cast<size_t>(size));
-        file.seekg(0);
-        if (file.read(reinterpret_cast<char*>(data.data()), size))
+        FontFileData data;
+        if (Platform::ReadWholeFileIfUnchanged(path.c_str(), stamp, data) ==
+            Platform::FileReadStatus::Ok)
             files.push_back(std::move(data));
     }
     return files;
@@ -375,6 +394,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     IMGUI_CHECKVERSION();
     ImGui::SetAllocatorFunctions(AllocateImGuiMemory, FreeImGuiMemory, nullptr);
     ImGui::CreateContext();
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = CopyImGuiTextAsSecret;
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;
@@ -394,11 +414,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     fontConfig.PixelSnapH = true;
 
     float fontSize = 18.0f * dpiScale;
-    ImFont* font = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", fontSize, &fontConfig);
+    const std::string fontsFolder = SystemFontsFolder();
+    ImFontConfig systemFontConfig = fontConfig;
+    systemFontConfig.Flags |= ImFontFlags_NoLoadError;
+    ImFont* font = fontsFolder.empty()
+                       ? nullptr
+                       : io.Fonts->AddFontFromFileTTF((fontsFolder + "segoeui.ttf").c_str(),
+                                                      fontSize, &systemFontConfig);
     if (!font) {
         io.Fonts->AddFontDefault();
     }
-    std::vector<FontFileData> fallbackFontFiles = LoadFallbackFontFiles();
+    std::vector<FontFileData> fallbackFontFiles = LoadFallbackFontFiles(fontsFolder);
     MergeFallbackFontsIntoLastFont(io, fontSize, fallbackFontFiles);
 
     ImFont* outputFont = AddEmbeddedOutputFont(io, fontSize, fontConfig);

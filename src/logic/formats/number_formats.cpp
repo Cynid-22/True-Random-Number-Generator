@@ -1,7 +1,6 @@
 #include "number_formats.h"
 #include "cancellation.h"
 #include <algorithm>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <windows.h>
@@ -17,46 +16,50 @@ std::vector<char> GenerateDecimal(const std::vector<uint8_t> &randomBytes,
     std::string text = "0.0";
     return std::vector<char>(text.begin(), text.end());
   }
-  binaryValue.reserve(static_cast<size_t>(digitCount));
-
-  std::ostringstream stream;
-  stream << "0.";
-
+  static constexpr char DECIMAL_PREFIX[] = "0.";
+  static constexpr size_t DECIMAL_PREFIX_LENGTH = sizeof(DECIMAL_PREFIX) - 1;
   const uint16_t ACCEPT_BELOW = 65530;
 
-  size_t byteIndex = 0;
+  std::vector<char> result;
+  try {
+    binaryValue.reserve(static_cast<size_t>(digitCount));
+    result.reserve(DECIMAL_PREFIX_LENGTH + static_cast<size_t>(digitCount));
+    result.insert(result.end(), DECIMAL_PREFIX,
+                  DECIMAL_PREFIX + DECIMAL_PREFIX_LENGTH);
 
-  for (int i = 0; i < digitCount; i++) {
-    if ((i & 0x3FFF) == 0)
-      ThrowIfGenerationCancelled();
-    uint16_t draw = 0;
-    bool accepted = false;
+    size_t byteIndex = 0;
 
-    while (byteIndex + 1 < randomBytes.size()) {
-      draw = (static_cast<uint16_t>(randomBytes[byteIndex]) << 8) |
-             randomBytes[byteIndex + 1];
-      byteIndex += 2;
+    for (int i = 0; i < digitCount; i++) {
+      if ((i & 0x3FFF) == 0)
+        ThrowIfGenerationCancelled();
+      uint16_t draw = 0;
+      bool accepted = false;
 
-      if (draw < ACCEPT_BELOW) {
-        accepted = true;
-        break;
+      while (byteIndex + 1 < randomBytes.size()) {
+        draw = (static_cast<uint16_t>(randomBytes[byteIndex]) << 8) |
+               randomBytes[byteIndex + 1];
+        byteIndex += 2;
+
+        if (draw < ACCEPT_BELOW) {
+          accepted = true;
+          break;
+        }
       }
-    }
 
-    if (!accepted) {
-      Crypto::SecureClearVector(binaryValue);
-      throw std::runtime_error(
-          "Decimal: too many random draws were rejected. Please try again.");
-    }
+      if (!accepted)
+        throw std::runtime_error(
+            "Decimal: too many random draws were rejected. Please try again.");
 
-    int digit = draw % 10;
-    stream << digit;
-    binaryValue.push_back(static_cast<uint8_t>(digit));
+      const uint8_t digit = static_cast<uint8_t>(draw % 10);
+      result.push_back(static_cast<char>('0' + digit));
+      binaryValue.push_back(digit);
+    }
+  } catch (...) {
+    Crypto::SecureClearVector(result);
+    Crypto::SecureClearVector(binaryValue);
+    throw;
   }
 
-  std::string text = stream.str();
-  std::vector<char> result(text.begin(), text.end());
-  SecureZeroMemory(text.data(), text.size());
   return result;
 }
 

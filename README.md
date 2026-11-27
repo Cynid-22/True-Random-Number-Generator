@@ -170,6 +170,24 @@ When the output box shows an error or a cancelled generation, only .txt is offer
 
 ---
 
+## Verifying a Download
+
+Each release has `TRNG.exe`, its SHA-256 checksum `TRNG.exe.sha256`, and a build provenance attestation from the release workflow. Check that the file you downloaded is the one the workflow built:
+
+```powershell
+Get-FileHash .\TRNG.exe -Algorithm SHA256
+```
+
+The hash must match the one in `TRNG.exe.sha256` (`Get-FileHash` prints it in capitals, the file in lowercase; the letters are the same). With the GitHub CLI, check the attestation too; it must report that the verification succeeded:
+
+```bash
+gh attestation verify TRNG.exe --repo Cynid-22/True-Random-Number-Generator
+```
+
+Releases published before the checksum and attestation were added have neither.
+
+---
+
 ## Building
 
 ### Requirements
@@ -185,7 +203,7 @@ When the output box shows an error or a cancelled generation, only .txt is offer
 git clone https://github.com/yourusername/TRNG.git
 cd TRNG
 
-# Build (downloads ImGui automatically on first run)
+# Build (Dear ImGui is included in external/imgui)
 ./build.sh
 
 # Run
@@ -289,7 +307,7 @@ TRNG/
 │   └── fonts/                  # Monaspace Argon NF (output font, embedded in the exe)
 │                               # and its SIL Open Font License
 ├── external/
-│   └── imgui/                # Dear ImGui (auto-downloaded)
+│   └── imgui/                # Dear ImGui (vendored, two backend files changed for DLL loading)
 ├── tests/                    # Regression tests (build_tests.sh)
 ├── build_tests.sh            # Builds and runs the regression tests
 ├── build_gen.sh              # Builds trng_gen.exe for the statistical tests
@@ -603,7 +621,7 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 
 ## Dependencies
 
-- [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI (auto-downloaded)
+- [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI (vendored in `external/imgui`)
 - DirectX 11 - Windows graphics API
 - Windows API - Audio capture, Raw Input, high-resolution timers
 - [Monaspace](https://github.com/githubnext/monaspace) Argon NF - Font of the generated output, embedded in the exe (SIL Open Font License 1.1, [assets/fonts/Monaspace-LICENSE.txt](assets/fonts/Monaspace-LICENSE.txt))

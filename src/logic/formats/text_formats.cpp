@@ -134,13 +134,12 @@ std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
   std::vector<uint32_t> wordIndices;
   std::vector<uint32_t> shuffledSlots;
   std::vector<char> numberInSlot;
-  std::string result;
+  std::vector<char> passphrase;
   size_t byteIndex = 0;
   auto wipeWorkingState = [&]() {
     Crypto::SecureClearVector(wordIndices);
     Crypto::SecureClearVector(shuffledSlots);
     Crypto::SecureClearVector(numberInSlot);
-    SecureZeroMemory(result.data(), result.size());
   };
 
   try {
@@ -175,24 +174,32 @@ std::vector<char> GeneratePassphrase(const std::vector<uint8_t> &randomBytes,
                                   : static_cast<uint8_t>(number - '0'));
     }
 
+    size_t passphraseLength =
+        static_cast<size_t>(wordCount - 1) * separator.size() +
+        static_cast<size_t>(numberCount);
+    for (uint32_t wordIndex : wordIndices)
+      passphraseLength += wordList[wordIndex].size();
+    passphrase.reserve(passphraseLength);
+
     for (int i = 0; i < wordCount; i++) {
       if (i > 0)
-        result += separator;
+        passphrase.insert(passphrase.end(), separator.begin(), separator.end());
       const size_t slotBefore =
           static_cast<size_t>(i) * AppConfig::PASSPHRASE_MAX_NUMBERS_PER_WORD;
       if (numberCount > 0 && numberInSlot[slotBefore] != NO_NUMBER_IN_SLOT)
-        result += numberInSlot[slotBefore];
-      result += wordList[wordIndices[i]];
+        passphrase.push_back(numberInSlot[slotBefore]);
+      const std::string &word = wordList[wordIndices[i]];
+      passphrase.insert(passphrase.end(), word.begin(), word.end());
       if (numberCount > 0 && numberInSlot[slotBefore + 1] != NO_NUMBER_IN_SLOT)
-        result += numberInSlot[slotBefore + 1];
+        passphrase.push_back(numberInSlot[slotBefore + 1]);
     }
   } catch (...) {
     wipeWorkingState();
+    Crypto::SecureClearVector(passphrase);
     Crypto::SecureClearVector(binaryValue);
     throw;
   }
 
-  std::vector<char> passphrase(result.begin(), result.end());
   wipeWorkingState();
   return passphrase;
 }
