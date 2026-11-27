@@ -1,6 +1,8 @@
 # Statistical Testing Guide
 
-This guide covers how to build the CLI generator and run 4 statistical test suites against the TRNG's HMAC_DRBG (SHA-512) generator.
+This guide covers how to build the CLI generator and run 4 statistical test suites against the TRNG's HMAC_DRBG (SHA-512) generator. The latest results are in [docs/validation_results.md](docs/validation_results.md).
+
+These suites test the generator's output, not the entropy sources: a CSPRNG passes them whatever its seed. To measure the sources themselves, use the [Sample Export test build](README.md#sample-export-test-build).
 
 ---
 
@@ -30,7 +32,7 @@ The CLI tool (`trng_gen.exe`) outputs raw binary data to `stdout`. It uses the s
 1.  Open your **MSYS2 UCRT64** terminal.
 2.  Navigate to the TRNG project root:
     ```bash
-    cd /c/Users/$USER/OneDrive/Desktop/Git-temp/TRNG   # adjust to your path
+    cd /c/path/to/TRNG   # the folder you cloned
     ```
 3.  Build:
     ```bash
@@ -58,11 +60,11 @@ All 4 suites can run **in parallel** in separate terminal windows. Each instance
 
 **Set these variables once** (adjust to where you installed each tool):
 ```bash
-export TRNG_DIR=~/OneDrive/Desktop/Git-temp/TRNG
-export STS_DIR=~/OneDrive/Desktop/sts-2.1.2/sts-2.1.2
-export PRACTRAND_DIR=~/OneDrive/Desktop/PractRand
-export TESTU01_DIR=~/OneDrive/Desktop/TestU01
-export SP90B_DIR=~/OneDrive/Desktop/SP800-90B_EntropyAssessment
+export TRNG_DIR=/c/path/to/TRNG
+export STS_DIR="$TEST_TOOLS/sts-2.1.2/sts-2.1.2"
+export PRACTRAND_DIR="$TEST_TOOLS/PractRand"
+export TESTU01_DIR="$TEST_TOOLS/TestU01-1.2.3"
+export SP90B_DIR="$TEST_TOOLS/SP800-90B_EntropyAssessment"
 ```
 
 ---
@@ -74,7 +76,7 @@ export SP90B_DIR=~/OneDrive/Desktop/SP800-90B_EntropyAssessment
 **Download & Install**:
 1. Download from NIST: https://csrc.nist.gov/projects/random-bit-generation/documentation-and-software
    - Direct link: look for **"Statistical Test Suite (STS) — sts-2.1.2"** and download the `.zip`
-2. Extract the zip to your Desktop (you'll get `sts-2.1.2/sts-2.1.2/`)
+2. Extract the zip into `$TEST_TOOLS` (you'll get `sts-2.1.2/sts-2.1.2/`)
 3. Build in MSYS2:
 ```bash
 cd $STS_DIR
@@ -94,7 +96,7 @@ $TRNG_DIR/trng_gen.exe | head -c 1073741824 > $STS_DIR/data/nist_test.bin
 ```
 
 **Run**:
-```bas
+```bash
 cd $STS_DIR
 ./assess.exe 1000000
 ```
@@ -117,15 +119,15 @@ A passing score is **> 96%** per test (e.g., 96/100 streams).
 
 ---
 
-### Test 2: PractRand (Gold Standard)
+### Test 2: PractRand
 
-**What it tests**: The most sensitive suite available. Tests progressively from 1 KB to 1 TB+, reporting at each power-of-two. Any weakness will be caught early.
+**What it tests**: A large set of tests run progressively from 1 KB to 1 TB and more, reporting at each power of two. It is the most sensitive of these suites and the easiest to run, so run it first.
 
 **Download & Install**:
 1. Download from SourceForge: https://sourceforge.net/projects/pracrand/files/
-   - Download the latest `.zip` (e.g., `PractRand-pre0.95.zip`)
+   - Download the latest `.zip` (the results in this project used v0.96)
    - Compare `sha1sum` of the zip with the SHA1 that SourceForge shows in the file's details (the "i" icon next to the file)
-2. Extract to your Desktop (you'll get a `PractRand/` folder)
+2. Extract into `$TEST_TOOLS` (you'll get a `PractRand/` folder)
 3. Build in MSYS2:
 ```bash
 cd $PRACTRAND_DIR
@@ -154,21 +156,21 @@ length= 2 megabytes (2^21 bytes), time= 0.5 seconds
 ```
 - **"no anomalies"** = PASS at that level
 - **"FAIL"** = stop, there's a problem
-- Passing up to **32 GB** is excellent. **256 GB+** is exceptional.
+- A single "unusual" or "mildly suspicious" result that is gone at the next size is chance. A result that stays or gets worse as the size grows is a real problem.
 
 **Time**: Seconds for first results, hours for TB-scale. You can **Ctrl+C anytime**.
 
 ---
 
-### Test 3: TestU01 (Big Crush)
+### Test 3: TestU01
 
-**What it tests**: 106 tests in the Big Crush battery — the most thorough academic test suite.
+**What it tests**: three batteries of empirical tests: SmallCrush (10 tests, 15 statistics), Crush (96 tests, 144 statistics) and BigCrush (106 tests, 160 statistics).
 
 **Download & Install**:
 1. Download TestU01 from: https://simul.iro.umontreal.ca/testu01/tu01.html
    - Click the **"Source files (zip archive)"** download link.
    - The site publishes no checksum: write down the `sha256sum` of the zip.
-2. Extract the `.zip` to your Desktop (you will get a folder like `TestU01-1.2.3`)
+2. Extract the `.zip` into `$TEST_TOOLS` (you will get a folder like `TestU01-1.2.3`)
 3. Build in MSYS2, into `$TEST_TOOLS`:
 ```bash
 cd $TESTU01_DIR
@@ -189,35 +191,33 @@ gcc -std=c99 -O2 -o testu01_stdin src/tools/testu01_stdin.c \
     -ltestu01 -lprobdist -lmylib -lm -lws2_32
 ```
 
-> **Note**: TestU01 is the hardest to set up on Windows/MSYS2. If it fails, **skip it** — PractRand is equally powerful and much easier to install.
-
 **Run** (via stdin wrapper):
 
 You can run any of the three main batteries depending on how much time you have.
 SmallCrush takes ~1 minute; Crush takes ~1 hour; BigCrush takes ~6+ hours.
 
 ```bash
-# 1. SmallCrush (15 tests / ~1 minute)
+# 1. SmallCrush (15 statistics / ~1 minute)
 $TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin SmallCrush | tee $TESTU01_DIR/small_testu01_log.txt
 
-# 2. Crush (144 tests / ~1 hour)
-$TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin Crush | tee $TESTU01_DIR/medium_testu01_log.txt
+# 2. Crush (144 statistics / ~1 hour)
+$TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin Crush | tee $TESTU01_DIR/crush_testu01_log.txt
 
-# 3. BigCrush (106 tests / ~6 hours)
+# 3. BigCrush (160 statistics / ~6 hours)
 $TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin BigCrush | tee $TESTU01_DIR/big_testu01_log.txt
 ```
 
-**Reading results**: Each of the 106 tests reports a p-value. A p-value outside [0.001, 0.999] is suspicious.
+**Reading results**: Each statistic reports a p-value. A p-value outside [0.001, 0.999] is suspicious. With 144 or 160 statistics, one value just outside the range now and then is chance; repeat the battery with a new stream to check.
 
 **Time**: Several hours (Big Crush processes ~200 GB of data)
 
-> **Note**: TestU01 is the hardest to set up on Windows. If installation is difficult, **PractRand is equally powerful** and much easier. Prioritize PractRand over TestU01.
+> **Note**: TestU01 is the hardest suite to set up on Windows. If it does not build, skip it and rely on PractRand, which is easier to install.
 
 ---
 
-### Test 4: NIST SP 800-90B (Entropy Source Validation)
+### Test 4: NIST SP 800-90B (Entropy Assessment)
 
-**What it tests**: Estimates the actual min-entropy of data. Unlike 800-22, this is designed to measure entropy quality, not just statistical randomness.
+**What it tests**: Estimates the min-entropy of data. It is designed for raw entropy-source data: on CSPRNG output it only checks that its estimators find no structure, and it cannot measure the entropy behind the output. The same tool measures the raw sources; see [Measured Source Entropy](README.md#measured-source-entropy-nist-sp-800-90b).
 
 **Download & Install**:
 
@@ -264,11 +264,11 @@ cd $SP90B_DIR/cpp
 - `8` = bits per symbol (1 byte = 8 bits)
 - Use `ea_non_iid` (non-IID) since CSPRNG output is not strictly IID
 
-**Reading results**: The tool reports min-entropy per byte. For a good CSPRNG:
+**Reading results**: The tool reports min-entropy per 8-bit symbol. For CSPRNG output:
 ```
 min-entropy = 7.xxxx bits per 8-bit symbol
 ```
-A value close to **8.0** means the output is indistinguishable from perfect randomness.
+A value close to **8.0** means the estimators found no structure in the output. The estimators are conservative, so values around 7.4 - 7.9 are normal.
 
 **Time**: ~10-60 minutes depending on file size
 
@@ -279,16 +279,16 @@ A value close to **8.0** means the output is indistinguishable from perfect rand
 Open 4 separate MSYS2 terminals and run simultaneously:
 
 ```bash
-Terminal 1 (PractRand):     $TRNG_DIR/trng_gen.exe | $PRACTRAND_DIR/RNG_test stdin
-Terminal 2 (800-22 prep):   $TRNG_DIR/trng_gen.exe | head -c 1073741824 > $STS_DIR/data/nist.bin
-Terminal 3 (800-90B prep):  $TRNG_DIR/trng_gen.exe | head -c 10485760 > $SP90B_DIR/data/raw_90b.bin
+Terminal 1 (PractRand):     $TRNG_DIR/trng_gen.exe | $PRACTRAND_DIR/RNG_test stdin8 -multithreaded
+Terminal 2 (800-22 prep):   $TRNG_DIR/trng_gen.exe | head -c 1073741824 > $STS_DIR/data/nist_test.bin
+Terminal 3 (800-90B prep):  $TRNG_DIR/trng_gen.exe | head -c 10485760 > $SP90B_DIR/bin/trng_90b.bin
 Terminal 4 (TestU01):       $TRNG_DIR/trng_gen.exe | $TRNG_DIR/testu01_stdin BigCrush | tee $TESTU01_DIR/big_testu01_log.txt
 ```
 
 Once Terminals 2 and 3 finish generating files, run:
 ```bash
 Terminal 2: cd $STS_DIR && ./assess.exe 1000000
-Terminal 3: cd $SP90B_DIR/cpp && ./ea_non_iid -a ../bin/raw_90b.bin 8
+Terminal 3: cd $SP90B_DIR/cpp && ./ea_non_iid -a ../bin/trng_90b.bin 8
 ```
 
 ---

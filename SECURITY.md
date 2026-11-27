@@ -38,7 +38,7 @@ This application implements the following security measures:
 - **Self-tests at launch**: SHA-512, HMAC-SHA-512 (RFC 4231), HMAC_DRBG (NIST CAVP vectors) and the Toeplitz extractor (vectors from an independent reference computation) are checked against known answers; if one fails, generating is turned off
 - Windows' random generator (BCryptGenRandom) adds 64 bytes every time the generator is created or reseeded. They are uncredited: never counted as entropy, so they can only add to the output's unpredictability and never prop up a claim. If Windows can't supply them, generation continues without them
 - The generator's state is kept in locked memory and wiped on Clear, logoff and exit; a generation works on a copy that replaces it only when the generation succeeds
-- The statistical results in the README are from the earlier quad-layer pipeline (ChaCha20, AES-256) and have not been rerun for HMAC_DRBG yet
+- The statistical results in [docs/validation_results.md](docs/validation_results.md) are from the earlier quad-layer pipeline (ChaCha20, AES-256) and have not been rerun for HMAC_DRBG yet
 
 ### True Random Reserve
 - After the generator's first 512 credited bits, each source's data is condensed into a reserve by a **Toeplitz extractor** (universal hashing, no hash function): every 640 credited bits of one source become 512 reserve bits, within 2^-65 of uniform (averaged over the extractor's seed) by the leftover hash lemma if the credit holds. The bound, the extractor's public seed (257 NIST Randomness Beacon pulses) and the rules are in [docs/stochastic_models.md](docs/stochastic_models.md#the-true-random-reserve)
@@ -60,14 +60,14 @@ This application implements the following security measures:
 ### Text Inputs
 - TRNG has no database, shell or script engine, so nothing typed into it is ever run as a query, a command or code
 - Typed text is drawn as plain text: it is never used as a format string or as a widget label or ID
-- Every text box writes into a fixed-size buffer (list box and One-Time Pad message 1 MiB, separators 15 characters), and the one-line boxes reject control characters such as line breaks
-- In .csv exports, list items starting with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so spreadsheets show them as text instead of running them as formulas; .json escapes quotes, backslashes and control characters
+- Every text box writes into a fixed-size buffer (list box and One-Time Pad message 1 MiB, separators 15 bytes), and the one-line boxes reject control characters such as line breaks
+- In .csv exports, items starting with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so spreadsheets show them as text instead of running them as formulas. This covers list items and generated text; only Integer items, which are plain numbers, keep a leading `-`. .json escapes quotes, backslashes and control characters
 - Sorting a list uses a strict total order, so no crafted list can make the sort misbehave
 
 ### Thread Safety
-- `std::atomic` for all shared collector state
-- `std::mutex` for entropy pool access
-- Atomic `exchange()` pattern for start/stop operations
+- Collector flags and levels shared between threads are `std::atomic`; collected samples, the entropy pool and a finished generation's result are behind a `std::mutex`
+- Collectors start and stop with an atomic `exchange()`, so a second start or stop does nothing
+- A generation runs on its own thread with a copy of the settings, and works on a copy of the pool's generator and reserve
 
 ### Logging
 - TRNG has no logging: no entropy values, timing data, seeds, keys or output reach a log file, the console or the debugger output
@@ -77,7 +77,8 @@ This application implements the following security measures:
 - The same job runs the regression tests (`build_tests.sh`) before it builds `TRNG.exe`; a failing test stops the release
 - The release build uses `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=2` and the ASLR (high-entropy), DEP linker flags
 - Dear ImGui is vendored from its `v1.92.6` tag; the two local changes (System32-only DLL loading) are listed in [external/imgui/README-TRNG.md](external/imgui/README-TRNG.md)
-- A second job, which runs no build tools, uploads `TRNG.exe` with `TRNG.exe.sha256` and a GitHub build provenance attestation. To check a download, see [Verifying a Download](README.md#verifying-a-download)
+- The build job records the compiler, linker and resource compiler versions and every installed MSYS2 package in `TRNG-toolchain.txt`, so a change in the toolchain between releases is visible
+- A second job, which runs no build tools, uploads `TRNG.exe` with `TRNG.exe.sha256`, `TRNG-toolchain.txt` and a GitHub build provenance attestation for both files. To check a download, see [Verifying a Download](README.md#verifying-a-download)
 
 ## Known Limitations
 

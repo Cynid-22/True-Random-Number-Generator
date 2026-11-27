@@ -2,7 +2,23 @@
 
 A desktop application for generating cryptographically secure random numbers using multiple hardware entropy sources. Built with C++ and Dear ImGui for Windows.
 
-**Measured sources**: every entropy source's credit sits below its min-entropy as measured with **NIST SP 800-90B** on the raw source data ([Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b)). **Output tests**: the earlier quad-layer pipeline's output passed 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand** and **TestU01**; the runs for the current HMAC_DRBG generator are still to be done ([Statistical Validation Results](#statistical-validation-results)).
+- **Measured sources**: every entropy source's credit sits below its min-entropy as measured with **NIST SP 800-90B** on the raw source data ([Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b)).
+- **Output tests**: the earlier quad-layer pipeline's output passed 8000 streams of **NIST SP 800-22**, 2 TB of **PractRand** and **TestU01**; the runs for the current HMAC_DRBG generator are still to be done ([Statistical Validation Results](#statistical-validation-results)).
+
+## Contents
+
+- [Overview](#overview)
+- [Download](#download)
+- [Usage](#usage)
+- [Output Formats](#output-formats)
+- [Entropy Sources](#entropy-sources)
+- [Security Considerations](#security-considerations)
+- [Documentation & Standards](#documentation--standards)
+- [Statistical Validation Results](#statistical-validation-results)
+- [Building](#building)
+- [Project Structure](#project-structure)
+- [Dependencies](#dependencies)
+- [License](#license)
 
 ---
 
@@ -26,7 +42,141 @@ A TRUE RANDOM output takes only the reserve bits it draws; they are wiped, and t
 
 **Output tab:** three numbered 256-bit Raw Data values in uppercase hex, generated in TRUE RANDOM mode, with the entropy they required.
 
-![Output tab with generated UUIDs](images/output-screen.png)
+![Output tab with generated Raw Data values](images/output-screen.png)
+
+---
+
+## Download
+
+Download `TRNG.exe` from the [Releases](https://github.com/Cynid-22/True-Random-Number-Generator/releases) page. It is a single portable file and needs no installation. To build it yourself, see [Building](#building).
+
+### Verifying a Download
+
+Each release has `TRNG.exe`, its SHA-256 checksum `TRNG.exe.sha256`, `TRNG-toolchain.txt` (the compiler, linker and every MSYS2 package version that built it), and a build provenance attestation from the release workflow for both files. Check that the file you downloaded is the one the workflow built:
+
+```powershell
+Get-FileHash .\TRNG.exe -Algorithm SHA256
+```
+
+The hash must match the one in `TRNG.exe.sha256` (`Get-FileHash` prints it in capitals, the file in lowercase; the letters are the same). With the GitHub CLI, check the attestation too; it must report that the verification succeeded:
+
+```bash
+gh attestation verify TRNG.exe --repo Cynid-22/True-Random-Number-Generator
+```
+
+Releases published before the checksum and attestation were added have neither.
+
+---
+
+## Usage
+
+1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works.
+2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab.
+3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws. Next output shows TRUE RANDOM or PSEUDO-RANDOM, and after you generate, the output header shows the mode that made the output. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording.
+4. **Configure Output**: Select the output format and its parameters in the Output tab.
+5. **Generate**: Click Generate when enough entropy is collected.
+6. **Copy or Export**: Copy puts the output on the clipboard, kept out of clipboard history and cleared after 60 seconds. File > Export Output (Ctrl+S) saves it to a file (see [Exporting](#exporting)).
+
+---
+
+## Output Formats
+
+Pick a category, then a type within it:
+
+- **Numbers**
+  - Decimal (0.0 - 1.0)
+  - Integer Range (custom min/max)
+- **Raw Data**
+  - Amount in bits or bytes, with an optional space every N characters.
+  - Base 2 (Binary), Base 8 (Octal), Base 32 Crockford: exact bits
+  - Base 16 (Hexadecimal), Base 32 (RFC 4648), Base 45 (RFC 9285), Base 64, Base 64 URL, Base 85 (RFC 1924 alphabet): standard encodings of whole bytes
+  - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
+  - Letters default to the case each standard uses: uppercase for Hex, Base 32, Crockford Base 32 and Base 45. No standard defines a case for Base 12 or Base 36, so they default to lowercase. The Uppercase checkbox switches any of them.
+- **Text & Passwords**
+  - Random Characters (configurable character set)
+  - Passphrase, from a word list of your choice (see [assets/Wordlist_specs.md](assets/Wordlist_specs.md)):
+    - NordPass (default): 123,565 words, 16.91 bits/word
+    - EFF Large: 7,776 words, 12.92 bits/word; no word starts with another
+    - Diceware 8k: 8,192 words, 13 bits/word; short entries with digits and symbols
+    - BIP39 English: 2,048 words, 11 bits/word; not a wallet recovery phrase (no BIP39 checksum)
+    - Optional random digits at the start or end of words, up to two per word (e.g. `4word-word7-2word`)
+- **Identifiers**
+  - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
+  - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
+- **Lists**: type or paste your own items.
+  - Pick From List: picks **Items to pick** items, each at most once per output unless **Allow repeats** is ticked.
+    - **Remove picked items from the list** takes them out of the list box after each Generate.
+    - **Shuffle** puts the list box in a random order.
+    - The **Advanced** tab shows every item's weight and its chance (weight / total weight, so the chances always add up to 100%). Tick **Use weights** to change them (0 = never picked). A weight belongs to the item's text, so editing the list or changing how it is split keeps it, and it comes back when that item does.
+  - Shuffle List: the whole list in a random order (Fisher-Yates), one item per line, or joined with the separator on one line when **One item per line** is unticked.
+  - Splitting: one item per line, or untick **One item per line** to split them at a separator of your choice as well as at line breaks. **Trim spaces** ignores spaces around items and the separator. Empty items are always skipped.
+  - List box buttons: **Sort A-Z** / **Sort Z-A** sort it in alphanumeric order (case ignored, numbers by value, so `item2` comes before `item10`), **Remove Duplicates** keeps the first copy of each item, and **Clear List** wipes it.
+- **Encryption**
+  - One-Time Pad (Vernam cipher with a key from the true random reserve XOR HMAC_DRBG; see [Generation Modes](#generation-modes)). It needs TRUE RANDOM mode, and each pad uses up the reserve bits it draws.
+    - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
+    - Message Length: a pad (key) of a given number of characters, without typing the message
+    - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
+    - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt, .csv or .json (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
+
+Every type except One-Time Pad and Shuffle List can generate many items at once (**Quantity**, or **Items to pick** for Pick From List), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...). Shuffle List uses the same blank-line and numbering options when it puts one item per line.
+
+Picks and shuffles use 8-byte draws with rejection sampling, like every other format, so no item gets an edge from modulo bias, and a list output is TRUE RANDOM when the reserve covers its draws. The list box and the weights are never logged, and they are wiped on Clear List, logoff and exit.
+
+### Exporting
+
+File > Export Output (Ctrl+S) saves the output in the format picked under "Save as type":
+
+- **.txt**: the text as shown.
+- **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines (layout below).
+- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180).
+  - With numbering on, a `#` column comes first.
+  - One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column.
+  - The settings and security mode are only in .json.
+  - Items that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so a spreadsheet shows them as text instead of running them as formulas (CSV injection). This covers list items and generated text such as Random Characters, Base64 or Base85 Raw Data and Diceware 8k passphrases; only Integer items, which are plain numbers, keep a leading `-`. The .txt and .json exports keep every item unchanged.
+  - Excel still changes some values when it opens a CSV: numbers longer than 15 digits lose digits and leading zeros are dropped. To keep them exact, import with Data > From Text/CSV and set the column type to Text.
+- **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`. For the Lists types, the settings hold the number of items and the split options, never the items of the list box.
+
+In .txt, .csv and .json, One-Time Pad File results are written as hex. When the output box shows an error or a cancelled generation, only .txt is offered.
+
+Example .json export:
+
+```json
+{
+  "app": "TRNG",
+  "version": "2.0.0",
+  "category": "Identifiers",
+  "type": "UUID v4",
+  "settings": {
+    "quantity": 2,
+    "uppercase": false,
+    "hyphens": true
+  },
+  "securityMode": "TRUE RANDOM",
+  "generatedAt": "2026-10-19 14:03:22 (UTC+0700)",
+  "items": [
+    "0f8e2c4a-6b1d-4e3f-9a7c-5d2b8e1f4a6c",
+    "7c3a9e5f-2d8b-4c1e-b6a4-9f0d3e7b2c5a"
+  ]
+}
+```
+
+Layout of the .bin export:
+
+| Type | Each item in the .bin file |
+|------|----------------------------|
+| Decimal | One byte per digit after `0.`, 0 to 9 |
+| Integer Range | 8-byte signed integer, little-endian |
+| Raw Data: Base 16, Base 32 (RFC 4648), Base 45, Base 64, Base 64 URL, Base 85 | The bytes the text encodes |
+| Raw Data: Base 2, Base 8, Base 32 Crockford | The bits the text shows, first bit in the high bit of the first byte, zero-padded to a whole byte |
+| Raw Data: Base 10, 12, 36, 58, 62 | One byte per digit: its position in the encoding's alphabet |
+| Random Characters | One byte per character: its position in the character set (the ticked groups in the order numbers, uppercase, lowercase, special; each group in ASCII order) |
+| Passphrase | 4 bytes per word, little-endian: its position in the selected word list (0 = first word). With Numbers above 0, then one byte per spot, two per word (start, then end): the digit 0-9, or 255 for no digit |
+| UUID v4 / v7 | The 16 bytes in RFC 9562 order |
+| Pick From List | 4 bytes per pick, little-endian: the picked item's position in the list (0 = first item, empty items not counted) |
+| Shuffle List | 4 bytes per item, little-endian: each item's position in the original list, in the shuffled order |
+| One-Time Pad: Text | The key, then the ciphertext, one byte per character as 0-62 (0-9 = 0-9, A-Z = 10-35, a-z = 36-61, space = 62) |
+| One-Time Pad: Message Length | The key, one byte per character as 0-62 |
+| One-Time Pad: File | The key bytes, then the ciphertext bytes |
 
 ---
 
@@ -61,11 +211,12 @@ The entropy bar credits each source conservatively, per sample:
 | **Clock Drift** | 1 bit per sample | The smallest of the change in the measured cycle count from one sample to the next, and the change of that change |
 | **CPU Jitter** | 1 bit per sample | The smallest of the count, its change and the change of that change |
 
-A value that repeats one of the source's last 8 values gets no credit. Each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed**: the reserve chunk it was filling is wiped and dropped, and its data is still hashed into the generator's seed, uncredited, until you choose **Turn off** (nothing from it is credited or hashed) or **Test again** (its full start-up test runs again). Timestamps are never credited.
-
-Each time collection starts, every source runs a start-up test (SP 800-90B 4.3): its first 1,024 samples go through both health tests before any of its credit counts. The samples and their credit are held during the test and no generation uses them; when the test passes they go to the generator's seed or the reserve, and if it fails they go into the generator's seed uncredited. Keystroke and Mouse can be released early, after 64 and 512 samples, with **Use now**, once the enabled system and microphone sources have passed their own start-up tests; finishing the full test is recommended, since credit released early can be used before the full test would have caught a faulty device. The choice is not remembered between collections.
-
-In a virtual machine, Clock Drift and CPU Jitter earn no credit: their timing comes from the virtual machine's view of the CPU, which the host controls. Their data is still hashed into the seed. TRNG detects a virtual machine through the CPU's hypervisor flag; Windows running on Hyper-V for Memory Integrity, WSL2 or Hyper-V itself is recognised as the host and keeps full credit. A hypervisor built to hide itself is not detected.
+- **Repeats**: a value that repeats one of the source's last 8 values gets no credit.
+- **Health tests**: each source runs the NIST SP 800-90B repetition count and adaptive proportion health tests (false alarm rate 2^-20, 512-sample window, cutoffs computed from the source's credit per sample). A source that fails gets no more credit and shows **Failed**: the reserve chunk it was filling is wiped and dropped, and its data is still hashed into the generator's seed, uncredited, until you choose **Turn off** (nothing from it is credited or hashed) or **Test again** (its full start-up test runs again).
+- **Start-up test**: each time collection starts, every source runs a start-up test (SP 800-90B 4.3): its first 1,024 samples go through both health tests before any of its credit counts. The samples and their credit are held during the test and no generation uses them; when the test passes they go to the generator's seed or the reserve, and if it fails they go into the generator's seed uncredited.
+- **Use now**: Keystroke and Mouse can be released early, after 64 and 512 samples, with **Use now**, once the enabled system and microphone sources have passed their own start-up tests. Finishing the full test is recommended, since credit released early can be used before the full test would have caught a faulty device. The choice is not remembered between collections.
+- **Virtual machines**: in a virtual machine, Clock Drift and CPU Jitter earn no credit: their timing comes from the virtual machine's view of the CPU, which the host controls. Their data is still hashed into the seed. TRNG detects a virtual machine through the CPU's hypervisor flag; Windows running on Hyper-V for Memory Integrity, WSL2 or Hyper-V itself is recognised as the host and keeps full credit. A hypervisor built to hide itself is not detected.
+- **Timestamps**: every value is stamped in 64-bit nanoseconds from a steady clock, which only moves forward and is not changed by clock adjustments or time sync (usually in 100 ns steps). The timestamp sorts the values in time order and gives the keystroke timings and the mouse's 7 ms window. It is hashed into the generator's seed with each value that seeds it, but it is never credited, and the reserve's extractor takes the values only.
 
 ### Measured Source Entropy (NIST SP 800-90B)
 
@@ -85,248 +236,6 @@ Each source's raw values (recorded with the [Sample Export test build](#sample-e
 - Keystroke and mouse are human input: their recordings are far below the standard's 1,000,000 samples, and the restart test does not apply. Their credit is kept well below the measurement for that reason.
 - These measurements are for this machine. Other hardware, virtual machines and other microphones can measure differently.
 - The model behind each source and the reasoning for each cap are in [docs/stochastic_models.md](docs/stochastic_models.md).
-
----
-
-## Output Formats
-
-Pick a category, then a type within it:
-
-- **Numbers**
-  - Decimal (0.0 - 1.0)
-  - Integer Range (custom min/max)
-- **Raw Data** (amount in bits or bytes, optional space every N characters; letters default to the case each standard uses: uppercase for Hex, Base 32, Crockford Base 32 and Base 45. No standard defines a case for Base 12 or Base 36, so they default to lowercase. The Uppercase checkbox switches any of them)
-  - Base 2 (Binary), Base 8 (Octal), Base 32 Crockford: exact bits
-  - Base 16 (Hexadecimal), Base 32 (RFC 4648), Base 45 (RFC 9285), Base 64, Base 64 URL, Base 85 (RFC 1924 alphabet): standard encodings of whole bytes
-  - Base 10 (Decimal), Base 12 (Duodecimal), Base 36, Base 58 (Bitcoin), Base 62: uniformly random digits holding at least the requested bits
-- **Text & Passwords**
-  - Random Characters (configurable character set)
-  - Passphrase, from a word list of your choice (see [assets/Wordlist_specs.md](assets/Wordlist_specs.md)):
-    - NordPass (default): 123,565 words, 16.91 bits/word
-    - EFF Large: 7,776 words, 12.92 bits/word; no word starts with another
-    - Diceware 8k: 8,192 words, 13 bits/word; short entries with digits and symbols
-    - BIP39 English: 2,048 words, 11 bits/word; not a wallet recovery phrase (no BIP39 checksum)
-    - Optional random digits at the start or end of words, up to two per word (e.g. `4word-word7-2word`)
-- **Identifiers**
-  - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
-  - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
-- **Lists** (type or paste your own items; one item per line, or untick **One item per line** to split them at a separator of your choice as well as at line breaks. **Trim spaces** ignores spaces around items and the separator, and empty items are skipped. **Sort A-Z** / **Sort Z-A** sort the list box in alphanumeric order (case ignored, numbers by value, so `item2` comes before `item10`), **Remove Duplicates** keeps the first copy of each item, **Clear List** wipes it)
-  - Pick From List: picks **Items to pick** items, each at most once per output unless **Allow repeats** is ticked. **Remove picked items from the list** takes them out of the list box after each Generate. **Shuffle** puts the list box in a random order. The **Advanced** tab shows every item's weight and its chance (weight / total weight, so the chances always add up to 100%); tick **Use weights** to change them (0 = never picked). A weight belongs to the item's text, so editing the list or changing how it is split keeps it, and it comes back when that item does
-  - Shuffle List: the whole list in a random order (Fisher-Yates), one item per line, or joined with the separator on one line when **One item per line** is unticked
-- **Encryption**
-  - One-Time Pad (Vernam cipher with a key from the true random reserve XOR HMAC_DRBG; see [Generation Modes](#generation-modes)). Needs TRUE RANDOM mode, and each pad uses up the reserve bits it draws
-    - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
-    - Message Length: a pad (key) of a given number of characters, without typing the message
-    - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
-    - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt, .csv or .json (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
-
-Every type except One-Time Pad and Shuffle List can generate many items at once (**Quantity**, or **Items to pick** for Pick From List), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...). Shuffle List uses the same blank-line and numbering options when it puts one item per line.
-
-Picks and shuffles use 8-byte draws with rejection sampling, like every other format, so no item gets an edge from modulo bias, and a list output is TRUE RANDOM when the reserve covers its draws. The list box and the weights are never logged, and they are wiped on Clear List, logoff and exit.
-
-### Exporting
-
-File > Export Output (Ctrl+S) saves the output in the format picked under "Save as type":
-
-- **.txt**: the text as shown.
-- **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines (layout below).
-- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column. The settings and security mode are only in .json. List items that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so a spreadsheet shows them as text instead of running them as formulas (CSV injection); the .txt and .json exports keep them unchanged.
-- **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`. For the Lists types, the settings hold the number of items and the split options, never the items of the list box.
-
-In .txt, .csv and .json, One-Time Pad File results are written as hex.
-
-```json
-{
-  "app": "TRNG",
-  "version": "1.0.3",
-  "category": "Identifiers",
-  "type": "UUID v4",
-  "settings": {
-    "quantity": 2,
-    "uppercase": false,
-    "hyphens": true
-  },
-  "securityMode": "TRUE RANDOM",
-  "generatedAt": "2026-10-19 14:03:22 (UTC+0700)",
-  "items": [
-    "0f8e2c4a-6b1d-4e3f-9a7c-5d2b8e1f4a6c",
-    "7c3a9e5f-2d8b-4c1e-b6a4-9f0d3e7b2c5a"
-  ]
-}
-```
-
-Excel changes some values when it opens a CSV: numbers longer than 15 digits lose digits, leading zeros are dropped, and values starting with `=`, `+`, `-` or `@` are read as formulas. To keep them exact, import with Data > From Text/CSV and set the column type to Text.
-
-| Type | Each item in the .bin file |
-|------|----------------------------|
-| Decimal | One byte per digit after `0.`, 0 to 9 |
-| Integer Range | 8-byte signed integer, little-endian |
-| Raw Data: Base 16, Base 32 (RFC 4648), Base 45, Base 64, Base 64 URL, Base 85 | The bytes the text encodes |
-| Raw Data: Base 2, Base 8, Base 32 Crockford | The bits the text shows, first bit in the high bit of the first byte, zero-padded to a whole byte |
-| Raw Data: Base 10, 12, 36, 58, 62 | One byte per digit: its position in the encoding's alphabet |
-| Random Characters | One byte per character: its position in the character set (the ticked groups in the order numbers, uppercase, lowercase, special; each group in ASCII order) |
-| Passphrase | 4 bytes per word, little-endian: its position in the selected word list (0 = first word). With Numbers above 0, then one byte per spot, two per word (start, then end): the digit 0-9, or 255 for no digit |
-| UUID v4 / v7 | The 16 bytes in RFC 9562 order |
-| Pick From List | 4 bytes per pick, little-endian: the picked item's position in the list (0 = first item, empty items not counted) |
-| Shuffle List | 4 bytes per item, little-endian: each item's position in the original list, in the shuffled order |
-| One-Time Pad: Text | The key, then the ciphertext, one byte per character as 0-62 (0-9 = 0-9, A-Z = 10-35, a-z = 36-61, space = 62) |
-| One-Time Pad: Message Length | The key, one byte per character as 0-62 |
-| One-Time Pad: File | The key bytes, then the ciphertext bytes |
-
-When the output box shows an error or a cancelled generation, only .txt is offered.
-
----
-
-## Verifying a Download
-
-Each release has `TRNG.exe`, its SHA-256 checksum `TRNG.exe.sha256`, and a build provenance attestation from the release workflow. Check that the file you downloaded is the one the workflow built:
-
-```powershell
-Get-FileHash .\TRNG.exe -Algorithm SHA256
-```
-
-The hash must match the one in `TRNG.exe.sha256` (`Get-FileHash` prints it in capitals, the file in lowercase; the letters are the same). With the GitHub CLI, check the attestation too; it must report that the verification succeeded:
-
-```bash
-gh attestation verify TRNG.exe --repo Cynid-22/True-Random-Number-Generator
-```
-
-Releases published before the checksum and attestation were added have neither.
-
----
-
-## Building
-
-### Requirements
-
-- Windows 10/11
-- MSYS2 with MinGW-w64 (UCRT64)
-- g++ with C++17 support
-
-### Build Steps
-
-```bash
-# Clone the repository
-git clone https://github.com/Cynid-22/True-Random-Number-Generator.git
-cd True-Random-Number-Generator
-
-# Build (Dear ImGui is included in external/imgui)
-./build.sh
-
-# Run
-./build/TRNG.exe
-```
-
-### Regression Tests
-
-```bash
-./build_tests.sh
-```
-
-Builds `build/TRNG_tests.exe` from the program's own logic, entropy and crypto code (no GUI) and runs it. Each test prints PASS or FAIL, and the run ends with the number of failed tests (exit code 1 if any failed). The tests cover:
-
-- **Crypto:** the launch self-tests, SHA-512 (FIPS 180 examples, one million `a`, the padding boundaries, every split point of a streamed message, every flipped input bit), HMAC-SHA-512 (RFC 4231 cases 1, 2, 3, 4, 6 and 7, and which keys get hashed), HMAC_DRBG (request limits, seed, nonce, personalization, reseeds and additional input all changing the output, balanced output bits), the Toeplitz extractor (zero input, linearity, trailing zero bytes, input size limit, distinct outputs for single-bit inputs, balanced output bits), and the wiping vector and box helpers.
-- **Entropy pool:** per-sample credit and its caps, repeated values, the health and start-up tests (each source's repetition cutoff, failures lasting until reset, which sources may finish start-up early), patterned microphone samples and evenly spaced timings earning no credit, clock drift wrapping at 16 bits, the generator's 512-bit seed before the reserve, 640-bit chunks becoming 512 reserve bits, a failing source's chunk being dropped, copying and using a generation's input, an input copied before Clear being ignored after it, unticked sources and Clear.
-- **Generation rules:** TRUE RANDOM output equal to reserve XOR HMAC_DRBG output with the used reserve wiped, the 16 KiB reserve reseeds, the bytes each format draws, the mode chosen from reserve coverage, each TRUE RANDOM output using its own reserve bits, the One-Time Pad refusing PSEUDO-RANDOM, cancelled, refused and too-large generations using nothing, the reserve seeding the generator when the ticked sources hold too little, and the required entropy shown for each format.
-- **Every output type end to end:** numbering and blank lines, Integer bounds (swapped and at the 64-bit limits), the ticked character sets, passphrase words and numbers, every Raw Data encoding's length and binary value, unique UUID v4s, ordered UUID v7s for every counter and increment length, a One-Time Pad that decrypts back to the message, and two outputs never being the same.
-- **Statistics:** chi-square and binomial checks that list picks (plain, weighted and without repeats), shuffles (every permutation and every position), integers, decimal digits, random characters, passphrase words and numbers, One-Time Pad keys and Raw Data digits in every radix are uniform, and that Hex, Binary and UUID v4 carry every random bit.
-- **Formats and exports:** rejection sampling in every format, the Raw Data encodings (RFC 4648, RFC 9285 and Base85 vectors), UUID v4 and v7, One-Time Pad keys, text and files and their exports, the embedded word lists, CSV and JSON escaping, numbered and joined list exports, and list settings in JSON never holding the items.
-- **Lists:** splitting at lines and separators with trimming (with edge cases and property checks over hundreds of generated lists), the natural sort order (and that it is a total order and the sort is stable), removing items and duplicates without changing the rest of the text or joining lines, joining and splitting again, weighted picks with and without repeats and around zero weights, the Fisher-Yates shuffle, the bytes and bits each list output draws, every list error message, list errors using no entropy, the binary indices of a pick, the reserve a pick uses, in-place and joined shuffles, and the CSV formula escape.
-
-The pool and generation tests feed fixed sample data, so they don't need any input device.
-
-### Sample Export Test Build
-
-For measuring the entropy sources with the NIST SP 800-90B tool ([SP800-90B_EntropyAssessment](https://github.com/usnistgov/SP800-90B_EntropyAssessment)), a separate test build writes each source's raw values to files:
-
-```bash
-./build.sh --sample-export
-./build/TRNG_samples.exe
-```
-
-It adds **Tools > Sample Export...**. A plain `./build.sh` and the release workflow do not compile any of it, so released builds can never write samples. Use `TRNG_samples.exe` only for measuring, not for real outputs.
-
-- **What it writes:** the value each collector produces, taken before the entropy pool, the credit estimator or any hashing. One file per source (`mic.u64`, `keystroke.u64`, `mouse.u64`, `clockdrift.u64`, `cpujitter.u64`), each value a little-endian 64-bit integer, in collection order, with no header.
-- **Record:** choose a folder, tick the sources on the Input tab, press **Start Recording** and collect as usual. The window counts the values written. Stop Recording, Stop Collection or Clear ends it. Each run appends to the files. Recorded data never reaches the entropy pool, so it cannot back an output.
-- **Restart test:** for Clock Drift, CPU Jitter or Microphone, stops and starts the collector 1,000 times and keeps the first 1,000 values after each start (16 values, 1,024 LSBs, for the microphone) in `<source>_restart.u64`, for `ea_restart`.
-
-The files hold real entropy samples: use them only for testing and delete them afterwards. The NIST tool reads one symbol of at most 8 bits per byte, so each file is converted first:
-
-| Source | Symbol | Bits per symbol | Theoretical max H_I | Current credit needs |
-|---|---|---|---|---|
-| Microphone | One LSB | 1 | 1 | 0.125 |
-| Keystroke | Low 8 bits of the timing | 8 | 8 | 2 |
-| Mouse | 4 bits of dx + 4 bits of dy | 8 | 8 | 1 |
-| Clock Drift | Low 8 bits of the cycle count | 8 | 8 | 1 |
-| CPU Jitter | Low 8 bits of the counter | 8 | 8 | 1 |
-
-A source's credit is justified when the min-entropy NIST measures (`ea_non_iid -i -a <file> <bits per symbol>`) is at least the "Current credit needs" value. The results for the current build are in [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
-
----
-
-## Project Structure
-
-```
-TRNG/
-├── src/
-│   ├── main.cpp              # Application entry point
-│   ├── core/
-│   │   ├── app_state.h       # Global application state
-│   │   └── output_format.h   # Output format, unit and mode ids
-│   ├── gui/
-│   │   ├── gui.h             # GUI declarations
-│   │   ├── gui.cpp           # Style, menu, entropy bar, status bar, modals
-│   │   ├── widgets.h/.cpp    # Shared colors and small widgets
-│   │   ├── sample_export.h/.cpp  # Tools > Sample Export (test build only)
-│   │   ├── sources/          # Input tab: source list, collection pad
-│   │   └── output/           # Output type selector, per-format options,
-│   │                         # background generation, result panel
-│   ├── logic/
-│   │   ├── logic.h/.cpp      # Entropy requirement
-│   │   ├── word_lists.h/.cpp # Embedded passphrase word lists
-│   │   ├── csprng.h/.cpp     # HMAC_DRBG output, XORed with the reserve
-│   │   │                     # for TRUE RANDOM outputs
-│   │   ├── output_generator.h/.cpp  # Builds the output for each format
-│   │   ├── output_export.h/.cpp     # CSV and JSON export
-│   │   ├── list_input.h/.cpp        # List box settings, weights and input errors
-│   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad, lists
-│   ├── crypto/               # SHA-512, HMAC, HMAC_DRBG, Toeplitz extractor
-│   │                         # and its public seed, launch self-tests
-│   ├── entropy/              # Entropy collectors, pool and true random
-│   │                         # reserve, per-source credit and health tests,
-│   │                         # raw-sample recorder (test build only)
-│   ├── platform/
-│   │   ├── dx11.h            # DirectX declarations
-│   │   ├── dx11.cpp          # DirectX implementation
-│   │   ├── os_random.h/.cpp  # Windows random generator (BCryptGenRandom)
-│   │   ├── secure_clipboard.h/.cpp  # Copy kept out of clipboard history, cleared after 60 s
-│   │   ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
-│   │   ├── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
-│   │   └── screen_capture.h/.cpp   # Window kept out of screenshots and screen sharing
-│   └── tools/                # trng_gen (HMAC_DRBG stream for test suites),
-│                             # testu01_stdin (TestU01 reader)
-├── config/
-│   └── AppConfig.h           # Limits: minimum entropy, input ranges, sizes
-├── docs/
-│   └── stochastic_models.md    # What is unpredictable in each source, attacks, credit caps
-├── images/                     # README screenshots
-├── assets/
-│   ├── NordPass_wordlist.txt   # Passphrase word lists, embedded in the exe
-│   ├── eff_large_wordlist.txt
-│   ├── diceware8k.txt
-│   ├── BIP39-English.txt
-│   ├── Wordlist_specs.md       # Word count, bits per word and use of each list
-│   └── fonts/                  # Monaspace Argon NF (output font, embedded in the exe)
-│                               # and its SIL Open Font License
-├── external/
-│   └── imgui/                # Dear ImGui v1.92.6 (vendored, two backend files changed for
-│                             # DLL loading; see README-TRNG.md there)
-├── tests/                    # Regression tests (build_tests.sh)
-├── build_tests.sh            # Builds and runs the regression tests
-├── build_gen.sh              # Builds trng_gen.exe for the statistical tests
-└── build.sh                  # Build script (--sample-export: test build
-                              # that records raw source samples)
-```
 
 ---
 
@@ -446,7 +355,7 @@ The One-Time Pad always uses TRUE RANDOM mode: its key is a true one-time pad if
 - The header above a generated output shows the mode that made that output ("Made in TRUE RANDOM" or "Made in PSEUDO-RANDOM"). It can differ from Next output, for example once a TRUE RANDOM output has used the reserve up.
 - Seed data used by a generation reseeds the generator and is then wiped. The generator's state carries its effect into every later output, but reading memory later doesn't reveal the data behind earlier outputs.
 - A generation works on a copy of the generator and of the reserve bits it may need. A cancelled or failed generation uses nothing up and leaves both as they were.
-- **Clear** wipes the data, the credit, the reserve and the generator; the next generation creates a new one.
+- **Clear** wipes the data, the credit, the reserve and the generator; the next generation creates a new one. A generation in progress is cancelled, so no output made from the cleared data is shown.
 - Each time the generator is created or reseeded, 64 bytes from Windows' own random generator (BCryptGenRandom) are mixed in. They are never credited: they don't count toward the entropy bar, the modes or the One-Time Pad, they never enter the reserve, and the program works the same if Windows can't supply them.
 - The additional input of each generation holds the current time and a per-process generation counter, so two generations never share it.
 
@@ -460,6 +369,10 @@ TRNG is designed after the random number generator classes of BSI AIS 20/31. It 
 | Pipeline 1, PSEUDO-RANDOM | DRG.4 (hybrid deterministic RNG) | HMAC_DRBG rewrites its state after every request, so a later copy of memory can't recover earlier output, and is reseeded with new data at every generation and every 64 MiB |
 | Pipeline 2, TRUE RANDOM | PTG.3 and NIST SP 800-90C RBG3(XOR) | Entropy source with online tests, then cryptographic post-processing with memory (the XOR with HMAC_DRBG), so the output stays as strong as the generator if the sources fail. PTG.3 assumes a physical noise source, and only the microphone is one, so this follows its structure, not its class |
 
+More on memory wiping, text inputs, release integrity and known limitations: [SECURITY.md](SECURITY.md).
+
+---
+
 ## Documentation & Standards
 
 | Component | Standard | Authority |
@@ -471,169 +384,162 @@ TRNG is designed after the random number generator classes of BSI AIS 20/31. It 
 | Entropy sources | SP 800-90B (measurement, health tests), AIS 31 (stochastic models: [docs/stochastic_models.md](docs/stochastic_models.md)) | NIST, BSI |
 | Generator classes | AIS 20/31 (NTG.1, DRG.4, PTG.3; see [Design Classes](#design-classes)), ISO/IEC 20543 (test and analysis methods for random bit generators) | BSI, ISO/IEC |
 
+---
+
 ## Statistical Validation Results
 
 **These results are from the earlier quad-layer pipeline (ChaCha20, AES-256), which HMAC_DRBG replaced. They have not been rerun for HMAC_DRBG yet.**
 
-All tests ran against the pipeline output generated by the CLI tool `trng_gen.exe`. They show the output has no detectable statistical bias; they say nothing about how much entropy the sources collect, since a CSPRNG's output passes them whatever its seed. For the sources, see [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
-
-### Summary
+The tests ran against the output of the CLI tool `trng_gen.exe`. They show the output has no detectable statistical bias; they say nothing about how much entropy the sources collect, since a CSPRNG's output passes them whatever its seed. For the sources, see [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
 
 | Suite | Result | Key Metric |
 |-------|--------|------------|
 | **NIST SP 800-22** | PASS | 8000 streams (1 GB), ~99% pass rate across all tests |
-| **PractRand** | PASS | 2 TB, 190 tests, 0 persistent anomalies |
-| **NIST SP 800-90B** | PASS | ~7.36 - 7.53/8.0 min-entropy |
-| **TestU01** | PASS | 15/15 SmallCrush, 143/144 Crush, 160/160 BigCrush |
+| **PractRand** | PASS | 2 TB, 190 tests, no persistent anomalies |
+| **NIST SP 800-90B** | PASS | 7.37 - 7.53 bits per 8-bit symbol (non-IID) |
+| **TestU01** | PASS | SmallCrush 15/15, Crush 143/144, BigCrush 160/160 statistics |
+
+Every test, its parameters and the edge cases: [docs/validation_results.md](docs/validation_results.md). How to run the suites: [TESTING_GUIDE.md](TESTING_GUIDE.md).
 
 ---
 
-### NIST SP 800-22 (Statistical Test Suite)
+## Building
 
-**Parameters**: 1,000,000-bit streams × 8000 streams | 1 GB input | `assess.exe` (sts-2.1.2)
+### Requirements
 
-| Test | Uniformity P-Value | Proportion | Passed/Total | Status |
-|------|--------------------|------------|--------------|--------|
-| Frequency | 0.4692 | 0.9906 | 7925/8000 | Passed |
-| BlockFrequency | 0.4919 | 0.9905 | 7924/8000 | Passed |
-| CumulativeSums | 0.8751 | 0.9906 | 15849/16000 | Passed |
-| Runs | 0.3157 | 0.9888 | 7910/8000 | Passed |
-| LongestRun | 0.9297 | 0.9892 | 7914/8000 | Passed |
-| Rank | 0.3003 | 0.9896 | 7917/8000 | Passed |
-| FFT | 0.0008 | 0.9858 | 7886/8000 | Passed* (margin) |
-| NonOverlappingTemplate | 0.0803 | 0.9898 | 1171933/1184000 | Passed |
-| OverlappingTemplate | 0.4238 | 0.9889 | 7911/8000 | Passed |
-| Universal | 0.0878 | 0.9865 | 7892/8000 | Passed* (margin) |
-| ApproximateEntropy | 0.0760 | 0.9895 | 7916/8000 | Passed |
-| RandomExcursions | 0.6620 | 0.9904 | 38150/38519 | Passed |
-| RandomExcursionsVariant | 0.1510 | 0.9904 | 85839/86670 | Passed |
-| Serial | 0.8639 | 0.9902 | 15844/16000 | Passed |
-| LinearComplexity | 0.1585 | 0.9905 | 7924/8000 | Passed |
+- Windows 10/11
+- MSYS2 with MinGW-w64 (UCRT64), which provides g++ with C++17 support
 
-**Result**: **PASS** — Massive 8000-stream scale (1 GB). All uniformity metrics passed cleanly (≥ 0.0001).
+### Build Steps
 
-> **Explanation of Edge Cases**:
-> - **FFT and Universal**: The strict NIST lower bound for 8000 streams is exactly 7893 passes (0.9867). FFT passed 7886 streams (missed by 7) and Universal passed 7892 streams (missed by 1). This microscopic variance (0.08% and 0.01% respectively) is standard statistical noise over 1 GB of data and does not represent a cryptographic flaw.
-> - **RandomExcursions**: With skipped streams correctly filtered out, both Random Excursions tests show excellent >99.04% pass rates and solid uniformity.
+Run these in the MSYS2 UCRT64 terminal:
 
----
+```bash
+# Clone the repository
+git clone https://github.com/Cynid-22/True-Random-Number-Generator.git
+cd True-Random-Number-Generator
 
-### PractRand (v0.96)
+# Build (Dear ImGui is included in external/imgui)
+./build.sh
 
-**Parameters**: Direct pipe from `trng_gen.exe` | stdin8 mode | Progressive testing
+# Run
+./build/TRNG.exe
+```
 
-| Data Processed | Tests Run | Time | Result |
-|---------------|-----------|------|--------|
-| 512 MB (2^29) | 118 | 3.5s | no anomalies |
-| 1 GB (2^30) | 125 | 6.9s | no anomalies |
-| 2 GB (2^31) | 132 | 13.7s | no anomalies |
-| 4 GB (2^32) | 139 | 28.4s | no anomalies |
-| 8 GB (2^33) | 145 | 54.5s | no anomalies |
-| 16 GB (2^34) | 151 | 107s | no anomalies |
-| 32 GB (2^35) | 157 | 214s | no anomalies |
-| 64 GB (2^36) | 163 | 421s | no anomalies |
-| 128 GB (2^37) | 169 | 821s | no anomalies |
-| 256 GB (2^38) | 175 | 1629s | 1 mildly suspicious (noise) |
-| 512 GB (2^39) | 180 | 3251s | no anomalies |
-| 1 TB (2^40) | 185 | 7097s | no anomalies |
-| 2 TB (2^41) | 190 | 13269s | no anomalies |
+### Regression Tests
 
-**Result**: **PASS** — 2 TB, 190 tests. The transient "mildly suspicious" flag at 256 GB (p=4e-5) disappeared at 512 GB and remained clear through 2 TB, confirming it was statistical noise. Passing 2 TB of PractRand is a definitive, platinum-standard validation indicating zero observable statistical bias.
+```bash
+./build_tests.sh
+```
 
----
+Builds `build/TRNG_tests.exe` from the program's own logic, entropy and crypto code (no GUI) and runs it. Each test prints PASS or FAIL, and the run ends with the number of failed tests (exit code 1 if any failed). The pool and generation tests feed fixed sample data, so they don't need any input device.
 
-### NIST SP 800-90B (Entropy Assessment)
+<details>
+<summary>What the regression tests cover</summary>
 
-**Parameters**: 1 MB, 10 MB, 100 MB input files | `ea_non_iid -a` | 8 bits per symbol
+- **Crypto:** the launch self-tests, SHA-512 (FIPS 180 examples, one million `a`, the padding boundaries, every split point of a streamed message, every flipped input bit), HMAC-SHA-512 (RFC 4231 cases 1, 2, 3, 4, 6 and 7, and which keys get hashed), HMAC_DRBG (request limits, seed, nonce, personalization, reseeds and additional input all changing the output, balanced output bits), the Toeplitz extractor (zero input, linearity, trailing zero bytes, input size limit, distinct outputs for single-bit inputs, balanced output bits), and the wiping vector and box helpers.
+- **Entropy pool:** per-sample credit and its caps, repeated values, the health and start-up tests (each source's repetition cutoff, failures lasting until reset, which sources may finish start-up early), patterned microphone samples and evenly spaced timings earning no credit, clock drift wrapping at 16 bits, the generator's 512-bit seed before the reserve, 640-bit chunks becoming 512 reserve bits, a failing source's chunk being dropped, copying and using a generation's input, an input copied before Clear being ignored after it, unticked sources and Clear.
+- **Generation rules:** TRUE RANDOM output equal to reserve XOR HMAC_DRBG output with the used reserve wiped, the 16 KiB reserve reseeds, the bytes each format draws, the mode chosen from reserve coverage, each TRUE RANDOM output using its own reserve bits, the One-Time Pad refusing PSEUDO-RANDOM, cancelled, refused and too-large generations using nothing, the reserve seeding the generator when the ticked sources hold too little, and the required entropy shown for each format.
+- **Every output type end to end:** numbering and blank lines, Integer bounds (swapped and at the 64-bit limits), the ticked character sets, passphrase words and numbers, every Raw Data encoding's length and binary value, unique UUID v4s, ordered UUID v7s for every counter and increment length, a One-Time Pad that decrypts back to the message, and two outputs never being the same.
+- **Statistics:** chi-square and binomial checks that list picks (plain, weighted and without repeats), shuffles (every permutation and every position), integers, decimal digits, random characters, passphrase words and numbers, One-Time Pad keys and Raw Data digits in every radix are uniform, and that Hex, Binary and UUID v4 carry every random bit.
+- **Formats and exports:** rejection sampling in every format, the Raw Data encodings (RFC 4648, RFC 9285 and Base85 vectors), UUID v4 and v7, One-Time Pad keys, text and files and their exports, the embedded word lists, CSV and JSON escaping (including the formula escape for generated text and plain Integer numbers), numbered and joined list exports, and list settings in JSON never holding the items.
+- **Lists:** splitting at lines and separators with trimming (with edge cases and property checks over hundreds of generated lists), the natural sort order (and that it is a total order and the sort is stable), removing items and duplicates without changing the rest of the text or joining lines, joining and splitting again, weighted picks with and without repeats and around zero weights, the Fisher-Yates shuffle, the bytes and bits each list output draws, every list error message, list errors using no entropy, the binary indices of a pick, the reserve a pick uses, in-place and joined shuffles, and the CSV formula escape.
 
-#### Non-IID Test (Recommended for CSPRNG)
+</details>
 
-| Run | Input Size | H_original | H_bitstring | Final Estimate |
-|-----|-----------|-----------|-------------|----------------|
-| 1 | 1 MB | 7.368524 | 0.924979 | **7.368524** |
-| 2 | 10 MB | 7.487618 | 0.944990 | **7.487618** |
-| 3 | 100 MB | 7.923559 | 0.936741 | **7.493927** |
-| 4 | 100 MB | 7.926010 | 0.939662 | **7.517294** |
-| 5 | 100 MB | 7.920303 | 0.941182 | **7.529456** |
+### Sample Export Test Build
 
-> Final estimate = min(H_original, 8 × H_bitstring). Results vary slightly between runs due to fresh entropy each time.
+For measuring the entropy sources with the NIST SP 800-90B tool ([SP800-90B_EntropyAssessment](https://github.com/usnistgov/SP800-90B_EntropyAssessment)), a separate test build writes each source's raw values to files:
 
-#### IID Test (Informational Only)
+```bash
+./build.sh --sample-export
+./build/TRNG_samples.exe
+```
 
-| Metric | Value | Maximum | Percentage |
-|--------|-------|---------|------------|
-| H_original | 7.967199 | 8.0 | 99.6% |
-| H_bitstring | 0.999465 | 1.0 | 99.9% |
-| Chi Square | — | — | PASSED |
-| Longest Repeated Substring | — | — | FAILED (expected for CSPRNG) |
+It adds **Tools > Sample Export...**. A plain `./build.sh` and the release workflow do not compile any of it, so released builds can never write samples. Use `TRNG_samples.exe` only for measuring, not for real outputs.
 
-**Result**: **PASS** — ~7.36 - 7.53/8.0 min-entropy (non-IID). IID test shows 7.97/8.0 entropy density.
+- **What it writes:** the value each collector produces, taken before the entropy pool, the credit estimator or any hashing. One file per source (`mic.u64`, `keystroke.u64`, `mouse.u64`, `clockdrift.u64`, `cpujitter.u64`), each value a little-endian 64-bit integer, in collection order, with no header.
+- **Record:** choose a folder, tick the sources on the Input tab, press **Start Recording** and collect as usual. The window counts the values written. Stop Recording, Stop Collection or Clear ends it. Each run appends to the files. Recorded data never reaches the entropy pool, so it cannot back an output.
+- **Restart test:** for Clock Drift, CPU Jitter or Microphone, stops and starts the collector 1,000 times and keeps the first 1,000 values after each start (16 values, 1,024 LSBs, for the microphone) in `<source>_restart.u64`, for `ea_restart`.
 
-> Note: The IID assumption test fails for CSPRNG output (expected — CSPRNGs are deterministic expansions, not truly IID). The non-IID estimate is the correct metric.
+The files hold real entropy samples: use them only for testing and delete them afterwards. The NIST tool reads one symbol of at most 8 bits per byte, so each file is converted first:
+
+| Source | Symbol | Bits per symbol | Theoretical max H_I | Current credit needs |
+|---|---|---|---|---|
+| Microphone | One LSB | 1 | 1 | 0.125 |
+| Keystroke | Low 8 bits of the timing | 8 | 8 | 2 |
+| Mouse | 4 bits of dx + 4 bits of dy | 8 | 8 | 1 |
+| Clock Drift | Low 8 bits of the cycle count | 8 | 8 | 1 |
+| CPU Jitter | Low 8 bits of the counter | 8 | 8 | 1 |
+
+A source's credit is justified when the min-entropy NIST measures (`ea_non_iid -i -a <file> <bits per symbol>`) is at least the "Current credit needs" value. The results for the current build are in [Measured Source Entropy](#measured-source-entropy-nist-sp-800-90b).
 
 ---
 
-### TestU01
+## Project Structure
 
-**Parameters**: Direct pipe from `trng_gen.exe` | `testu01_stdin` wrapper
-
-| Battery | Tests | CPU Time | Result |
-|---------|-------|----------|--------|
-| **SmallCrush** | 15 | ~6s | **PASS** (15/15) |
-| **Crush** | 144 | ~52m | **PASS** (143/144) |
-| **BigCrush** | 160 | ~4h 39m | **PASS** (160/160) |
-
-#### SmallCrush Breakdown
-
-A p-value outside of the `[0.001, 0.999]` range is considered a failure. All 15 statistics passed comfortably within the acceptable range, showing no signs of bias.
-
-| Test | Statistic | P-Value | Status |
-|------|-----------|---------|--------|
-| `smarsa_BirthdaySpacings` | Poisson | 0.81 | Passed |
-| `sknuth_Collision` | Chi-square | 0.29 | Passed |
-| `sknuth_Gap` | Chi-square | 0.0082 | Passed |
-| `sknuth_SimpPoker` | Chi-square | 0.93 | Passed |
-| `sknuth_CouponCollector` | Chi-square | 0.32 | Passed |
-| `sknuth_MaxOft` | Chi-square<br>Anderson-Darling | 0.89<br>0.19 | Passed |
-| `svaria_WeightDistrib` | Chi-square | 0.24 | Passed |
-| `smarsa_MatrixRank` | Chi-square | 0.01 | Passed |
-| `sstring_HammingIndep` | Chi-square | 0.81 | Passed |
-| `swalk_RandomWalk1` | H (Chi-square)<br>M (Chi-square)<br>J (Chi-square)<br>R (Chi-square)<br>C (Chi-square) | 0.81<br>0.80<br>0.85<br>0.02<br>0.48 | Passed |
-
-#### MediumCrush Breakdown
-
-The Medium Crush battery ran 144 rigorous statistics over ~52 minutes. A strict p-value bounds of `[0.001, 0.999]` is used to flag anomalies.
-
-| Test Category | Statistics Analyzed | Clean Passes | Status |
-|---------------|---------------------|--------------|--------|
-| **All Other Crush Tests** | 143 | 143/143 | Passed |
-| `snpair_ClosePairs (t=7)` | 1 | 0/1 | Margin (0.9991) |
-
-**Result**: **PASS** (143/144 passed cleanly). 
-The `ClosePairs` statistic yielded a p-value of `0.9991`, missing the strict theoretical threshold by 0.0001. In a battery of 144 complex measurements, a single 0.9991 result is a standard mathematical artifact (statistical noise expected at an incidence rate of ~1 per 1000 tests) and does *not* indicate structural failure.
-
-#### BigCrush Breakdown
-
-The BigCrush battery is the most strenuous pseudo-random string testing suite in existence. It ran 160 statistics over roughly 4 hours and 39 minutes.
-
-**Result**: **PASS** (160/160 passed cleanly). 
-Across every single one of the 160 intensive statistics, the CSPRNG produced practically perfect p-values inside the `[0.001, 0.999]` range. "All tests were passed."
-
-### Timestamp Strategy
-
-All entropy events are timestamped in 64-bit nanoseconds from a steady clock, which only moves forward and is not changed by clock adjustments or time sync (usually in 100 ns steps):
-- Full timestamp for chronological sorting, and for the keystroke timings and the mouse's 7 ms window
-- The timestamp is hashed into the generator's seed with each value that seeds it, but the entropy estimate never credits it; the reserve's extractor takes the values only
-
----
-
-## Usage
-
-1. **Configure Sources**: In the Input tab, tick the entropy sources to include. Click a source to see how it works
-2. **Start Collection**: Click "Start Collection", type on the keyboard and move the mouse inside the Mouse Path box on the Input tab
-3. **Monitor Progress**: Watch the bar fill, first to the 512 bits that seed the generator, then with the true random reserve against what the output draws; Next output shows TRUE RANDOM or PSEUDO-RANDOM, and after you generate, the output header shows the mode that made the output. Above Keystroke Preview, the Microphone level meter and the Clock Drift and CPU Jitter sample counts show those sources recording
-4. **Configure Output**: Select output format and parameters in the Output tab
-5. **Generate**: Click Generate when sufficient entropy is collected
+```
+TRNG/
+├── src/
+│   ├── main.cpp              # Application entry point
+│   ├── core/
+│   │   ├── app_state.h       # Global application state
+│   │   └── output_format.h   # Output format, unit and mode ids
+│   ├── gui/
+│   │   ├── gui.h             # GUI declarations
+│   │   ├── gui.cpp           # Style, menu, entropy bar, status bar, modals
+│   │   ├── widgets.h/.cpp    # Shared colors and small widgets
+│   │   ├── sample_export.h/.cpp  # Tools > Sample Export (test build only)
+│   │   ├── sources/          # Input tab: source list, collection pad
+│   │   └── output/           # Output type selector, per-format options,
+│   │                         # background generation, result panel
+│   ├── logic/
+│   │   ├── logic.h/.cpp      # Entropy requirement
+│   │   ├── word_lists.h/.cpp # Embedded passphrase word lists
+│   │   ├── csprng.h/.cpp     # HMAC_DRBG output, XORed with the reserve
+│   │   │                     # for TRUE RANDOM outputs
+│   │   ├── output_generator.h/.cpp  # Builds the output for each format
+│   │   ├── output_export.h/.cpp     # CSV and JSON export
+│   │   ├── list_input.h/.cpp        # List box settings, weights and input errors
+│   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad, lists
+│   ├── crypto/               # SHA-512, HMAC, HMAC_DRBG, Toeplitz extractor
+│   │                         # and its public seed, launch self-tests
+│   ├── entropy/              # Entropy collectors, pool and true random
+│   │                         # reserve, per-source credit and health tests,
+│   │                         # raw-sample recorder (test build only)
+│   ├── platform/
+│   │   ├── dx11.h            # DirectX declarations
+│   │   ├── dx11.cpp          # DirectX implementation
+│   │   ├── os_random.h/.cpp  # Windows random generator (BCryptGenRandom)
+│   │   ├── secure_clipboard.h/.cpp  # Copy kept out of clipboard history, cleared after 60 s
+│   │   ├── unicode_path.h/.cpp  # UTF-8/UTF-16 paths, file read and write
+│   │   ├── virtual_machine.h/.cpp  # Virtual machine check (CPU hypervisor flag)
+│   │   └── screen_capture.h/.cpp   # Window kept out of screenshots and screen sharing
+│   └── tools/                # trng_gen (HMAC_DRBG stream for test suites),
+│                             # testu01_stdin (TestU01 reader)
+├── config/
+│   └── AppConfig.h           # Limits: minimum entropy, input ranges, sizes
+├── docs/
+│   ├── stochastic_models.md    # What is unpredictable in each source, attacks, credit caps
+│   └── validation_results.md   # Statistical test suite results in full
+├── images/                     # README screenshots
+├── assets/
+│   ├── NordPass_wordlist.txt   # Passphrase word lists, embedded in the exe
+│   ├── eff_large_wordlist.txt
+│   ├── diceware8k.txt
+│   ├── BIP39-English.txt
+│   ├── Wordlist_specs.md       # Word count, bits per word and use of each list
+│   └── fonts/                  # Monaspace Argon NF (output font, embedded in the exe)
+│                               # and its SIL Open Font License
+├── external/
+│   └── imgui/                # Dear ImGui v1.92.6 (vendored, two backend files changed for
+│                             # DLL loading; see README-TRNG.md there)
+├── tests/                    # Regression tests (build_tests.sh)
+├── build_tests.sh            # Builds and runs the regression tests
+├── build_gen.sh              # Builds trng_gen.exe for the statistical tests
+└── build.sh                  # Build script (--sample-export: test build
+                              # that records raw source samples)
+```
 
 ---
 
@@ -648,11 +554,13 @@ All entropy events are timestamped in 64-bit nanoseconds from a steady clock, wh
 
 ## License
 
-MIT License
+MIT License. See [LICENSE](LICENSE).
 
 ---
 
 ## Acknowledgments
 
-- The cryptographic community for research on hardware entropy sources
-- Dear ImGui for the excellent GUI framework
+- [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut and contributors, for the GUI framework
+- [Monaspace](https://github.com/githubnext/monaspace) by GitHub Next, for the output font
+- The [EFF](https://www.eff.org/dice), the Diceware 8k authors, the [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) authors and NordPass, for the passphrase word lists
+- [NIST](https://csrc.nist.gov/projects/random-bit-generation) for the SP 800-90 series, the Randomness Beacon and the SP 800-90B and SP 800-22 test tools, and the authors of [PractRand](https://pracrand.sourceforge.net/) and [TestU01](https://simul.iro.umontreal.ca/testu01/tu01.html)

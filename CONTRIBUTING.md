@@ -7,19 +7,16 @@ Thank you for your interest in contributing! This project deals with cryptograph
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Make your changes
-4. Test thoroughly
+4. Run `./build_tests.sh`, and test the changed feature in the app
 5. Submit a pull request
 
 ## Development Setup
 
-### Requirements
-- Windows 10/11
-- MSYS2 with MinGW-w64 (UCRT64)
-- g++ with C++17 support
+The requirements and build steps are in the README's [Building](README.md#building) section. In short, in the MSYS2 UCRT64 terminal:
 
-### Building
 ```bash
-./build.sh
+./build.sh         # builds build/TRNG.exe
+./build_tests.sh   # builds and runs the regression tests
 ```
 
 ## Guidelines
@@ -41,8 +38,8 @@ Since this is a cryptographic application, all contributions **must**:
 
 ### Pull Request Checklist
 
-- [ ] Code compiles without warnings (`-Wall`)
-- [ ] Regression tests pass (`./build_tests.sh`)
+- [ ] Code compiles without new warnings (check once with `-Wall -Wextra` added to the `g++` line in `build.sh`)
+- [ ] Regression tests pass (`./build_tests.sh`), and new behavior has a test in `tests/`
 - [ ] No sensitive data written anywhere except user exports
 - [ ] All temporary buffers are securely wiped
 - [ ] Thread safety verified for shared state
