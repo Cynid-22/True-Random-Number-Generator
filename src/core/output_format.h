@@ -8,8 +8,14 @@ enum OutputFormatId : int {
     FORMAT_PASSPHRASE = 5,
     FORMAT_ONE_TIME_PAD = 6,
     FORMAT_UUID_V4 = 7,
-    FORMAT_UUID_V7 = 8
+    FORMAT_UUID_V7 = 8,
+    FORMAT_LIST_PICK = 9,
+    FORMAT_LIST_SHUFFLE = 10
 };
+
+inline bool IsListFormat(int format) {
+    return format == FORMAT_LIST_PICK || format == FORMAT_LIST_SHUFFLE;
+}
 
 enum RawDataUnit : int {
     RAW_DATA_UNIT_BITS = 0,

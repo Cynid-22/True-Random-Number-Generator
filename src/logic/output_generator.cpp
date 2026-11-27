@@ -10,41 +10,51 @@
 #include "formats/raw_data_format.h"
 #include "formats/text_formats.h"
 #include "formats/uuid_formats.h"
+#include "list_input.h"
 #include "word_lists.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <numeric>
 #include <windows.h>
 
 namespace CSPRNG {
 
 static std::atomic<uint64_t> s_generationCount{0};
+static constexpr size_t LIST_INDEX_BYTES = 4;
+static constexpr size_t LIST_CANCEL_CHECK_MASK = 0x3FF;
 
 static void AppendListItem(std::vector<char> &output, size_t index,
-                           size_t quantity, const std::vector<char> &item,
+                           size_t quantity, const char *item, size_t itemLength,
                            bool numbered, bool blankLine) {
   std::string prefix = numbered ? std::to_string(index + 1) + ". " : "";
   size_t separatorLength = (index == 0) ? 0 : (blankLine ? 2 : 1);
 
   if (index == 0) {
     size_t estimatedItemSize =
-        item.size() + 2 + (numbered ? std::to_string(quantity).size() + 2 : 0);
+        itemLength + 2 + (numbered ? std::to_string(quantity).size() + 2 : 0);
     if (quantity <= (SIZE_MAX - 1) / estimatedItemSize)
       Crypto::ReserveWithoutLeavingCopies(output,
                                           estimatedItemSize * quantity + 1);
   }
 
   Crypto::ReserveWithoutLeavingCopies(
-      output, separatorLength + prefix.size() + item.size());
+      output, separatorLength + prefix.size() + itemLength);
   if (index > 0) {
     output.push_back('\n');
     if (blankLine)
       output.push_back('\n');
   }
   output.insert(output.end(), prefix.begin(), prefix.end());
-  output.insert(output.end(), item.begin(), item.end());
+  output.insert(output.end(), item, item + itemLength);
+}
+
+static void AppendItemIndex(std::vector<uint8_t> &binaryOutput, size_t index) {
+  Crypto::ReserveWithoutLeavingCopies(binaryOutput, LIST_INDEX_BYTES);
+  for (size_t b = 0; b < LIST_INDEX_BYTES; b++)
+    binaryOutput.push_back(static_cast<uint8_t>(index >> (8 * b)));
 }
 
 static void AppendBinaryItem(std::vector<uint8_t> &binaryOutput, size_t index,
@@ -103,6 +113,10 @@ static size_t CalculateBytesPerItem(const OutputSettings &settings, int format) 
   case FORMAT_UUID_V7:
     bytesPerItem = 16;
     break;
+  case FORMAT_LIST_PICK:
+  case FORMAT_LIST_SHUFFLE:
+    bytesPerItem = ListRandomByteCount(settings);
+    break;
   }
 
   const bool usesRejectionSampling =
@@ -117,7 +131,7 @@ static size_t CalculateBytesPerItem(const OutputSettings &settings, int format) 
 }
 
 static size_t OutputQuantity(const OutputSettings &settings) {
-  if (settings.outputFormat == FORMAT_ONE_TIME_PAD)
+  if (settings.outputFormat == FORMAT_ONE_TIME_PAD || IsListFormat(settings.outputFormat))
     return 1;
   return static_cast<size_t>(std::max(settings.outputQuantity, 1));
 }
@@ -309,13 +323,128 @@ static bool WriteListOutput(const OutputSettings &settings, int format,
       break;
     }
 
-    AppendListItem(result.output, i, quantity, item, settings.numberListItems,
-                   settings.blankLineBetweenItems);
+    AppendListItem(result.output, i, quantity, item.data(), item.size(),
+                   settings.numberListItems, settings.blankLineBetweenItems);
     AppendBinaryItem(result.binaryOutput, i, quantity, itemBinary);
     Crypto::SecureClearVector(item);
     Crypto::SecureClearVector(itemBinary);
   }
   return true;
+}
+
+static bool WritePickedItemsOutput(const OutputSettings &settings,
+                                   const std::vector<uint8_t> &randomBytes,
+                                   GenerationResult &result) {
+  const std::string_view text = ListTextOf(settings);
+  const std::vector<ListField> fields = SplitList(text, ListFormatOf(settings));
+  const std::vector<size_t> itemFields = ListItemFieldIndices(fields);
+  const std::vector<uint64_t> weights = ListPickWeights(settings, text, fields, itemFields);
+  const size_t quantity = static_cast<size_t>(std::max(settings.outputQuantity, 1));
+
+  std::vector<size_t> picks =
+      PickListItems(randomBytes, weights, quantity, ListPicksCanRepeat(settings));
+  std::vector<uint8_t> removeField;
+  auto wipePicks = [&]() {
+    Crypto::SecureClearVector(picks);
+    Crypto::SecureClearVector(removeField);
+  };
+  try {
+    if (picks.size() <= SIZE_MAX / LIST_INDEX_BYTES)
+      Crypto::ReserveWithoutLeavingCopies(result.binaryOutput, picks.size() * LIST_INDEX_BYTES);
+    for (size_t i = 0; i < picks.size(); i++) {
+      if ((i & LIST_CANCEL_CHECK_MASK) == 0)
+        ThrowIfGenerationCancelled();
+      const std::string_view item = ListItemText(text, fields[itemFields[picks[i]]]);
+      AppendListItem(result.output, i, picks.size(), item.data(), item.size(),
+                     settings.numberListItems, settings.blankLineBetweenItems);
+      AppendItemIndex(result.binaryOutput, picks[i]);
+    }
+    if (settings.listRemovePicked) {
+      removeField.assign(fields.size(), 0);
+      for (size_t pick : picks)
+        removeField[itemFields[pick]] = 1;
+      result.updatedListText = RemoveListFields(text, fields, removeField);
+      result.updatesListText = true;
+      result.removedListItemCount = picks.size();
+    }
+  } catch (...) {
+    wipePicks();
+    throw;
+  }
+  wipePicks();
+  return true;
+}
+
+static bool WriteShuffledListOutput(const OutputSettings &settings,
+                                    const std::vector<uint8_t> &randomBytes,
+                                    GenerationResult &result) {
+  const std::string_view text = ListTextOf(settings);
+  const ListFormat format = ListFormatOf(settings);
+  const std::vector<ListField> fields = SplitList(text, format);
+  const std::vector<size_t> itemFields = ListItemFieldIndices(fields);
+
+  std::vector<size_t> itemOrder(itemFields.size());
+  std::vector<size_t> fieldOrder;
+  auto wipeOrder = [&]() {
+    Crypto::SecureClearVector(itemOrder);
+    Crypto::SecureClearVector(fieldOrder);
+  };
+  try {
+    std::iota(itemOrder.begin(), itemOrder.end(), size_t(0));
+    ShuffleListOrder(randomBytes, itemOrder);
+    fieldOrder.reserve(itemOrder.size());
+    for (size_t itemIndex : itemOrder)
+      fieldOrder.push_back(itemFields[itemIndex]);
+    const std::string_view joiner = ListJoiner(format);
+
+    if (settings.shuffleListInPlace) {
+      result.updatedListText = JoinListItems(text, fields, fieldOrder, joiner);
+      result.updatesListText = true;
+    } else if (ListJoinsWithLineBreaks(format)) {
+      for (size_t i = 0; i < fieldOrder.size(); i++) {
+        if ((i & LIST_CANCEL_CHECK_MASK) == 0)
+          ThrowIfGenerationCancelled();
+        const std::string_view item = ListItemText(text, fields[fieldOrder[i]]);
+        AppendListItem(result.output, i, fieldOrder.size(), item.data(), item.size(),
+                       settings.numberListItems, settings.blankLineBetweenItems);
+      }
+    } else {
+      result.output = JoinListItems(text, fields, fieldOrder, joiner);
+      result.joinedItemLengths.reserve(fieldOrder.size());
+      for (size_t fieldIndex : fieldOrder)
+        result.joinedItemLengths.push_back(fields[fieldIndex].itemLength);
+      result.joinedSeparatorLength = joiner.size();
+    }
+
+    if (!settings.shuffleListInPlace) {
+      Crypto::ReserveWithoutLeavingCopies(result.binaryOutput,
+                                          itemOrder.size() * LIST_INDEX_BYTES);
+      for (size_t itemIndex : itemOrder)
+        AppendItemIndex(result.binaryOutput, itemIndex);
+    }
+  } catch (...) {
+    wipeOrder();
+    throw;
+  }
+  wipeOrder();
+  return true;
+}
+
+static bool WriteOutput(const OutputSettings &settings, int format, size_t quantity,
+                        size_t bytesPerItem, const std::vector<uint8_t> &randomBytes,
+                        std::vector<uint8_t> &itemBytes, Entropy::GenerationInput &input,
+                        GenerationMode mode, GenerationResult &result) {
+  switch (format) {
+  case FORMAT_ONE_TIME_PAD:
+    return WriteOneTimePadOutput(settings, randomBytes, result);
+  case FORMAT_LIST_PICK:
+    return WritePickedItemsOutput(settings, randomBytes, result);
+  case FORMAT_LIST_SHUFFLE:
+    return WriteShuffledListOutput(settings, randomBytes, result);
+  default:
+    return WriteListOutput(settings, format, quantity, bytesPerItem, randomBytes, itemBytes,
+                           input, mode, result);
+  }
 }
 
 GenerationResult GenerateOutput(
@@ -336,6 +465,12 @@ GenerationResult GenerateOutput(
   const int format = settings.outputFormat;
   const bool isList = (format != FORMAT_ONE_TIME_PAD);
   const size_t quantity = OutputQuantity(settings);
+
+  if (IsListFormat(format)) {
+    result.errorMessage = ListInputError(settings);
+    if (!result.errorMessage.empty())
+      return result;
+  }
 
   const size_t bytesPerItem = CalculateBytesPerItem(settings, format);
 
@@ -366,6 +501,11 @@ GenerationResult GenerateOutput(
     Crypto::SecureClearVector(result.oneTimePadKey);
     Crypto::SecureClearVector(result.oneTimePadCiphertext);
     result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
+    Crypto::SecureClearVector(result.updatedListText);
+    result.updatesListText = false;
+    result.removedListItemCount = 0;
+    result.joinedItemLengths.clear();
+    result.joinedSeparatorLength = 0;
   };
   auto wipeAll = [&]() {
     input.SecureWipe();
@@ -411,9 +551,8 @@ GenerationResult GenerateOutput(
            generationInfo.size()},
           &reseedSource);
       ThrowIfGenerationCancelled();
-      return isList ? WriteListOutput(settings, format, quantity, bytesPerItem,
-                                      randomBytes, itemBytes, input, outputMode, result)
-                    : WriteOneTimePadOutput(settings, randomBytes, result);
+      return WriteOutput(settings, format, quantity, bytesPerItem, randomBytes, itemBytes,
+                         input, outputMode, result);
     };
 
     bool written = false;

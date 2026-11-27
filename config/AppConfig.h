@@ -48,4 +48,10 @@ namespace AppConfig {
     constexpr size_t ONE_TIME_PAD_FILE_PATH_MAX_CHARS = 1024;
     constexpr size_t ONE_TIME_PAD_FILE_PATH_MAX_BYTES =
         ONE_TIME_PAD_FILE_PATH_MAX_CHARS * MAX_UTF8_BYTES_PER_UTF16_CHAR + 1;
+
+    constexpr size_t LIST_TEXT_MAX_BYTES = 1024 * 1024;
+    constexpr size_t LIST_SEPARATOR_MAX_BYTES = 16;
+    constexpr int LIST_MIN_WEIGHT = 0;
+    constexpr int LIST_MAX_WEIGHT = 1000000;
+    constexpr int LIST_DEFAULT_WEIGHT = 1;
 }

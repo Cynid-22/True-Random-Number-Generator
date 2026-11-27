@@ -5,6 +5,7 @@
 #include <vector>
 #include "../crypto/secure_mem.h"
 #include "../../config/AppConfig.h"
+#include "list_item_weights.h"
 #include "output_format.h"
 
 struct OutputSettings {
@@ -13,6 +14,10 @@ struct OutputSettings {
         passphraseSeparator[0] = '-';
         oneTimePadMessage.assign(AppConfig::ONE_TIME_PAD_MESSAGE_MAX_BYTES, '\0');
         oneTimePadFilePath.assign(AppConfig::ONE_TIME_PAD_FILE_PATH_MAX_BYTES, '\0');
+        listText.assign(AppConfig::LIST_TEXT_MAX_BYTES, '\0');
+        listSeparator.assign(AppConfig::LIST_SEPARATOR_MAX_BYTES, '\0');
+        listSeparator[0] = ',';
+        listSeparator[1] = ' ';
     }
 
     OutputSettings(const OutputSettings&) = default;
@@ -24,6 +29,8 @@ struct OutputSettings {
         Crypto::SecureClearVector(oneTimePadMessage);
         Crypto::SecureClearVector(oneTimePadFilePath);
         Crypto::SecureClearVector(passphraseSeparator);
+        Crypto::SecureClearVector(listText);
+        Crypto::SecureClearVector(listSeparator);
     }
 
     int outputFormat = FORMAT_DECIMAL;
@@ -68,4 +75,14 @@ struct OutputSettings {
     uint64_t oneTimePadFileLastWriteTime = 0;
     int oneTimePadMessageLength = 16;
     int oneTimePadInputMode = ONE_TIME_PAD_TEXT_INPUT;
+
+    std::vector<char> listText;
+    bool listOneItemPerLine = true;
+    std::vector<char> listSeparator;
+    bool listTrimSpaces = true;
+    bool listAllowRepeats = false;
+    bool listRemovePicked = false;
+    bool listUseWeights = false;
+    ListItemWeights listItemWeights;
+    bool shuffleListInPlace = false;
 };

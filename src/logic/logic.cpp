@@ -1,7 +1,9 @@
 #include "logic.h"
+#include "formats/list_formats.h"
 #include "formats/one_time_pad_format.h"
 #include "formats/raw_data_format.h"
 #include "formats/text_formats.h"
+#include "list_input.h"
 #include "word_lists.h"
 #include "../core/app_state.h"
 #include <cmath>
@@ -74,9 +76,22 @@ float CalculateRequiredEntropy() {
         case FORMAT_UUID_V7:
             bits = (g_state.uuidV7Ordering == UUIDV7_FULLY_RANDOM) ? 74.0f : 73.0f;
             break;
+
+        case FORMAT_LIST_PICK:
+            bits = (float)CSPRNG::ListPickBits(
+                CSPRNG::CountListItems(CSPRNG::ListTextOf(g_state), CSPRNG::ListFormatOf(g_state)),
+                g_state.outputQuantity, CSPRNG::ListPicksCanRepeat(g_state));
+            break;
+
+        case FORMAT_LIST_SHUFFLE:
+            bits = (float)CSPRNG::ListShuffleBits(
+                CSPRNG::CountListItems(CSPRNG::ListTextOf(g_state), CSPRNG::ListFormatOf(g_state)));
+            break;
     }
 
-    if (g_state.outputFormat != FORMAT_ONE_TIME_PAD && g_state.outputQuantity > 1)
+    const bool quantityRepeatsTheItem =
+        g_state.outputFormat != FORMAT_ONE_TIME_PAD && !IsListFormat(g_state.outputFormat);
+    if (quantityRepeatsTheItem && g_state.outputQuantity > 1)
         bits *= (float)g_state.outputQuantity;
 
     return (bits < AppConfig::MINIMUM_ENTROPY_BITS) ? AppConfig::MINIMUM_ENTROPY_BITS : bits;

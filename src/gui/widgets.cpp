@@ -42,20 +42,36 @@ static void RenderWrappedText(const char *begin, const char *end) {
 }
 
 static ImFont *s_outputFont = nullptr;
+static constexpr size_t TRUNCATE_ABOVE_BYTES = 1000;
+static constexpr size_t TRUNCATED_EDGE_BYTES = 500;
+static constexpr unsigned char UTF8_CONTINUATION_MASK = 0xC0;
+static constexpr unsigned char UTF8_CONTINUATION_BITS = 0x80;
 
 void SetOutputFont(ImFont *font) { s_outputFont = font; }
+
+static bool IsUtf8ContinuationByte(char byte) {
+  return (static_cast<unsigned char>(byte) & UTF8_CONTINUATION_MASK) == UTF8_CONTINUATION_BITS;
+}
+
+static size_t CharacterStartAtOrBefore(const char *text, size_t position) {
+  while (position > 0 && IsUtf8ContinuationByte(text[position]))
+    position--;
+  return position;
+}
 
 void RenderTruncatableText(const char *text, size_t length,
                            bool truncateLongText) {
   ImGui::PushFont(s_outputFont, 0.0f);
-  if (truncateLongText && length > 1000) {
-    RenderWrappedText(text, text + 500);
+  if (truncateLongText && length > TRUNCATE_ABOVE_BYTES) {
+    const size_t headEnd = CharacterStartAtOrBefore(text, TRUNCATED_EDGE_BYTES);
+    const size_t tailStart = CharacterStartAtOrBefore(text, length - TRUNCATED_EDGE_BYTES);
+    RenderWrappedText(text, text + headEnd);
 
     ImGui::PushStyleColor(ImGuiCol_Text, UiColor::DimText);
     ImGui::TextWrapped("\n ... truncated ... \n\n");
     ImGui::PopStyleColor();
 
-    RenderWrappedText(text + length - 500, text + length);
+    RenderWrappedText(text + tailStart, text + length);
   } else {
     RenderWrappedText(text, text + length);
   }

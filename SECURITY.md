@@ -51,11 +51,18 @@ This application implements the following security measures:
 
 ### Memory Security
 - Collected entropy data, the seed material and the generator's state use an allocator that locks their pages in RAM (`VirtualLock`, best effort: the process asks for a 128 MB minimum working set, and larger pools can still be paged) and wipes every block when it is freed, including the old blocks a growing buffer leaves behind
-- Dear ImGui's memory is wiped when freed, and Clear, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy, and the scratch buffer a copy goes through)
+- Dear ImGui's memory is wiped when freed, and Clear, Clear List, leaving One-Time Pad, logoff and exit wipe ImGui's copies of typed text (edit buffer, undo history, deactivated copy, and the scratch buffer a copy goes through)
 - Output buffers, keys and the pool are wiped with `SecureZeroMemory`; outputs are built in buffers sized before they are filled, so no smaller copy is left behind when one grows; the generation thread works on a snapshot of the settings that is wiped when it ends
-- Logoff and shutdown (`WM_ENDSESSION`) wipe the pool, outputs, One-Time Pad message and clipboard
+- Logoff and shutdown (`WM_ENDSESSION`) wipe the pool, outputs, One-Time Pad message, list box, list weights and clipboard; a generation that finishes after Cancel, logoff or shutdown is wiped instead of shown, so it can't bring an output or a list back
 - System DLLs load from System32 only (`SetDefaultDllDirectories`; d3d11, d3dcompiler, dwmapi and bcrypt are loaded at run time from System32; gamepad support is compiled out), so a DLL placed next to the exe is not loaded
 - System fonts are read from the Fonts folder of the Windows folder that Windows reports (`GetSystemWindowsDirectoryW`), never from a fixed `C:\Windows` path that another user could create when Windows is on another drive
+
+### Text Inputs
+- TRNG has no database, shell or script engine, so nothing typed into it is ever run as a query, a command or code
+- Typed text is drawn as plain text: it is never used as a format string or as a widget label or ID
+- Every text box writes into a fixed-size buffer (list box and One-Time Pad message 1 MiB, separators 15 characters), and the one-line boxes reject control characters such as line breaks
+- In .csv exports, list items starting with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so spreadsheets show them as text instead of running them as formulas; .json escapes quotes, backslashes and control characters
+- Sorting a list uses a strict total order, so no crafted list can make the sort misbehave
 
 ### Thread Safety
 - `std::atomic` for all shared collector state
@@ -76,5 +83,5 @@ This application implements the following security measures:
 
 - **Screen capture**: The window is kept out of screenshots, screen recordings, screen sharing and Windows Recall unless **Options > Allow Screen Capture** is ticked. A camera pointed at the screen, or a program with administrator rights, can still see it. Windows before 10 version 2004 show the window as black instead of leaving it out
 - **Clipboard**: Copied output, and text copied or cut from TRNG's own text boxes such as the One-Time Pad message, is excluded from Windows clipboard history and cloud sync and cleared after 60 seconds or at exit, but the copy Windows keeps until then cannot be wiped by the application (OS limitation)
-- **Memory locking**: Outputs, One-Time Pad keys and messages are wiped but not locked in RAM, so they can reach the pagefile
+- **Memory locking**: Outputs, One-Time Pad keys and messages, and the list box are wiped but not locked in RAM, so they can reach the pagefile
 - **Entropy Estimation**: Each source is credited conservatively (at most 1 or 2 bits per timing or movement sample, 8 bits per 64 microphone LSBs) and runs the SP 800-90B repetition count and adaptive proportion health tests. The caps sit below the min-entropy an SP 800-90B assessment of raw samples measured, but on one laptop only ([Measured Source Entropy](README.md#measured-source-entropy-nist-sp-800-90b)); other hardware can measure differently

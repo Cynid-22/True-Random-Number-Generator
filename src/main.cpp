@@ -226,6 +226,9 @@ static void WipeSensitiveState() {
     Crypto::SecureClearVector(g_state.oneTimePadFilePath);
     g_state.wipeOneTimePadResult();
 
+    Crypto::SecureClearVector(g_state.listText);
+    g_state.listItemWeights.clear();
+
     WipeAndRelease(g_state.generatedOutput);
     WipeAndRelease(g_state.generatedBinaryOutput);
 
@@ -243,6 +246,9 @@ static void WipeForSessionEnd() {
     WipeInputTextBufferKeepingItsSize(g_state.oneTimePadMessage);
     WipeInputTextBufferKeepingItsSize(g_state.oneTimePadFilePath);
     g_state.wipeOneTimePadResult();
+    WipeInputTextBufferKeepingItsSize(g_state.listText);
+    g_state.listItemWeights.clear();
+    g_state.listRevision++;
     g_state.wipeGeneratedOutput();
     Crypto::SecureClearVector(g_state.keystrokePreview);
 

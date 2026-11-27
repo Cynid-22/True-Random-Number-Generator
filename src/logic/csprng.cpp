@@ -86,6 +86,13 @@ std::string BuildGenerationInfo(const OutputSettings &settings, size_t byteCount
     if (settings.oneTimePadInputMode == ONE_TIME_PAD_MESSAGE_LENGTH_INPUT)
       info << "L:" << settings.oneTimePadMessageLength;
     break;
+  case FORMAT_LIST_PICK:
+    info << "R:" << settings.listAllowRepeats << "X:" << settings.listRemovePicked
+         << "W:" << settings.listUseWeights;
+    break;
+  case FORMAT_LIST_SHUFFLE:
+    info << "P:" << settings.shuffleListInPlace;
+    break;
   }
   if (settings.outputFormat != FORMAT_ONE_TIME_PAD)
     info << "|Q:" << settings.outputQuantity;

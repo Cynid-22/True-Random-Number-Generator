@@ -110,6 +110,9 @@ Pick a category, then a type within it:
 - **Identifiers**
   - UUID v4 (RFC 9562, Quantity, optional uppercase/no hyphens)
   - UUID v7 (RFC 9562, timestamp-ordered, same options as v4, plus batch ordering: [Method 1](https://www.rfc-editor.org/rfc/rfc9562.html#section-6.2) dedicated counter with adjustable length, Method 2 monotonic random with adjustable increment, or fully random)
+- **Lists** (type or paste your own items; one item per line, or untick **One item per line** to split them at a separator of your choice as well as at line breaks. **Trim spaces** ignores spaces around items and the separator, and empty items are skipped. **Sort A-Z** / **Sort Z-A** sort the list box in alphanumeric order (case ignored, numbers by value, so `item2` comes before `item10`), **Remove Duplicates** keeps the first copy of each item, **Clear List** wipes it)
+  - Pick From List: picks **Items to pick** items, each at most once per output unless **Allow repeats** is ticked. **Remove picked items from the list** takes them out of the list box after each Generate. **Shuffle** puts the list box in a random order. The **Advanced** tab shows every item's weight and its chance (weight / total weight, so the chances always add up to 100%); tick **Use weights** to change them (0 = never picked). A weight belongs to the item's text, so editing the list or changing how it is split keeps it, and it comes back when that item does
+  - Shuffle List: the whole list in a random order (Fisher-Yates), one item per line, or joined with the separator on one line when **One item per line** is unticked
 - **Encryption**
   - One-Time Pad (Vernam cipher with a key from the true random reserve XOR HMAC_DRBG; see [Generation Modes](#generation-modes)). Needs TRUE RANDOM mode, and each pad uses up the reserve bits it draws
     - Text: letters, numbers and spaces. Shows the key and the ciphertext, where ciphertext = (message + key) mod 63 over 0-9 A-Z a-z space; decrypt with message = (ciphertext - key) mod 63
@@ -117,7 +120,9 @@ Pick a category, then a type within it:
     - File: each byte is XORed with the key; the key and the ciphertext are exported as raw binary files the same size as the original. File names in any language are supported
     - Export Output (Ctrl+S) saves the key and the ciphertext together in one file: .txt, .csv or .json (hex for files) or .bin (see [Exporting](#exporting)). Save the key: without it the ciphertext can't be decrypted
 
-Every type except One-Time Pad can generate many items at once (**Quantity**), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...).
+Every type except One-Time Pad and Shuffle List can generate many items at once (**Quantity**, or **Items to pick** for Pick From List), one per line, with optional blank lines between items and numbering (`1.`, `2.`, `3.` ...). Shuffle List uses the same blank-line and numbering options when it puts one item per line.
+
+Picks and shuffles use 8-byte draws with rejection sampling, like every other format, so no item gets an edge from modulo bias, and a list output is TRUE RANDOM when the reserve covers its draws. The list box and the weights are never logged, and they are wiped on Clear List, logoff and exit.
 
 ### Exporting
 
@@ -125,8 +130,8 @@ File > Export Output (Ctrl+S) saves the output in the format picked under "Save 
 
 - **.txt**: the text as shown.
 - **.bin**: the value behind each item instead of its text. Items follow each other with no separators, numbering or blank lines (layout below).
-- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column. The settings and security mode are only in .json.
-- **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`.
+- **.csv**: one item per row under a header with the type's name, every field in double quotes, CRLF line ends (RFC 4180). With numbering on, a `#` column comes first. One-Time Pad: a `key` column and, for Text and File, a `ciphertext` column. The settings and security mode are only in .json. List items that start with `=`, `+`, `-`, `@`, a tab or a carriage return get a leading `'`, so a spreadsheet shows them as text instead of running them as formulas (CSV injection); the .txt and .json exports keep them unchanged.
+- **.json**: the type, its settings, the security mode and the generation time, then the items as an array of strings. One-Time Pad: `key` and, for Text and File, `ciphertext`. For the Lists types, the settings hold the number of items and the split options, never the items of the list box.
 
 In .txt, .csv and .json, One-Time Pad File results are written as hex.
 
@@ -162,6 +167,8 @@ Excel changes some values when it opens a CSV: numbers longer than 15 digits los
 | Random Characters | One byte per character: its position in the character set (the ticked groups in the order numbers, uppercase, lowercase, special; each group in ASCII order) |
 | Passphrase | 4 bytes per word, little-endian: its position in the selected word list (0 = first word). With Numbers above 0, then one byte per spot, two per word (start, then end): the digit 0-9, or 255 for no digit |
 | UUID v4 / v7 | The 16 bytes in RFC 9562 order |
+| Pick From List | 4 bytes per pick, little-endian: the picked item's position in the list (0 = first item, empty items not counted) |
+| Shuffle List | 4 bytes per item, little-endian: each item's position in the original list, in the shuffled order |
 | One-Time Pad: Text | The key, then the ciphertext, one byte per character as 0-62 (0-9 = 0-9, A-Z = 10-35, a-z = 36-61, space = 62) |
 | One-Time Pad: Message Length | The key, one byte per character as 0-62 |
 | One-Time Pad: File | The key bytes, then the ciphertext bytes |
@@ -278,7 +285,8 @@ TRNG/
 │   │   │                     # for TRUE RANDOM outputs
 │   │   ├── output_generator.h/.cpp  # Builds the output for each format
 │   │   ├── output_export.h/.cpp     # CSV and JSON export
-│   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad
+│   │   ├── list_input.h/.cpp        # List box settings, weights and input errors
+│   │   └── formats/          # Number, text, Raw Data, UUID, One-Time Pad, lists
 │   ├── crypto/               # SHA-512, HMAC, HMAC_DRBG, Toeplitz extractor
 │   │                         # and its public seed, launch self-tests
 │   ├── entropy/              # Entropy collectors, pool and true random

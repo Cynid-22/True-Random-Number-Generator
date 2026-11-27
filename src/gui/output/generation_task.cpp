@@ -1,6 +1,10 @@
 #include "generation_task.h"
 #include "../../core/app_state.h"
+#include "../../logic/formats/cancellation.h"
+#include "../../logic/list_input.h"
 #include "../../logic/output_export.h"
+#include "../gui.h"
+#include "format_options.h"
 #include "output_types.h"
 #include <atomic>
 #include <chrono>
@@ -17,6 +21,8 @@ static long long s_finishedElapsedMs = 0;
 static time_t s_finishedAt = 0;
 static std::atomic<bool> s_resultReady{false};
 static GeneratedOutputDetails s_runningGenerationDetails;
+static bool s_runningListShuffle = false;
+static constexpr char LIST_SHUFFLE_FAILED_HEADING[] = "Shuffle failed";
 
 bool IsGenerationRunning() { return s_generationRunning.load(); }
 
@@ -58,14 +64,18 @@ static GeneratedOutputDetails CaptureOutputDetails() {
   details.category = outputCategory.name;
   details.type = outputCategory.types[type].name;
   details.settings = CaptureOutputSettings();
-  details.numberedItems =
-      g_state.numberListItems && g_state.outputFormat != FORMAT_ONE_TIME_PAD;
+  const bool shuffleJoinsItemsOnOneLine =
+      g_state.outputFormat == FORMAT_LIST_SHUFFLE &&
+      !CSPRNG::ListJoinsWithLineBreaks(CSPRNG::ListFormatOf(g_state));
+  details.numberedItems = g_state.numberListItems &&
+                          g_state.outputFormat != FORMAT_ONE_TIME_PAD &&
+                          !shuffleJoinsItemsOnOneLine;
   return details;
 }
 
-static void StartGenerationThread() {
+static void StartGenerationThread(OutputSettings settings) {
   std::thread([includedSources = g_state.enabledEntropySources(),
-               settings = OutputSettings(g_state)]() {
+               settings = std::move(settings)]() {
     auto startTime = std::chrono::steady_clock::now();
     CSPRNG::GenerationResult result =
         CSPRNG::GenerateOutput(includedSources, settings);
@@ -84,20 +94,91 @@ static void StartGenerationThread() {
   }).detach();
 }
 
-void StartGeneration() {
+static void MarkGenerationStarted(bool isListShuffle) {
   s_generationRunning.store(true);
   s_resultReady.store(false);
+  s_runningListShuffle = isListShuffle;
   g_state.cancelGenerationRequested = false;
+}
+
+void StartGeneration() {
+  MarkGenerationStarted(false);
   g_state.generationTimeText = "";
 
   try {
     s_runningGenerationDetails = CaptureOutputDetails();
-    StartGenerationThread();
+    StartGenerationThread(OutputSettings(g_state));
   } catch (const std::exception &error) {
     s_generationRunning.store(false);
     ShowOutputText(std::string("[ERROR] The generation could not start: ") +
                    error.what());
   }
+}
+
+void StartListShuffle() {
+  MarkGenerationStarted(true);
+  try {
+    OutputSettings settings(g_state);
+    settings.outputFormat = FORMAT_LIST_SHUFFLE;
+    settings.shuffleListInPlace = true;
+    StartGenerationThread(std::move(settings));
+  } catch (const std::exception &error) {
+    s_generationRunning.store(false);
+    s_runningListShuffle = false;
+    ShowErrorModal(LIST_SHUFFLE_FAILED_HEADING,
+                   std::string("The shuffle could not start: ") + error.what());
+  }
+}
+
+static bool ApplyUpdatedListText(CSPRNG::GenerationResult &result) {
+  if (!result.updatesListText)
+    return false;
+  const bool replaced = ReplaceListText(result.updatedListText);
+  if (!replaced)
+    ShowErrorModal("List not changed",
+                   "The changed list is longer than the list box holds, so the "
+                   "list was not changed.");
+  Crypto::SecureClearVector(result.updatedListText);
+  result.updatesListText = false;
+  return replaced;
+}
+
+static void CollectFinishedListShuffle() {
+  CSPRNG::GenerationResult &result = s_finishedResult;
+  if (result.success) {
+    if (ApplyUpdatedListText(result))
+      g_state.listStatusText =
+          std::string("Shuffled in ") + CSPRNG::ModeName(result.mode) + " mode";
+  } else if (result.cancelled) {
+    g_state.listStatusText = "Shuffle cancelled";
+  } else {
+    ShowErrorModal(LIST_SHUFFLE_FAILED_HEADING, result.errorMessage);
+  }
+  Crypto::SecureClearVector(result.output);
+  Crypto::SecureClearVector(result.binaryOutput);
+}
+
+static void ApplyPickedItemsRemoval() {
+  const size_t removedCount = s_finishedResult.removedListItemCount;
+  if (ApplyUpdatedListText(s_finishedResult))
+    g_state.listStatusText = "Removed " + std::to_string(removedCount) +
+                             (removedCount == 1 ? " picked item" : " picked items");
+}
+
+static void DiscardResultFinishedAfterCancel(CSPRNG::GenerationResult &result) {
+  Crypto::SecureClearVector(result.output);
+  Crypto::SecureClearVector(result.binaryOutput);
+  Crypto::SecureClearVector(result.oneTimePadKey);
+  Crypto::SecureClearVector(result.oneTimePadCiphertext);
+  Crypto::SecureClearVector(result.updatedListText);
+  result.oneTimePadResultMode = ONE_TIME_PAD_NO_RESULT;
+  result.oneTimePadFileName.clear();
+  result.updatesListText = false;
+  result.removedListItemCount = 0;
+  result.joinedItemLengths.clear();
+  result.success = false;
+  result.cancelled = true;
+  result.errorMessage = CSPRNG::GenerationCancelled().what();
 }
 
 void CollectFinishedGeneration() {
@@ -106,7 +187,12 @@ void CollectFinishedGeneration() {
 
   std::lock_guard<std::mutex> lock(s_finishedResultMutex);
 
-  if (s_finishedResult.success) {
+  if (s_finishedResult.success && g_state.cancelGenerationRequested)
+    DiscardResultFinishedAfterCancel(s_finishedResult);
+
+  if (s_runningListShuffle) {
+    CollectFinishedListShuffle();
+  } else if (s_finishedResult.success) {
     g_state.wipeGeneratedOutput();
     g_state.wipeOneTimePadResult();
     if (s_finishedResult.oneTimePadResultMode != ONE_TIME_PAD_NO_RESULT) {
@@ -130,12 +216,18 @@ void CollectFinishedGeneration() {
     const char *modeName = CSPRNG::ModeName(s_finishedResult.mode);
     g_state.generatedOutputDetails = std::move(s_runningGenerationDetails);
     g_state.generatedOutputDetails.securityMode = modeName;
+    g_state.generatedOutputDetails.joinedItemLengths =
+        std::move(s_finishedResult.joinedItemLengths);
+    g_state.generatedOutputDetails.joinedSeparatorLength =
+        s_finishedResult.joinedSeparatorLength;
+    ApplyPickedItemsRemoval();
   } else if (s_finishedResult.cancelled) {
     ShowOutputText(s_finishedResult.errorMessage);
   } else {
     ShowOutputText("[ERROR] " + s_finishedResult.errorMessage);
   }
 
+  s_runningListShuffle = false;
   s_resultReady.store(false);
   s_generationRunning.store(false);
 }

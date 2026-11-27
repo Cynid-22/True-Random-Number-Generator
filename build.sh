@@ -68,6 +68,7 @@ if ! g++ -std=c++17 -O2 -s -mwindows \
     src/gui/output/raw_data_options.cpp \
     src/gui/output/uuid_options.cpp \
     src/gui/output/one_time_pad_options.cpp \
+    src/gui/output/list_options.cpp \
     src/gui/output/generation_task.cpp \
     src/gui/output/output_result.cpp \
     src/gui/output/one_time_pad_result.cpp \
@@ -75,12 +76,14 @@ if ! g++ -std=c++17 -O2 -s -mwindows \
     src/logic/csprng.cpp \
     src/logic/output_generator.cpp \
     src/logic/output_export.cpp \
+    src/logic/list_input.cpp \
     src/logic/word_lists.cpp \
     src/logic/formats/number_formats.cpp \
     src/logic/formats/text_formats.cpp \
     src/logic/formats/raw_data_format.cpp \
     src/logic/formats/uuid_formats.cpp \
     src/logic/formats/one_time_pad_format.cpp \
+    src/logic/formats/list_formats.cpp \
     src/platform/dx11.cpp \
     src/platform/unicode_path.cpp \
     src/platform/secure_clipboard.cpp \

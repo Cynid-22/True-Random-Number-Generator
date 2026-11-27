@@ -1,5 +1,6 @@
 #include "../../core/app_state.h"
 #include "../../logic/formats/one_time_pad_format.h"
+#include "../../logic/list_input.h"
 #include "../../logic/logic.h"
 #include "../../logic/word_lists.h"
 #include "../../platform/unicode_path.h"
@@ -141,7 +142,7 @@ static const char *FindOneTimePadInputError() {
   return nullptr;
 }
 
-static const char *FindErrorPreventingGeneration(bool canUseTruePath) {
+static std::string FindErrorPreventingGeneration(bool canUseTruePath) {
   if (g_state.outputFormat == FORMAT_RANDOM_CHARACTERS &&
       !g_state.includeNumbers && !g_state.includeUppercase &&
       !g_state.includeLowercase && !g_state.includeSpecial)
@@ -151,11 +152,14 @@ static const char *FindErrorPreventingGeneration(bool canUseTruePath) {
     const WordLists::WordList &wordList =
         WordLists::Get(g_state.passphraseWordList);
     if (!wordList.IsUsable())
-      return wordList.loadError.c_str();
+      return wordList.loadError;
   }
 
+  if (IsListFormat(g_state.outputFormat))
+    return CSPRNG::ListInputError(g_state);
+
   if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)
-    return nullptr;
+    return "";
   if (const char *inputError = FindOneTimePadInputError())
     return inputError;
   if (!canUseTruePath)
@@ -164,7 +168,7 @@ static const char *FindErrorPreventingGeneration(bool canUseTruePath) {
            "100%.\n"
            "Each pad uses up the reserve bits it draws; they never count "
            "again.";
-  return nullptr;
+  return "";
 }
 
 static void RenderGenerateButton(bool hasMinimumEntropy, bool canUseTruePath) {
@@ -173,8 +177,9 @@ static void RenderGenerateButton(bool hasMinimumEntropy, bool canUseTruePath) {
     ImGui::BeginDisabled();
 
   if (ImGui::Button("Generate", ImVec2(100, 0))) {
-    if (const char *error = FindErrorPreventingGeneration(canUseTruePath)) {
-      ShowOutputText(std::string("[ERROR] ") + error);
+    const std::string error = FindErrorPreventingGeneration(canUseTruePath);
+    if (!error.empty()) {
+      ShowOutputText("[ERROR] " + error);
     } else {
       StartGeneration();
     }

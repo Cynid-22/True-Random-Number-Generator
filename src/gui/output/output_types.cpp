@@ -36,12 +36,17 @@ static const OutputType IDENTIFIER_TYPES[] = {
 static const OutputType ENCRYPTION_TYPES[] = {
     {"One-Time Pad", FORMAT_ONE_TIME_PAD, -1},
 };
+static const OutputType LIST_TYPES[] = {
+    {"Pick From List", FORMAT_LIST_PICK, -1},
+    {"Shuffle List", FORMAT_LIST_SHUFFLE, -1},
+};
 
 static const OutputCategory OUTPUT_CATEGORIES[] = {
     {"Numbers", NUMBER_TYPES, IM_ARRAYSIZE(NUMBER_TYPES)},
     {"Raw Data", RAW_DATA_TYPES, IM_ARRAYSIZE(RAW_DATA_TYPES)},
     {"Text & Passwords", TEXT_TYPES, IM_ARRAYSIZE(TEXT_TYPES)},
     {"Identifiers", IDENTIFIER_TYPES, IM_ARRAYSIZE(IDENTIFIER_TYPES)},
+    {"Lists", LIST_TYPES, IM_ARRAYSIZE(LIST_TYPES)},
     {"Encryption", ENCRYPTION_TYPES, IM_ARRAYSIZE(ENCRYPTION_TYPES)},
 };
 static constexpr int OUTPUT_CATEGORY_COUNT = IM_ARRAYSIZE(OUTPUT_CATEGORIES);

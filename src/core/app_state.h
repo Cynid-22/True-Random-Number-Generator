@@ -33,6 +33,8 @@ struct GeneratedOutputDetails {
     std::vector<OutputSetting> settings;
     std::string securityMode;
     bool numberedItems = false;
+    std::vector<size_t> joinedItemLengths;
+    size_t joinedSeparatorLength = 0;
 };
 
 struct AppState : OutputSettings {
@@ -80,6 +82,9 @@ struct AppState : OutputSettings {
 
     bool truncateOutputView = true;
     std::atomic<bool> cancelGenerationRequested{false};
+
+    uint64_t listRevision = 0;
+    std::string listStatusText;
 
     bool closeRequested = false;
     double closeRequestedTime = 0.0;

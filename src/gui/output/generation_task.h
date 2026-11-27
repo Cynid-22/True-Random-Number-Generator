@@ -7,6 +7,8 @@ bool IsGenerationRunning();
 
 void StartGeneration();
 
+void StartListShuffle();
+
 void CollectFinishedGeneration();
 
 void ShowOutputText(const std::string &text);

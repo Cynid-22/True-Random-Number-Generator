@@ -1,10 +1,13 @@
 #include "output_export.h"
+#include "formats/list_formats.h"
 #include "formats/raw_data_format.h"
+#include "list_input.h"
 #include "word_lists.h"
 #include <cstdint>
 #include <cstring>
 
 static constexpr char CSV_LINE_END[] = "\r\n";
+static constexpr char CSV_FORMULA_ESCAPE[] = "'";
 static constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
 
 class ExportWriter {
@@ -137,9 +140,25 @@ static void AddOneTimePadSettings(std::vector<OutputSetting> &settings) {
   }
 }
 
+static void AddListSettings(std::vector<OutputSetting> &settings) {
+  const CSPRNG::ListFormat format = CSPRNG::ListFormatOf(g_state);
+  settings.push_back(NumberSetting(
+      "items", static_cast<long long>(CSPRNG::CountListItems(CSPRNG::ListTextOf(g_state), format))));
+  settings.push_back(BooleanSetting("oneItemPerLine", format.oneItemPerLine));
+  if (!format.oneItemPerLine)
+    settings.push_back(TextSetting("separator", std::string(format.separator)));
+  settings.push_back(BooleanSetting("trimSpaces", format.trimSpaces));
+  if (g_state.outputFormat != FORMAT_LIST_PICK)
+    return;
+  settings.push_back(BooleanSetting("allowRepeats", CSPRNG::ListPicksCanRepeat(g_state)));
+  settings.push_back(BooleanSetting("removePicked", g_state.listRemovePicked));
+  settings.push_back(BooleanSetting("weights", g_state.listUseWeights));
+}
+
 std::vector<OutputSetting> CaptureOutputSettings() {
   std::vector<OutputSetting> settings;
-  if (g_state.outputFormat != FORMAT_ONE_TIME_PAD)
+  if (g_state.outputFormat != FORMAT_ONE_TIME_PAD &&
+      g_state.outputFormat != FORMAT_LIST_SHUFFLE)
     settings.push_back(NumberSetting("quantity", g_state.outputQuantity));
 
   switch (g_state.outputFormat) {
@@ -175,13 +194,37 @@ std::vector<OutputSetting> CaptureOutputSettings() {
   case FORMAT_ONE_TIME_PAD:
     AddOneTimePadSettings(settings);
     break;
+  case FORMAT_LIST_PICK:
+  case FORMAT_LIST_SHUFFLE:
+    AddListSettings(settings);
+    break;
   }
   return settings;
 }
 
 template <typename ItemVisitor>
-static void ForEachItem(const char *text, size_t length, bool numberedItems,
+static void ForEachJoinedItem(const char *text, size_t length,
+                              const GeneratedOutputDetails &details,
+                              ItemVisitor visitItem) {
+  size_t itemStart = 0;
+  for (size_t i = 0; i < details.joinedItemLengths.size(); i++) {
+    const size_t itemLength = details.joinedItemLengths[i];
+    if (itemStart > length || itemLength > length - itemStart)
+      return;
+    visitItem(i, text + itemStart, itemLength);
+    itemStart += itemLength + details.joinedSeparatorLength;
+  }
+}
+
+template <typename ItemVisitor>
+static void ForEachItem(const char *text, size_t length,
+                        const GeneratedOutputDetails &details,
                         ItemVisitor visitItem) {
+  if (!details.joinedItemLengths.empty()) {
+    ForEachJoinedItem(text, length, details, visitItem);
+    return;
+  }
+  const bool numberedItems = details.numberedItems;
   size_t itemIndex = 0;
   size_t lineStart = 0;
   while (lineStart < length) {
@@ -222,8 +265,9 @@ static void AppendQuotedHex(ExportWriter &out, const char *data,
 }
 
 static void AppendCsvField(ExportWriter &csv, const char *field,
-                           size_t length) {
+                           size_t length, const char *prefix = "") {
   csv.Append("\"");
+  csv.Append(prefix);
   size_t runStart = 0;
   for (size_t i = 0; i < length; i++) {
     if (field[i] != '"')
@@ -238,6 +282,14 @@ static void AppendCsvField(ExportWriter &csv, const char *field,
 
 static void AppendCsvField(ExportWriter &csv, const std::string &field) {
   AppendCsvField(csv, field.data(), field.size());
+}
+
+static void AppendCsvTextTypedByUser(ExportWriter &csv, const char *field,
+                                     size_t length) {
+  const bool spreadsheetWouldRunIt =
+      CSPRNG::StartsLikeSpreadsheetFormula(field, length);
+  AppendCsvField(csv, field, length,
+                 spreadsheetWouldRunIt ? CSV_FORMULA_ESCAPE : "");
 }
 
 static void AppendCsvKeyOrCiphertext(ExportWriter &csv, const char *data,
@@ -276,14 +328,18 @@ static void WriteItemsCsv(ExportWriter &csv,
   AppendCsvField(csv, details.type);
   csv.Append(CSV_LINE_END);
 
-  ForEachItem(text, length, details.numberedItems,
-              [&csv, &details](size_t index, const char *item,
-                               size_t itemLength) {
+  const bool itemsTypedByUser = IsListFormat(details.format);
+  ForEachItem(text, length, details,
+              [&csv, &details, itemsTypedByUser](size_t index, const char *item,
+                                                 size_t itemLength) {
                 if (details.numberedItems) {
                   AppendCsvField(csv, std::to_string(index + 1));
                   csv.Append(",");
                 }
-                AppendCsvField(csv, item, itemLength);
+                if (itemsTypedByUser)
+                  AppendCsvTextTypedByUser(csv, item, itemLength);
+                else
+                  AppendCsvField(csv, item, itemLength);
                 csv.Append(CSV_LINE_END);
               });
 }
@@ -410,7 +466,7 @@ static void WriteItemsJson(ExportWriter &json,
   AppendJsonHeader(json, details, generatedAt);
   AppendJsonMemberName(json, "items");
   json.Append("[");
-  ForEachItem(text, length, details.numberedItems,
+  ForEachItem(text, length, details,
               [&json](size_t index, const char *item, size_t itemLength) {
                 json.Append(index == 0 ? "\n    " : ",\n    ");
                 AppendJsonString(json, item, itemLength);

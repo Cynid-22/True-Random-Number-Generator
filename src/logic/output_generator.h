@@ -22,6 +22,12 @@ struct GenerationResult {
     std::vector<char> oneTimePadKey;
     std::vector<char> oneTimePadCiphertext;
     std::string oneTimePadFileName;
+
+    bool updatesListText = false;
+    std::vector<char> updatedListText;
+    size_t removedListItemCount = 0;
+    std::vector<size_t> joinedItemLengths;
+    size_t joinedSeparatorLength = 0;
 };
 
 size_t RandomByteCount(const OutputSettings& settings);

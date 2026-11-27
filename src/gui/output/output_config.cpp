@@ -1,4 +1,5 @@
 #include "../../core/app_state.h"
+#include "../../logic/list_input.h"
 #include "../../logic/logic.h"
 #include "../gui.h"
 #include "../widgets.h"
@@ -87,14 +88,39 @@ static bool RenderSelectedFormatOptions() {
   case FORMAT_ONE_TIME_PAD:
     RenderOneTimePadOptions();
     return false;
+  case FORMAT_LIST_PICK:
+    RenderListPickOptions();
+    return false;
+  case FORMAT_LIST_SHUFFLE:
+    RenderListShuffleOptions();
+    return false;
   }
   return false;
+}
+
+static void RenderItemLayoutCheckboxes(bool itemsJoinedOnOneLine) {
+  ImGui::BeginDisabled(itemsJoinedOnOneLine);
+  ImGui::Checkbox("Blank line between items", &g_state.blankLineBetweenItems);
+  ImGui::SameLine();
+  ImGui::Checkbox("Number items (1. 2. 3.)", &g_state.numberListItems);
+  ImGui::EndDisabled();
+  if (itemsJoinedOnOneLine)
+    HelpMarker("With a separator, the shuffled items come out on one line, joined\n"
+               "with it. Tick One item per line to get one item per line.");
 }
 
 static bool RenderListOptions() {
   bool changed = false;
 
-  BeginOptionRow("Quantity:");
+  if (g_state.outputFormat == FORMAT_LIST_SHUFFLE) {
+    BeginOptionRow("Layout:");
+    RenderItemLayoutCheckboxes(
+        !CSPRNG::ListJoinsWithLineBreaks(CSPRNG::ListFormatOf(g_state)));
+    return false;
+  }
+
+  BeginOptionRow(g_state.outputFormat == FORMAT_LIST_PICK ? "Items to pick:"
+                                                          : "Quantity:");
   ImGui::SetNextItemWidth(230);
   if (ImGui::InputInt("##Quantity", &g_state.outputQuantity)) {
     changed = true;
@@ -104,9 +130,7 @@ static bool RenderListOptions() {
                                       AppConfig::OUTPUT_MAX_QUANTITY);
 
   ImGui::SameLine(0.0f, 24.0f);
-  ImGui::Checkbox("Blank line between items", &g_state.blankLineBetweenItems);
-  ImGui::SameLine();
-  ImGui::Checkbox("Number items (1. 2. 3.)", &g_state.numberListItems);
+  RenderItemLayoutCheckboxes(false);
 
   if (g_state.outputFormat == FORMAT_RAW_DATA)
     RenderRawDataCaseToggle();

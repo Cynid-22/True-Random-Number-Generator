@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 inline constexpr char SECURITY_STRENGTH_NOTE[] =
     "A PSEUDO-RANDOM output comes from HMAC_DRBG (SHA-512) alone, whose security\n"
     "strength is 256 bits: above that, counts measure choices, not how hard\n"
@@ -17,3 +19,8 @@ bool RenderRawDataOptions();
 void RenderRawDataCaseToggle();
 bool RenderUuidOptions();
 void RenderOneTimePadOptions();
+void RenderListPickOptions();
+void RenderListShuffleOptions();
+
+void ListInputChanged();
+bool ReplaceListText(const std::vector<char> &newText);

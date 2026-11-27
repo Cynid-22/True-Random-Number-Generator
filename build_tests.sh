@@ -32,12 +32,14 @@ g++ -std=c++17 -O2 \
     src/logic/csprng.cpp \
     src/logic/output_generator.cpp \
     src/logic/output_export.cpp \
+    src/logic/list_input.cpp \
     src/logic/word_lists.cpp \
     src/logic/formats/number_formats.cpp \
     src/logic/formats/text_formats.cpp \
     src/logic/formats/raw_data_format.cpp \
     src/logic/formats/uuid_formats.cpp \
     src/logic/formats/one_time_pad_format.cpp \
+    src/logic/formats/list_formats.cpp \
     src/platform/unicode_path.cpp \
     src/platform/virtual_machine.cpp \
     src/platform/os_random.cpp \
